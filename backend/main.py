@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
+from threading import Lock
 from typing import Any, Literal
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request as UrlRequest, urlopen
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request as FastAPIRequest
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -37,16 +39,47 @@ except ModuleNotFoundError:
 
 app = FastAPI(title="Stock & Crypto Predictor API", version="0.4.0")
 
+
+
+def _load_cors_origins() -> list[str]:
+    configured = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
+    if configured:
+        return [origin.strip() for origin in configured.split(",") if origin.strip()]
+
+    return [
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+    ]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=_load_cors_origins(),
+    allow_methods=["GET"],
     allow_headers=["*"],
 )
 
 MARKET_SUFFIXES = (".AS", ".BR", ".PA", ".DE", ".L", ".MI", ".MC", ".SW", ".TO", ".V")
 TOP_CACHE_TTL_SECONDS = 15 * 60
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
+
+
+def _int_env(name: str, default: int, minimum: int = 0) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return max(minimum, default)
+
+    try:
+        value = int(raw)
+    except ValueError:
+        return max(minimum, default)
+
+    return max(minimum, value)
+
+
+RATE_LIMIT_WINDOW_SECONDS = _int_env("RATE_LIMIT_WINDOW_SECONDS", 60, minimum=1)
+RATE_LIMIT_MAX_REQUESTS_STAT = _int_env("RATE_LIMIT_MAX_REQUESTS_STAT", 30, minimum=0)
+RATE_LIMIT_MAX_REQUESTS_AI = _int_env("RATE_LIMIT_MAX_REQUESTS_AI", 8, minimum=0)
 
 _TOP_ASSETS_CACHE: dict[str, dict[str, Any]] = {
     "stock": {
@@ -58,6 +91,8 @@ _TOP_ASSETS_CACHE: dict[str, dict[str, Any]] = {
         "items": [],
     },
 }
+_RATE_LIMIT_BUCKETS: dict[str, deque[float]] = defaultdict(deque)
+_RATE_LIMIT_LOCK = Lock()
 
 
 def _normalize_symbol_input(symbol: str) -> str:
@@ -104,14 +139,18 @@ def _fetch_close_prices(symbol: str, asset_type: AssetType) -> tuple[pd.Series, 
     insufficient_history_matches: list[str] = []
 
     for candidate in _candidate_symbols(symbol, asset_type=asset_type):
-        frame = yf.download(
-            candidate,
-            start=start.date(),
-            end=(end + timedelta(days=1)).date(),
-            interval="1d",
-            auto_adjust=True,
-            progress=False,
-        )
+        try:
+            frame = yf.download(
+                candidate,
+                start=start.date(),
+                end=(end + timedelta(days=1)).date(),
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+                timeout=12,
+            )
+        except Exception:
+            continue
 
         if frame.empty or "Close" not in frame:
             continue
@@ -204,7 +243,7 @@ def _fetch_yahoo_trending(region: str = "US", count: int = 20) -> list[str]:
         f"https://query2.finance.yahoo.com/v1/finance/trending/{region}"
         f"?count={count}&lang=en-US&region={region}"
     )
-    request = Request(url, headers={"User-Agent": "stock-crypto-predictor/0.4"})
+    request = UrlRequest(url, headers={"User-Agent": "stock-crypto-predictor/0.4"})
 
     try:
         with urlopen(request, timeout=6) as response:
@@ -235,7 +274,7 @@ def _fetch_coingecko_top(count: int = 20) -> list[dict]:
         "https://api.coingecko.com/api/v3/coins/markets"
         f"?vs_currency=usd&order=market_cap_desc&per_page={count}&page=1&sparkline=false"
     )
-    request = Request(url, headers={"User-Agent": "stock-crypto-predictor/0.4"})
+    request = UrlRequest(url, headers={"User-Agent": "stock-crypto-predictor/0.4"})
 
     try:
         with urlopen(request, timeout=8) as response:
@@ -388,7 +427,7 @@ def _normalize_ai_forecast_rows(
 
         predicted_raw = row.get("predicted", row.get("close"))
         try:
-            predicted = float(predicted_raw)
+            predicted = max(0.01, float(predicted_raw))
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=502, detail="AI engine voorspelling bevat geen geldig getal.") from exc
 
@@ -448,7 +487,7 @@ def _build_external_ai_forecast(
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    request = Request(
+    request = UrlRequest(
         api_url,
         data=json.dumps(payload).encode("utf-8"),
         headers=headers,
@@ -526,7 +565,7 @@ def _build_openai_forecast(
         ],
     }
 
-    request = Request(
+    request = UrlRequest(
         OPENAI_CHAT_COMPLETIONS_URL,
         data=json.dumps(payload).encode("utf-8"),
         headers={
@@ -620,6 +659,45 @@ def _build_ai_forecast(symbol: str, close: pd.Series, horizon: int, asset_type: 
     )
 
 
+
+
+def _client_identifier(request: FastAPIRequest) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        first = forwarded_for.split(",", 1)[0].strip()
+        if first:
+            return first
+
+    return request.client.host if request.client else "unknown"
+
+
+
+def _enforce_predict_rate_limit(request: FastAPIRequest, engine: Literal["stat", "ai"]) -> None:
+    window_seconds = max(1, RATE_LIMIT_WINDOW_SECONDS)
+    limit = RATE_LIMIT_MAX_REQUESTS_AI if engine == "ai" else RATE_LIMIT_MAX_REQUESTS_STAT
+    if limit <= 0:
+        return
+
+    now_ts = datetime.now(timezone.utc).timestamp()
+    window_start = now_ts - window_seconds
+    client_key = f"{engine}:{_client_identifier(request)}"
+
+    with _RATE_LIMIT_LOCK:
+        bucket = _RATE_LIMIT_BUCKETS[client_key]
+        while bucket and bucket[0] < window_start:
+            bucket.popleft()
+
+        if len(bucket) >= limit:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "Te veel predict requests. "
+                    f"Max {limit} requests per {window_seconds}s voor engine={engine}."
+                ),
+            )
+
+        bucket.append(now_ts)
+
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
@@ -654,11 +732,14 @@ def top_stocks(
 
 @app.get("/api/predict")
 def predict(
+    request: FastAPIRequest,
     symbol: str = Query(..., min_length=1, max_length=20, description="Ticker symbool, bv AAPL of BTC"),
     horizon: int = Query(30, ge=7, le=45, description="Aantal dagen om te voorspellen"),
     engine: Literal["stat", "ai"] = Query("stat", description="Voorspellingsengine"),
     asset_type: AssetType = Query("stock", description="stock of crypto"),
 ) -> dict:
+    _enforce_predict_rate_limit(request=request, engine=engine)
+
     ticker = _normalize_symbol_input(symbol)
     if not ticker.isascii() or " " in ticker:
         raise HTTPException(status_code=400, detail="Ticker symbool is ongeldig.")

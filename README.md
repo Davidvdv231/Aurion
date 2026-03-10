@@ -17,7 +17,7 @@ Cross-platform PWA (telefoon + pc) met FastAPI backend om 1-maands voorspellinge
 2. Installeer dependencies:
    - `pip install -r backend/requirements.txt`
 3. Start de app:
-   - `uvicorn backend.main:app --reload`
+   - `python backend/main.py`
 4. Open:
    - `http://127.0.0.1:8000`
 
@@ -43,3 +43,9 @@ Als `engine=ai` niet beschikbaar is, valt de app automatisch terug op `stat`.
 
 ## Belangrijke noot
 Geen enkel model (ook AI/LLM) kan koersvoorspellingen garanderen. Gebruik dit als indicatie, niet als financieel advies.
+## Security & limits
+- `CORS_ALLOW_ORIGINS` (optioneel, comma-separated origins voor productie)
+- `RATE_LIMIT_WINDOW_SECONDS` (default `60`)
+- `RATE_LIMIT_MAX_REQUESTS_STAT` (default `30` per window)
+- `RATE_LIMIT_MAX_REQUESTS_AI` (default `8` per window)
+

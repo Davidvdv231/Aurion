@@ -19,6 +19,10 @@ const disclaimerNode = document.getElementById("disclaimer");
 let chart;
 let suggestionTimer;
 let suggestionRequestId = 0;
+let topStocksRequestId = 0;
+let predictionRequestId = 0;
+let activeTopStocksController;
+let activePredictionController;
 
 function currentAssetType() {
   return assetTypeInput.value === "crypto" ? "crypto" : "stock";
@@ -27,6 +31,22 @@ function currentAssetType() {
 function setStatus(message, isError = false) {
   statusNode.textContent = message;
   statusNode.style.color = isError ? "#dc2626" : "#1d4ed8";
+}
+
+function formatApiError(detail, fallbackMessage) {
+  if (Array.isArray(detail)) {
+    const first = detail[0];
+    if (first && typeof first === "object" && typeof first.msg === "string") {
+      return first.msg;
+    }
+    return fallbackMessage;
+  }
+
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+
+  return fallbackMessage;
 }
 
 function hideSuggestions() {
@@ -174,18 +194,42 @@ function renderTopStocks(items) {
 async function loadTopStocks() {
   topStocksNode.textContent = "Top 10 laden...";
   const assetType = currentAssetType();
+  const currentRequestId = ++topStocksRequestId;
+
+  if (activeTopStocksController) {
+    activeTopStocksController.abort();
+  }
+
+  const controller = new AbortController();
+  activeTopStocksController = controller;
 
   try {
-    const response = await fetch(`/api/top-stocks?limit=10&asset_type=${encodeURIComponent(assetType)}`);
-    const data = await response.json();
+    const response = await fetch(
+      `/api/top-stocks?limit=10&asset_type=${encodeURIComponent(assetType)}`,
+      { signal: controller.signal },
+    );
+
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (jsonError) {
+      data = null;
+    }
+
+    if (currentRequestId !== topStocksRequestId) {
+      return;
+    }
 
     if (!response.ok) {
       topStocksNode.textContent = "Top 10 kon niet worden geladen.";
       return;
     }
 
-    renderTopStocks(data.items || []);
+    renderTopStocks(data?.items || []);
   } catch (error) {
+    if (error?.name === "AbortError" || currentRequestId !== topStocksRequestId) {
+      return;
+    }
     topStocksNode.textContent = "Top 10 kon niet worden geladen.";
   }
 }
@@ -314,18 +358,42 @@ async function loadPrediction(event) {
     return;
   }
 
+  if (!Number.isInteger(horizon) || horizon < 7 || horizon > 45) {
+    setStatus("Horizon moet tussen 7 en 45 dagen liggen.", true);
+    return;
+  }
+
   symbolInput.value = symbol;
   hideSuggestions();
   setStatus("Data laden en voorspelling berekenen...");
 
+  if (activePredictionController) {
+    activePredictionController.abort();
+  }
+
+  const controller = new AbortController();
+  activePredictionController = controller;
+  const currentRequestId = ++predictionRequestId;
+
   try {
     const response = await fetch(
       `/api/predict?symbol=${encodeURIComponent(symbol)}&horizon=${horizon}&engine=${encodeURIComponent(engine)}&asset_type=${encodeURIComponent(assetType)}`,
+      { signal: controller.signal },
     );
-    const data = await response.json();
+
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (jsonError) {
+      data = null;
+    }
+
+    if (currentRequestId !== predictionRequestId) {
+      return;
+    }
 
     if (!response.ok) {
-      setStatus(data.detail || "Fout bij ophalen van data.", true);
+      setStatus(formatApiError(data?.detail, "Fout bij ophalen van data."), true);
       return;
     }
 
@@ -343,6 +411,9 @@ async function loadPrediction(event) {
 
     setStatus(`Voorspelling geladen voor ${symbolLabel} (${assetLabel}, ${data.engine_used}).`);
   } catch (error) {
+    if (error?.name === "AbortError" || currentRequestId !== predictionRequestId) {
+      return;
+    }
     setStatus("Netwerkfout: kan de API niet bereiken.", true);
   }
 }
@@ -379,3 +450,4 @@ if ("serviceWorker" in navigator) {
 applyAssetTypeUi();
 loadTopStocks();
 form.requestSubmit();
+
