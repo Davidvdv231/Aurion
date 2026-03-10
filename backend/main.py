@@ -15,14 +15,25 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend.ticker_catalog import (
-    AssetType,
-    CRYPTO_EXACT_ALIASES,
-    STOCK_EXACT_ALIASES,
-    get_ticker_metadata,
-    search_tickers,
-    top_catalog_tickers,
-)
+try:
+    from backend.ticker_catalog import (
+        AssetType,
+        CRYPTO_EXACT_ALIASES,
+        STOCK_EXACT_ALIASES,
+        get_ticker_metadata,
+        search_tickers,
+        top_catalog_tickers,
+    )
+except ModuleNotFoundError:
+    # Support running as `python backend/main.py` as well as `python -m backend.main`.
+    from ticker_catalog import (
+        AssetType,
+        CRYPTO_EXACT_ALIASES,
+        STOCK_EXACT_ALIASES,
+        get_ticker_metadata,
+        search_tickers,
+        top_catalog_tickers,
+    )
 
 app = FastAPI(title="Stock & Crypto Predictor API", version="0.4.0")
 
@@ -688,3 +699,10 @@ def predict(
 
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="127.0.0.1", port=8000, reload=False)
+
+
+
