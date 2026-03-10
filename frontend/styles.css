@@ -35,11 +35,16 @@ body {
   border-radius: 16px;
   padding: 1rem;
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  overflow: visible;
 }
 
 h1 {
   margin: 0;
   font-size: clamp(1.4rem, 2.2vw, 2rem);
+}
+
+h2 {
+  margin: 0;
 }
 
 .subtitle {
@@ -62,6 +67,7 @@ label {
 }
 
 input,
+select,
 button {
   width: 100%;
   min-height: 44px;
@@ -70,8 +76,10 @@ button {
   font-size: 1rem;
 }
 
-input {
+input,
+select {
   padding: 0.6rem 0.7rem;
+  background: #fff;
 }
 
 button {
@@ -84,6 +92,103 @@ button {
 
 button:hover {
   background: #162a47;
+}
+
+.field-help {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.autocomplete-wrap {
+  position: relative;
+}
+
+.suggestions {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 0;
+  padding: 0.35rem;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.15);
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.suggestion-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 9px;
+  padding: 0.55rem 0.65rem;
+  min-height: auto;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.suggestion-item:hover {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.suggestion-symbol {
+  display: inline-block;
+  min-width: 78px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.suggestion-name {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.top-picks {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.chip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.45rem;
+}
+
+.chip-btn {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f8fbff;
+  color: var(--text);
+  min-height: 0;
+  padding: 0.6rem;
+  text-align: left;
+}
+
+.chip-btn:hover {
+  background: #eaf3ff;
+}
+
+.chip-symbol {
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.chip-name {
+  display: block;
+  font-size: 0.74rem;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 
 .status {
@@ -134,7 +239,7 @@ button:hover {
 
 @media (min-width: 850px) {
   .app-shell {
-    grid-template-columns: 350px 1fr;
+    grid-template-columns: 360px 1fr;
     align-items: start;
   }
 

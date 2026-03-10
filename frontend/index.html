@@ -21,16 +21,33 @@
         <form id="predict-form" class="form-grid">
           <label>
             Ticker symbool
-            <input id="symbol" name="symbol" type="text" value="AAPL" maxlength="10" required />
+            <div class="autocomplete-wrap">
+              <input
+                id="symbol"
+                name="symbol"
+                type="text"
+                value="AAPL"
+                maxlength="15"
+                autocomplete="off"
+                required
+              />
+              <ul id="ticker-suggestions" class="suggestions" hidden></ul>
+            </div>
+            <span class="field-help">Typ bv K, KB, INGA, HEIAA, KBC...</span>
           </label>
 
           <label>
             Horizon (handelsdagen)
             <input id="horizon" name="horizon" type="number" min="7" max="45" value="30" required />
           </label>
-
           <button id="submit-btn" type="submit">Toon voorspelling</button>
         </form>
+
+        <section class="top-picks">
+          <h2>Top 10 Nu</h2>
+          <p class="field-help">Klik op een ticker om meteen de voorspelling te laden.</p>
+          <div id="top-stocks" class="chip-grid" aria-live="polite"></div>
+        </section>
 
         <p id="status" class="status"></p>
       </section>
@@ -48,7 +65,7 @@
           </article>
           <article>
             <h3>Model</h3>
-            <p>Lineaire trend op log-prijzen</p>
+            <p id="model-name">-</p>
           </article>
         </div>
         <p id="disclaimer" class="disclaimer"></p>
