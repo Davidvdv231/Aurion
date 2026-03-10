@@ -15,10 +15,26 @@
   <body>
     <main class="app-shell">
       <section class="card controls-card">
-        <h1>Stock Predictor</h1>
-        <p class="subtitle">1-maands aandelenvoorspelling voor telefoon en pc</p>
+        <h1>Stock & Crypto Predictor</h1>
+        <p class="subtitle">1-maands voorspelling voor aandelen en crypto (telefoon + pc)</p>
 
         <form id="predict-form" class="form-grid">
+          <label>
+            Markt
+            <select id="asset-type" name="asset_type">
+              <option value="stock">Aandelen</option>
+              <option value="crypto">Crypto</option>
+            </select>
+          </label>
+
+          <label>
+            Voorspellingsengine
+            <select id="engine" name="engine">
+              <option value="stat">Statistisch model</option>
+              <option value="ai">AI model (OpenAI)</option>
+            </select>
+          </label>
+
           <label>
             Ticker symbool
             <div class="autocomplete-wrap">
@@ -27,24 +43,27 @@
                 name="symbol"
                 type="text"
                 value="AAPL"
-                maxlength="15"
+                maxlength="20"
                 autocomplete="off"
                 required
               />
               <ul id="ticker-suggestions" class="suggestions" hidden></ul>
             </div>
-            <span class="field-help">Typ bv K, KB, INGA, HEIAA, KBC...</span>
+            <span id="symbol-help" class="field-help"
+              >Aandelen: AAPL, INGA, KBC | Crypto: BTC, ETH, SOL</span
+            >
           </label>
 
           <label>
-            Horizon (handelsdagen)
+            Horizon (dagen)
             <input id="horizon" name="horizon" type="number" min="7" max="45" value="30" required />
           </label>
+
           <button id="submit-btn" type="submit">Toon voorspelling</button>
         </form>
 
         <section class="top-picks">
-          <h2>Top 10 Nu</h2>
+          <h2 id="top-title">Top 10 Aandelen Nu</h2>
           <p class="field-help">Klik op een ticker om meteen de voorspelling te laden.</p>
           <div id="top-stocks" class="chip-grid" aria-live="polite"></div>
         </section>
@@ -56,7 +75,7 @@
         <h2>Samenvatting</h2>
         <div class="stats-grid">
           <article>
-            <h3>Laatste slotkoers</h3>
+            <h3>Laatste koers</h3>
             <p id="last-close">-</p>
           </article>
           <article>
@@ -72,7 +91,7 @@
       </section>
 
       <section class="card chart-card">
-        <canvas id="stock-chart" aria-label="Stock prediction chart"></canvas>
+        <canvas id="stock-chart" aria-label="Asset prediction chart"></canvas>
       </section>
     </main>
   </body>

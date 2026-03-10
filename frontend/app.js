@@ -1,6 +1,11 @@
 const form = document.getElementById("predict-form");
+const assetTypeInput = document.getElementById("asset-type");
+const engineInput = document.getElementById("engine");
 const symbolInput = document.getElementById("symbol");
 const horizonInput = document.getElementById("horizon");
+const symbolHelpNode = document.getElementById("symbol-help");
+const topTitleNode = document.getElementById("top-title");
+
 const suggestionsNode = document.getElementById("ticker-suggestions");
 const topStocksNode = document.getElementById("top-stocks");
 
@@ -15,6 +20,10 @@ let chart;
 let suggestionTimer;
 let suggestionRequestId = 0;
 
+function currentAssetType() {
+  return assetTypeInput.value === "crypto" ? "crypto" : "stock";
+}
+
 function setStatus(message, isError = false) {
   statusNode.textContent = message;
   statusNode.style.color = isError ? "#dc2626" : "#1d4ed8";
@@ -23,6 +32,29 @@ function setStatus(message, isError = false) {
 function hideSuggestions() {
   suggestionsNode.hidden = true;
   suggestionsNode.innerHTML = "";
+}
+
+function applyAssetTypeUi() {
+  const assetType = currentAssetType();
+
+  if (assetType === "crypto") {
+    symbolHelpNode.textContent = "Crypto: BTC, ETH, SOL, XRP, DOGE...";
+    topTitleNode.textContent = "Top 10 Crypto Nu";
+
+    const current = symbolInput.value.trim().toUpperCase();
+    if (!current || current === "AAPL") {
+      symbolInput.value = "BTC";
+    }
+    return;
+  }
+
+  symbolHelpNode.textContent = "Aandelen: AAPL, INGA, KBC | Crypto: BTC, ETH, SOL";
+  topTitleNode.textContent = "Top 10 Aandelen Nu";
+
+  const current = symbolInput.value.trim().toUpperCase();
+  if (!current || current === "BTC" || current.endsWith("-USD")) {
+    symbolInput.value = "AAPL";
+  }
 }
 
 function renderSuggestions(tickers) {
@@ -66,6 +98,7 @@ function renderSuggestions(tickers) {
 
 async function loadSuggestions() {
   const query = symbolInput.value.trim();
+  const assetType = currentAssetType();
 
   if (!query) {
     hideSuggestions();
@@ -75,7 +108,9 @@ async function loadSuggestions() {
   const currentRequestId = ++suggestionRequestId;
 
   try {
-    const response = await fetch(`/api/tickers?query=${encodeURIComponent(query)}&limit=12`);
+    const response = await fetch(
+      `/api/tickers?query=${encodeURIComponent(query)}&limit=12&asset_type=${encodeURIComponent(assetType)}`,
+    );
     const data = await response.json();
 
     if (currentRequestId !== suggestionRequestId) {
@@ -138,9 +173,10 @@ function renderTopStocks(items) {
 
 async function loadTopStocks() {
   topStocksNode.textContent = "Top 10 laden...";
+  const assetType = currentAssetType();
 
   try {
-    const response = await fetch("/api/top-stocks?limit=10");
+    const response = await fetch(`/api/top-stocks?limit=10&asset_type=${encodeURIComponent(assetType)}`);
     const data = await response.json();
 
     if (!response.ok) {
@@ -270,6 +306,9 @@ async function loadPrediction(event) {
 
   const symbol = symbolInput.value.trim().toUpperCase();
   const horizon = Number.parseInt(horizonInput.value, 10);
+  const engine = engineInput.value === "ai" ? "ai" : "stat";
+  const assetType = currentAssetType();
+
   if (!symbol) {
     setStatus("Vul een ticker symbool in.", true);
     return;
@@ -281,7 +320,7 @@ async function loadPrediction(event) {
 
   try {
     const response = await fetch(
-      `/api/predict?symbol=${encodeURIComponent(symbol)}&horizon=${horizon}&engine=stat`,
+      `/api/predict?symbol=${encodeURIComponent(symbol)}&horizon=${horizon}&engine=${encodeURIComponent(engine)}&asset_type=${encodeURIComponent(assetType)}`,
     );
     const data = await response.json();
 
@@ -295,14 +334,26 @@ async function loadPrediction(event) {
 
     const requested = data.requested_symbol || symbol;
     const symbolLabel = requested !== data.symbol ? `${requested} -> ${data.symbol}` : data.symbol;
+    const assetLabel = data.asset_type === "crypto" ? "crypto" : "aandeel";
 
-    setStatus(`Voorspelling geladen voor ${symbolLabel} (${data.engine_used}).`);
+    if (data.engine_used === "stat_fallback") {
+      setStatus(`Voorspelling geladen voor ${symbolLabel} (${assetLabel}). AI niet beschikbaar, stat-model gebruikt.`);
+      return;
+    }
+
+    setStatus(`Voorspelling geladen voor ${symbolLabel} (${assetLabel}, ${data.engine_used}).`);
   } catch (error) {
     setStatus("Netwerkfout: kan de API niet bereiken.", true);
   }
 }
 
 form.addEventListener("submit", loadPrediction);
+assetTypeInput.addEventListener("change", () => {
+  applyAssetTypeUi();
+  hideSuggestions();
+  loadTopStocks();
+  queueSuggestionsLoad();
+});
 symbolInput.addEventListener("input", queueSuggestionsLoad);
 symbolInput.addEventListener("focus", queueSuggestionsLoad);
 symbolInput.addEventListener("keydown", (event) => {
@@ -325,5 +376,6 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+applyAssetTypeUi();
 loadTopStocks();
 form.requestSubmit();
