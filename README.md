@@ -11,7 +11,7 @@ Cross-platform app (telefoon + pc) als PWA met een Python API die een 1-maands a
 ## Snel starten
 1. Maak en activeer een virtuele omgeving:
    - `python -m venv .venv`
-   - `\.venv\Scripts\Activate.ps1`
+   - `.\.venv\Scripts\Activate.ps1`
 2. Installeer dependencies:
    - `pip install -r backend/requirements.txt`
 3. Start de app:
