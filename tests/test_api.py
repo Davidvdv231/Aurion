@@ -35,6 +35,23 @@ def test_predict_success_returns_typed_contract(client, monkeypatch) -> None:
     assert payload["degraded"] is False
 
 
+def test_predict_get_is_kept_for_backward_compatibility(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.routes.api.fetch_close_prices",
+        lambda **_: MarketSeries(
+            close=_close_series(),
+            resolved_symbol="AAPL",
+            currency="USD",
+            source="yfinance",
+        ),
+    )
+
+    response = client.get("/api/predict?symbol=AAPL&horizon=30&engine=stat&asset_type=stock")
+
+    assert response.status_code == 200
+    assert response.json()["symbol"] == "AAPL"
+
+
 def test_predict_rejects_invalid_payload_shape(client) -> None:
     response = client.post(
         "/api/predict",

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query, Request as FastAPIRequest
 from backend.config import Settings
 from backend.errors import ServiceError
 from backend.models import (
+    EngineType,
     HealthResponse,
     PredictRequest,
     PredictResponse,
@@ -43,47 +44,7 @@ def _rate_limiter(request: FastAPIRequest) -> RateLimiter:
     return request.app.state.rate_limiter
 
 
-@router.get("/api/health", response_model=HealthResponse)
-def health() -> HealthResponse:
-    return HealthResponse(status="ok", timestamp=datetime.now(timezone.utc).isoformat())
-
-
-@router.get("/api/tickers", response_model=TickerSearchResponse)
-def ticker_search(
-    query: str = Query("", max_length=30, description="Zoektekst, bv K, KB, BTC"),
-    limit: int = Query(20, ge=1, le=50),
-    asset_type: AssetType = Query("stock", description="stock of crypto"),
-) -> TickerSearchResponse:
-    return TickerSearchResponse(
-        query=query,
-        asset_type=asset_type,
-        tickers=search_tickers(query=query, limit=limit, asset_type=asset_type),
-    )
-
-
-@router.get("/api/top-assets", response_model=TopAssetsResponse)
-@router.get("/api/top-stocks", response_model=TopAssetsResponse, include_in_schema=False)
-def top_assets(
-    request: FastAPIRequest,
-    limit: int = Query(10, ge=5, le=25),
-    asset_type: AssetType = Query("stock", description="stock of crypto"),
-) -> TopAssetsResponse:
-    items, source = resolve_top_assets(
-        limit=limit,
-        asset_type=asset_type,
-        cache_backend=_cache_backend(request),
-        settings=_settings(request),
-    )
-    return TopAssetsResponse(
-        generated_at=datetime.now(timezone.utc).isoformat(),
-        asset_type=asset_type,
-        source=source,
-        items=items,
-    )
-
-
-@router.post("/api/predict", response_model=PredictResponse)
-def predict(request: FastAPIRequest, payload: PredictRequest) -> PredictResponse:
+def _predict_impl(request: FastAPIRequest, payload: PredictRequest) -> PredictResponse:
     settings = _settings(request)
     _rate_limiter(request).enforce_predict_limit(request=request, engine=payload.engine)
 
@@ -153,3 +114,61 @@ def predict(request: FastAPIRequest, payload: PredictRequest) -> PredictResponse
         stats=stats,
         disclaimer="Dit is een statistische/AI schatting en geen financieel advies.",
     )
+
+
+@router.get("/api/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    return HealthResponse(status="ok", timestamp=datetime.now(timezone.utc).isoformat())
+
+
+@router.get("/api/tickers", response_model=TickerSearchResponse)
+def ticker_search(
+    query: str = Query("", max_length=30, description="Zoektekst, bv K, KB, BTC"),
+    limit: int = Query(20, ge=1, le=50),
+    asset_type: AssetType = Query("stock", description="stock of crypto"),
+) -> TickerSearchResponse:
+    return TickerSearchResponse(
+        query=query,
+        asset_type=asset_type,
+        tickers=search_tickers(query=query, limit=limit, asset_type=asset_type),
+    )
+
+
+@router.get("/api/top-assets", response_model=TopAssetsResponse)
+@router.get("/api/top-stocks", response_model=TopAssetsResponse, include_in_schema=False)
+def top_assets(
+    request: FastAPIRequest,
+    limit: int = Query(10, ge=5, le=25),
+    asset_type: AssetType = Query("stock", description="stock of crypto"),
+) -> TopAssetsResponse:
+    items, source = resolve_top_assets(
+        limit=limit,
+        asset_type=asset_type,
+        cache_backend=_cache_backend(request),
+        settings=_settings(request),
+    )
+    return TopAssetsResponse(
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        asset_type=asset_type,
+        source=source,
+        items=items,
+    )
+
+
+@router.get("/api/predict", response_model=PredictResponse, include_in_schema=False)
+def predict_get(
+    request: FastAPIRequest,
+    symbol: str = Query(..., min_length=1, max_length=20, description="Ticker symbool, bv AAPL of BTC"),
+    horizon: int = Query(30, ge=7, le=45, description="Aantal dagen om te voorspellen"),
+    engine: EngineType = Query("stat", description="Voorspellingsengine"),
+    asset_type: AssetType = Query("stock", description="stock of crypto"),
+) -> PredictResponse:
+    return _predict_impl(
+        request,
+        PredictRequest(symbol=symbol, horizon=horizon, engine=engine, asset_type=asset_type),
+    )
+
+
+@router.post("/api/predict", response_model=PredictResponse)
+def predict_post(request: FastAPIRequest, payload: PredictRequest) -> PredictResponse:
+    return _predict_impl(request, payload)
