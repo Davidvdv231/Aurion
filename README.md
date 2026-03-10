@@ -17,10 +17,15 @@ Cross-platform PWA (telefoon + pc) met FastAPI backend om 1-maands voorspellinge
    - `.\.venv\Scripts\Activate.ps1`
 2. Installeer runtime dependencies:
    - `pip install -r backend/requirements.txt`
-3. Start de app:
+3. Maak een lokale config:
+   - `Copy-Item .env.example .env`
+4. Vul in `.env` de keys in die je nodig hebt.
+5. Start de app:
    - `python backend/main.py`
-4. Open:
+6. Open:
    - `http://127.0.0.1:8000`
+
+De app leest nu automatisch `.env` uit de project-root. Gewone shell environment variables blijven voorrang houden op `.env`.
 
 ## API
 - `GET /api/health`

@@ -12,3 +12,6 @@ dist/
 build/
 .venv_test/
 .tmp/
+.env
+.env.*
+!.env.example

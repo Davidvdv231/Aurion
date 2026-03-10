@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import sys
+import os
 from pathlib import Path
+import sys
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,12 +14,36 @@ if str(ROOT) not in sys.path:
 from backend.app import create_app
 from backend.config import get_settings
 
+APP_ENV_VARS = [
+    "OPENAI_API_KEY",
+    "OPENAI_MODEL",
+    "STOCK_LLM_API_URL",
+    "STOCK_LLM_API_KEY",
+    "REDIS_URL",
+    "REDIS_PREFIX",
+    "CORS_ALLOW_ORIGINS",
+    "RATE_LIMIT_WINDOW_SECONDS",
+    "RATE_LIMIT_MAX_REQUESTS_STAT",
+    "RATE_LIMIT_MAX_REQUESTS_AI",
+    "TRUSTED_PROXY_IPS",
+]
+
 
 @pytest.fixture(autouse=True)
 def clear_settings_cache() -> None:
     get_settings.cache_clear()
+    originals = {name: os.environ.get(name) for name in APP_ENV_VARS}
+    for name in APP_ENV_VARS:
+        os.environ.pop(name, None)
+
     yield
+
     get_settings.cache_clear()
+    for name in APP_ENV_VARS:
+        os.environ.pop(name, None)
+    for name, value in originals.items():
+        if value is not None:
+            os.environ[name] = value
 
 
 @pytest.fixture
