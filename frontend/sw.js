@@ -1,10 +1,11 @@
-const CACHE_NAME = "stock-predictor-v5";
+const CACHE_NAME = "stock-predictor-v6";
 const ASSETS = [
   "/",
   "/index.html",
   "/styles.css",
   "/app.js",
   "/manifest.webmanifest",
+  "/vendor/chart.umd.min.js",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/icon-512-maskable.png",
@@ -41,10 +42,19 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request).catch(
         () =>
-          new Response(JSON.stringify({ detail: "Offline: API tijdelijk niet bereikbaar." }), {
-            status: 503,
-            headers: { "Content-Type": "application/json" },
-          }),
+          new Response(
+            JSON.stringify({
+              error: {
+                code: "provider_unavailable",
+                message: "Offline: API tijdelijk niet bereikbaar.",
+                retryable: true,
+              },
+            }),
+            {
+              status: 503,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
       ),
     );
     return;
@@ -76,4 +86,3 @@ self.addEventListener("fetch", (event) => {
       }),
   );
 });
-

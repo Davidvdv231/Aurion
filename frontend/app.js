@@ -5,24 +5,30 @@ const symbolInput = document.getElementById("symbol");
 const horizonInput = document.getElementById("horizon");
 const symbolHelpNode = document.getElementById("symbol-help");
 const topTitleNode = document.getElementById("top-title");
-
 const suggestionsNode = document.getElementById("ticker-suggestions");
-const topStocksNode = document.getElementById("top-stocks");
-
+const topAssetsNode = document.getElementById("top-assets");
 const statusNode = document.getElementById("status");
 const statsCard = document.getElementById("stats-card");
 const lastCloseNode = document.getElementById("last-close");
 const trendNode = document.getElementById("trend");
 const modelNameNode = document.getElementById("model-name");
 const disclaimerNode = document.getElementById("disclaimer");
+const sourceBadgeNode = document.getElementById("source-badge");
+const degradedBadgeNode = document.getElementById("degraded-badge");
+const chartFallbackNode = document.getElementById("chart-fallback");
+const submitButton = document.getElementById("submit-btn");
 
-let chart;
-let suggestionTimer;
-let suggestionRequestId = 0;
-let topStocksRequestId = 0;
-let predictionRequestId = 0;
-let activeTopStocksController;
-let activePredictionController;
+const state = {
+  chart: undefined,
+  suggestionTimer: undefined,
+  suggestionRequestId: 0,
+  topAssetsRequestId: 0,
+  predictionRequestId: 0,
+  activeSuggestionController: undefined,
+  activeTopAssetsController: undefined,
+  activePredictionController: undefined,
+  uiState: "idle",
+};
 
 function currentAssetType() {
   return assetTypeInput.value === "crypto" ? "crypto" : "stock";
@@ -33,25 +39,63 @@ function setStatus(message, isError = false) {
   statusNode.style.color = isError ? "#dc2626" : "#1d4ed8";
 }
 
-function formatApiError(detail, fallbackMessage) {
-  if (Array.isArray(detail)) {
-    const first = detail[0];
-    if (first && typeof first === "object" && typeof first.msg === "string") {
-      return first.msg;
-    }
-    return fallbackMessage;
-  }
+function setLoading(isLoading) {
+  submitButton.disabled = isLoading;
+  submitButton.textContent = isLoading ? "Bezig..." : "Toon voorspelling";
+}
 
-  if (typeof detail === "string" && detail.trim()) {
-    return detail;
+function formatApiError(payload, fallbackMessage) {
+  if (payload && typeof payload === "object") {
+    if (payload.error && typeof payload.error.message === "string") {
+      return payload.error.message;
+    }
+
+    const detail = payload.detail;
+    if (Array.isArray(detail)) {
+      const first = detail[0];
+      if (first && typeof first === "object" && typeof first.msg === "string") {
+        return first.msg;
+      }
+    }
+
+    if (typeof detail === "string" && detail.trim()) {
+      return detail;
+    }
   }
 
   return fallbackMessage;
 }
 
+function formatCurrency(value, currency) {
+  try {
+    return new Intl.NumberFormat("nl-BE", {
+      style: "currency",
+      currency: currency || "USD",
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    const amount = Number.isFinite(value) ? value.toFixed(2) : "0.00";
+    return `${amount} ${currency || "USD"}`;
+  }
+}
+
 function hideSuggestions() {
   suggestionsNode.hidden = true;
   suggestionsNode.innerHTML = "";
+}
+
+function clearResults() {
+  statsCard.hidden = true;
+  sourceBadgeNode.hidden = true;
+  degradedBadgeNode.hidden = true;
+  disclaimerNode.textContent = "";
+  chartFallbackNode.hidden = true;
+  chartFallbackNode.textContent = "";
+
+  if (state.chart) {
+    state.chart.destroy();
+    state.chart = undefined;
+  }
 }
 
 function applyAssetTypeUi() {
@@ -125,15 +169,22 @@ async function loadSuggestions() {
     return;
   }
 
-  const currentRequestId = ++suggestionRequestId;
+  if (state.activeSuggestionController) {
+    state.activeSuggestionController.abort();
+  }
+
+  const currentRequestId = ++state.suggestionRequestId;
+  const controller = new AbortController();
+  state.activeSuggestionController = controller;
 
   try {
     const response = await fetch(
       `/api/tickers?query=${encodeURIComponent(query)}&limit=12&asset_type=${encodeURIComponent(assetType)}`,
+      { signal: controller.signal },
     );
     const data = await response.json();
 
-    if (currentRequestId !== suggestionRequestId) {
+    if (currentRequestId !== state.suggestionRequestId) {
       return;
     }
 
@@ -144,22 +195,22 @@ async function loadSuggestions() {
 
     renderSuggestions(data.tickers || []);
   } catch (error) {
-    if (currentRequestId === suggestionRequestId) {
+    if (error?.name !== "AbortError" && currentRequestId === state.suggestionRequestId) {
       hideSuggestions();
     }
   }
 }
 
 function queueSuggestionsLoad() {
-  clearTimeout(suggestionTimer);
-  suggestionTimer = setTimeout(loadSuggestions, 140);
+  clearTimeout(state.suggestionTimer);
+  state.suggestionTimer = setTimeout(loadSuggestions, 140);
 }
 
-function renderTopStocks(items) {
-  topStocksNode.innerHTML = "";
+function renderTopAssets(items) {
+  topAssetsNode.innerHTML = "";
 
   if (!Array.isArray(items) || items.length === 0) {
-    topStocksNode.textContent = "Geen top tickers beschikbaar.";
+    topAssetsNode.textContent = "Geen top tickers beschikbaar.";
     return;
   }
 
@@ -187,50 +238,50 @@ function renderTopStocks(items) {
       form.requestSubmit();
     });
 
-    topStocksNode.appendChild(button);
+    topAssetsNode.appendChild(button);
   }
 }
 
-async function loadTopStocks() {
-  topStocksNode.textContent = "Top 10 laden...";
+async function loadTopAssets() {
+  topAssetsNode.textContent = "Top 10 laden...";
   const assetType = currentAssetType();
-  const currentRequestId = ++topStocksRequestId;
+  const currentRequestId = ++state.topAssetsRequestId;
 
-  if (activeTopStocksController) {
-    activeTopStocksController.abort();
+  if (state.activeTopAssetsController) {
+    state.activeTopAssetsController.abort();
   }
 
   const controller = new AbortController();
-  activeTopStocksController = controller;
+  state.activeTopAssetsController = controller;
 
   try {
     const response = await fetch(
-      `/api/top-stocks?limit=10&asset_type=${encodeURIComponent(assetType)}`,
+      `/api/top-assets?limit=10&asset_type=${encodeURIComponent(assetType)}`,
       { signal: controller.signal },
     );
 
     let data = null;
     try {
       data = await response.json();
-    } catch (jsonError) {
+    } catch {
       data = null;
     }
 
-    if (currentRequestId !== topStocksRequestId) {
+    if (currentRequestId !== state.topAssetsRequestId) {
       return;
     }
 
     if (!response.ok) {
-      topStocksNode.textContent = "Top 10 kon niet worden geladen.";
+      topAssetsNode.textContent = formatApiError(data, "Top 10 kon niet worden geladen.");
       return;
     }
 
-    renderTopStocks(data?.items || []);
+    renderTopAssets(data?.items || []);
   } catch (error) {
-    if (error?.name === "AbortError" || currentRequestId !== topStocksRequestId) {
+    if (error?.name === "AbortError" || currentRequestId !== state.topAssetsRequestId) {
       return;
     }
-    topStocksNode.textContent = "Top 10 kon niet worden geladen.";
+    topAssetsNode.textContent = "Top 10 kon niet worden geladen.";
   }
 }
 
@@ -241,8 +292,8 @@ function buildDatasets(history, forecast) {
 
   const historyPrices = history.map((row) => row.close);
   const historyData = [...historyPrices, ...Array(forecast.length).fill(null)];
-
   const lastHistoricalPrice = historyPrices[historyPrices.length - 1];
+
   const forecastLine = [
     ...Array(history.length - 1).fill(null),
     lastHistoricalPrice,
@@ -256,7 +307,12 @@ function buildDatasets(history, forecast) {
 }
 
 function renderChart(data) {
-  const ctx = document.getElementById("stock-chart").getContext("2d");
+  if (typeof window.Chart !== "function") {
+    throw new Error("Grafiekbibliotheek ontbreekt. Herlaad de pagina of controleer de offline cache.");
+  }
+
+  const canvas = document.getElementById("stock-chart");
+  const ctx = canvas.getContext("2d");
   const { labels, historyData, forecastLine, lowerBand, upperBand } = buildDatasets(
     data.history,
     data.forecast,
@@ -321,28 +377,60 @@ function renderChart(data) {
     },
   };
 
-  if (chart) {
-    chart.destroy();
+  if (state.chart) {
+    state.chart.destroy();
   }
-  chart = new Chart(ctx, config);
+  state.chart = new window.Chart(ctx, config);
 }
 
 function updateStats(data) {
   statsCard.hidden = false;
-  lastCloseNode.textContent = `$${data.stats.last_close.toFixed(2)}`;
+  lastCloseNode.textContent = formatCurrency(data.stats.last_close, data.currency);
 
   const sign = data.stats.daily_trend_pct >= 0 ? "+" : "";
   trendNode.textContent = `${sign}${data.stats.daily_trend_pct.toFixed(3)}% / dag`;
+  modelNameNode.textContent = data.model_name;
+  sourceBadgeNode.hidden = false;
+  sourceBadgeNode.textContent = `Bronnen: ${data.source.market_data} / ${data.source.forecast}`;
 
-  if (data.engine_used === "ai") {
-    modelNameNode.textContent = "AI model";
-  } else if (data.engine_used === "stat_fallback") {
-    modelNameNode.textContent = "Statistisch (AI fallback)";
+  if (data.degraded) {
+    degradedBadgeNode.hidden = false;
+    degradedBadgeNode.textContent = data.degradation_reason
+      ? `Fallback actief: ${data.degradation_reason}`
+      : "Fallback actief";
   } else {
-    modelNameNode.textContent = "Statistisch model";
+    degradedBadgeNode.hidden = true;
   }
 
   disclaimerNode.textContent = `${data.disclaimer} ${data.engine_note || ""}`.trim();
+}
+
+async function fetchPrediction(payload, controller) {
+  const response = await fetch("/api/predict", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(payload),
+    signal: controller.signal,
+  });
+
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    const error = new Error(formatApiError(data, "Fout bij ophalen van data."));
+    error.isApiError = true;
+    error.statusCode = response.status;
+    throw error;
+  }
+
+  return data;
 }
 
 async function loadPrediction(event) {
@@ -354,67 +442,82 @@ async function loadPrediction(event) {
   const assetType = currentAssetType();
 
   if (!symbol) {
+    clearResults();
     setStatus("Vul een ticker symbool in.", true);
     return;
   }
 
   if (!Number.isInteger(horizon) || horizon < 7 || horizon > 45) {
+    clearResults();
     setStatus("Horizon moet tussen 7 en 45 dagen liggen.", true);
     return;
   }
 
   symbolInput.value = symbol;
   hideSuggestions();
+  clearResults();
+  state.uiState = "loading";
+  setLoading(true);
   setStatus("Data laden en voorspelling berekenen...");
 
-  if (activePredictionController) {
-    activePredictionController.abort();
+  if (state.activePredictionController) {
+    state.activePredictionController.abort();
   }
 
   const controller = new AbortController();
-  activePredictionController = controller;
-  const currentRequestId = ++predictionRequestId;
+  state.activePredictionController = controller;
+  const currentRequestId = ++state.predictionRequestId;
 
   try {
-    const response = await fetch(
-      `/api/predict?symbol=${encodeURIComponent(symbol)}&horizon=${horizon}&engine=${encodeURIComponent(engine)}&asset_type=${encodeURIComponent(assetType)}`,
-      { signal: controller.signal },
+    const data = await fetchPrediction(
+      {
+        symbol,
+        horizon,
+        engine,
+        asset_type: assetType,
+      },
+      controller,
     );
 
-    let data = null;
+    if (currentRequestId !== state.predictionRequestId) {
+      return;
+    }
+
     try {
-      data = await response.json();
-    } catch (jsonError) {
-      data = null;
-    }
-
-    if (currentRequestId !== predictionRequestId) {
+      renderChart(data);
+      updateStats(data);
+    } catch (renderError) {
+      clearResults();
+      chartFallbackNode.hidden = false;
+      chartFallbackNode.textContent = renderError.message || "Grafiek renderen mislukt.";
+      state.uiState = "error";
+      setStatus(chartFallbackNode.textContent, true);
       return;
     }
 
-    if (!response.ok) {
-      setStatus(formatApiError(data?.detail, "Fout bij ophalen van data."), true);
-      return;
-    }
-
-    renderChart(data);
-    updateStats(data);
-
+    state.uiState = "success";
     const requested = data.requested_symbol || symbol;
     const symbolLabel = requested !== data.symbol ? `${requested} -> ${data.symbol}` : data.symbol;
     const assetLabel = data.asset_type === "crypto" ? "crypto" : "aandeel";
 
-    if (data.engine_used === "stat_fallback") {
-      setStatus(`Voorspelling geladen voor ${symbolLabel} (${assetLabel}). AI niet beschikbaar, stat-model gebruikt.`);
+    if (data.degraded) {
+      setStatus(`Voorspelling geladen voor ${symbolLabel} (${assetLabel}) met fallback.`);
       return;
     }
 
     setStatus(`Voorspelling geladen voor ${symbolLabel} (${assetLabel}, ${data.engine_used}).`);
   } catch (error) {
-    if (error?.name === "AbortError" || currentRequestId !== predictionRequestId) {
+    if (error?.name === "AbortError" || currentRequestId !== state.predictionRequestId) {
       return;
     }
-    setStatus("Netwerkfout: kan de API niet bereiken.", true);
+
+    clearResults();
+    state.uiState = "error";
+    setStatus(error?.message || "Netwerkfout: kan de API niet bereiken.", true);
+  } finally {
+    if (currentRequestId === state.predictionRequestId) {
+      setLoading(false);
+    }
   }
 }
 
@@ -422,7 +525,8 @@ form.addEventListener("submit", loadPrediction);
 assetTypeInput.addEventListener("change", () => {
   applyAssetTypeUi();
   hideSuggestions();
-  loadTopStocks();
+  clearResults();
+  loadTopAssets();
   queueSuggestionsLoad();
 });
 symbolInput.addEventListener("input", queueSuggestionsLoad);
@@ -447,7 +551,10 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-applyAssetTypeUi();
-loadTopStocks();
-form.requestSubmit();
+window.__stockPredictor = {
+  formatCurrency,
+};
 
+applyAssetTypeUi();
+loadTopAssets();
+setStatus("Kies een ticker en vraag een voorspelling op.");

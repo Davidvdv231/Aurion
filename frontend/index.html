@@ -9,7 +9,7 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <link rel="stylesheet" href="/styles.css" />
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js" defer></script>
+    <script src="/vendor/chart.umd.min.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
@@ -49,9 +49,7 @@
               />
               <ul id="ticker-suggestions" class="suggestions" hidden></ul>
             </div>
-            <span id="symbol-help" class="field-help"
-              >Aandelen: AAPL, INGA, KBC | Crypto: BTC, ETH, SOL</span
-            >
+            <span id="symbol-help" class="field-help">Aandelen: AAPL, INGA, KBC | Crypto: BTC, ETH, SOL</span>
           </label>
 
           <label>
@@ -65,10 +63,10 @@
         <section class="top-picks">
           <h2 id="top-title">Top 10 Aandelen Nu</h2>
           <p class="field-help">Klik op een ticker om meteen de voorspelling te laden.</p>
-          <div id="top-stocks" class="chip-grid" aria-live="polite"></div>
+          <div id="top-assets" class="chip-grid" aria-live="polite"></div>
         </section>
 
-        <p id="status" class="status"></p>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
       </section>
 
       <section class="card stats-card" id="stats-card" hidden>
@@ -87,10 +85,15 @@
             <p id="model-name">-</p>
           </article>
         </div>
+        <div class="meta-row">
+          <p id="source-badge" class="badge" hidden>Bronnen: -</p>
+          <p id="degraded-badge" class="badge badge--warning" hidden>Fallback actief</p>
+        </div>
         <p id="disclaimer" class="disclaimer"></p>
       </section>
 
       <section class="card chart-card">
+        <p id="chart-fallback" class="chart-fallback" hidden></p>
         <canvas id="stock-chart" aria-label="Asset prediction chart"></canvas>
       </section>
     </main>
