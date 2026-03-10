@@ -141,6 +141,13 @@ async function loadPrediction(event) {
 
     renderChart(data);
     updateStats(data);
+
+    const requested = data.requested_symbol || symbol;
+    if (requested !== data.symbol) {
+      setStatus(`Voorspelling geladen voor ${data.symbol} (invoer ${requested}).`);
+      return;
+    }
+
     setStatus(`Voorspelling geladen voor ${data.symbol}.`);
   } catch (error) {
     setStatus("Netwerkfout: kan de API niet bereiken.", true);
