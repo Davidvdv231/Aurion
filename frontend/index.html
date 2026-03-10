@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b172a" />
+    <title>Stock Predictor</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js" defer></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="card controls-card">
+        <h1>Stock Predictor</h1>
+        <p class="subtitle">1-maands aandelenvoorspelling voor telefoon en pc</p>
+
+        <form id="predict-form" class="form-grid">
+          <label>
+            Ticker symbool
+            <input id="symbol" name="symbol" type="text" value="AAPL" maxlength="10" required />
+          </label>
+
+          <label>
+            Horizon (handelsdagen)
+            <input id="horizon" name="horizon" type="number" min="7" max="45" value="30" required />
+          </label>
+
+          <button id="submit-btn" type="submit">Toon voorspelling</button>
+        </form>
+
+        <p id="status" class="status"></p>
+      </section>
+
+      <section class="card stats-card" id="stats-card" hidden>
+        <h2>Samenvatting</h2>
+        <div class="stats-grid">
+          <article>
+            <h3>Laatste slotkoers</h3>
+            <p id="last-close">-</p>
+          </article>
+          <article>
+            <h3>Dagelijkse trend</h3>
+            <p id="trend">-</p>
+          </article>
+          <article>
+            <h3>Model</h3>
+            <p>Lineaire trend op log-prijzen</p>
+          </article>
+        </div>
+        <p id="disclaimer" class="disclaimer"></p>
+      </section>
+
+      <section class="card chart-card">
+        <canvas id="stock-chart" aria-label="Stock prediction chart"></canvas>
+      </section>
+    </main>
+  </body>
+</html>
