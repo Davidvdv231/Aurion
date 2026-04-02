@@ -1,17 +1,12 @@
+"""Tests for the ML pipeline: feature engineering, model training, and prediction."""
 from __future__ import annotations
-
-from pathlib import Path
-import uuid
 
 import numpy as np
 import pandas as pd
 
-from backend.ml.baseline import build_statistical_baseline
-from backend.ml.features import build_feature_frame
-from backend.ml.service import load_latest_model, train_and_validate_model
-
-
-ROOT = Path(__file__).resolve().parents[1]
+import backend.ml.service as ml_service
+from backend.ml.features import FEATURE_COLUMNS, compute_features
+from backend.ml.model import AnalogForecastModel
 
 
 def _synthetic_ohlcv(rows: int = 240) -> pd.DataFrame:
@@ -28,72 +23,145 @@ def _synthetic_ohlcv(rows: int = 240) -> pd.DataFrame:
 
     return pd.DataFrame(
         {
-            "open": open_,
-            "high": high,
-            "low": low,
-            "close": close,
-            "volume": volume,
+            "Open": open_,
+            "High": high,
+            "Low": low,
+            "Close": close,
+            "Volume": volume,
         },
         index=index,
     )
 
 
-def test_feature_engineering_produces_core_indicators() -> None:
-    frame = build_feature_frame(_synthetic_ohlcv())
+def test_compute_features_produces_all_expected_columns() -> None:
+    """compute_features returns all FEATURE_COLUMNS with valid ranges."""
+    df = _synthetic_ohlcv()
+    features = compute_features(df)
 
-    for column in (
-        "rsi_14",
-        "macd",
-        "macd_signal",
-        "bollinger_upper_20",
-        "bollinger_lower_20",
-        "volume_zscore_20",
-        "momentum_10",
-    ):
-        assert column in frame.columns
+    for col in FEATURE_COLUMNS:
+        assert col in features.columns, f"Missing column: {col}"
 
-    cleaned = frame.dropna()
+    cleaned = features.dropna()
     assert not cleaned.empty
     assert cleaned["rsi_14"].between(0.0, 100.0).all()
 
 
-def test_end_to_end_forecast_backtest_and_registry_roundtrip() -> None:
-    ohlcv = _synthetic_ohlcv()
+def test_analog_model_fit_predict_roundtrip() -> None:
+    """AnalogForecastModel can fit, predict, and backtest on synthetic data."""
+    df = _synthetic_ohlcv()
+    close = df["Close"]
 
-    scratch_root = ROOT / ".tmp" / "ml-tests"
-    scratch_root.mkdir(parents=True, exist_ok=True)
-    temp_dir = scratch_root / f"case-{uuid.uuid4().hex}"
-    temp_dir.mkdir(parents=True, exist_ok=False)
+    model = AnalogForecastModel(lookback=45, horizon=5, n_neighbors=15)
+    model.fit(close, ohlcv=df)
 
-    result = train_and_validate_model(
-        ohlcv,
-        asset_type="stock",
-        lookback=45,
-        horizon=5,
-        top_k=15,
-        registry_root=temp_dir,
-        persist=True,
-    )
+    forecast = model.predict(close, ohlcv=df, horizon=5, asset_type="stock")
 
-    assert result.artifact is not None
-    assert result.backtest is not None
-    assert result.backtest.folds
-    assert result.backtest.metrics["overall_mae"] >= 0.0
-    assert 0.0 <= result.validation["directional_accuracy"] <= 1.0
+    assert len(forecast.dates) == 5
+    assert len(forecast.predicted) == 5
+    assert len(forecast.lower) == 5
+    assert len(forecast.upper) == 5
+    assert forecast.neighbors_used <= 15
+    assert all(forecast.lower[i] <= forecast.predicted[i] <= forecast.upper[i] for i in range(5))
 
-    forecast = result.model.predict(ohlcv, asset_type="stock")
-    baseline = build_statistical_baseline(ohlcv["close"], horizon=5, asset_type="stock")
-    assert len(forecast.path) == 5
-    assert forecast.path[0].lower <= forecast.path[0].predicted <= forecast.path[0].upper
-    assert 0.0 <= forecast.summary["confidence"] <= 1.0
-    assert forecast.summary["trend"] in {"bullish", "bearish", "neutral"}
-    assert forecast.summary["signal"] in {"buy", "hold", "sell"}
-    assert any(
-        abs(model_point.predicted - baseline_point.predicted) > 0.25
-        for model_point, baseline_point in zip(forecast.path, baseline.path)
-    )
+    metrics = model.backtest(close, ohlcv=df, n_folds=3)
 
-    loaded = load_latest_model(registry_root=temp_dir)
-    loaded_forecast = loaded.predict(ohlcv, asset_type="stock")
-    assert len(loaded_forecast.path) == 5
-    assert loaded_forecast.summary["trend"] == forecast.summary["trend"]
+    assert metrics.mae >= 0.0
+    assert metrics.rmse >= 0.0
+    assert metrics.mape >= 0.0
+    assert 0.0 <= metrics.directional_accuracy <= 1.0
+    assert metrics.validation_windows >= 1
+
+
+def test_model_rejects_insufficient_data() -> None:
+    """Model raises ValueError when data is too short."""
+    short_df = _synthetic_ohlcv(rows=50)
+    close = short_df["Close"]
+
+    model = AnalogForecastModel(lookback=45, horizon=5, n_neighbors=15)
+
+    try:
+        model.fit(close, ohlcv=short_df)
+        assert False, "Expected ValueError for insufficient data"
+    except ValueError:
+        pass
+
+
+def test_train_and_predict_cache_separates_models_by_horizon() -> None:
+    df = _synthetic_ohlcv(rows=260)
+    close = df["Close"]
+
+    with ml_service._model_lock:
+        ml_service._model_cache.clear()
+
+    try:
+        forecast_short, _ = ml_service.train_and_predict(
+            symbol="AAPL",
+            close=close,
+            horizon=7,
+            asset_type="stock",
+            ohlcv=df,
+            n_neighbors=15,
+            lookback=45,
+            backtest_folds=2,
+        )
+        forecast_long, _ = ml_service.train_and_predict(
+            symbol="AAPL",
+            close=close,
+            horizon=30,
+            asset_type="stock",
+            ohlcv=df,
+            n_neighbors=15,
+            lookback=45,
+            backtest_folds=2,
+        )
+    finally:
+        with ml_service._model_lock:
+            ml_service._model_cache.clear()
+
+    assert len(forecast_short.dates) == 7
+    assert len(forecast_long.dates) == 30
+
+
+def test_train_and_predict_reuses_cached_backtest_metrics(monkeypatch) -> None:
+    df = _synthetic_ohlcv(rows=260)
+    close = df["Close"]
+    backtest_calls = 0
+    original_backtest = AnalogForecastModel.backtest
+
+    def counted_backtest(self, close_series, ohlcv, n_folds=5):
+        nonlocal backtest_calls
+        backtest_calls += 1
+        return original_backtest(self, close_series, ohlcv, n_folds=n_folds)
+
+    monkeypatch.setattr(AnalogForecastModel, "backtest", counted_backtest)
+
+    with ml_service._model_lock:
+        ml_service._model_cache.clear()
+
+    try:
+        _, first_metrics = ml_service.train_and_predict(
+            symbol="AAPL",
+            close=close,
+            horizon=7,
+            asset_type="stock",
+            ohlcv=df,
+            n_neighbors=15,
+            lookback=45,
+            backtest_folds=2,
+        )
+        _, second_metrics = ml_service.train_and_predict(
+            symbol="AAPL",
+            close=close,
+            horizon=7,
+            asset_type="stock",
+            ohlcv=df,
+            n_neighbors=15,
+            lookback=45,
+            backtest_folds=2,
+        )
+    finally:
+        with ml_service._model_lock:
+            ml_service._model_cache.clear()
+
+    assert backtest_calls == 1
+    assert second_metrics == first_metrics

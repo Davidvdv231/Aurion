@@ -35,9 +35,9 @@ class PredictionSummary(ApiModel):
     expected_price: float
     expected_return_pct: float
     trend: Literal["bullish", "bearish", "neutral"]
-    confidence_score: float = Field(ge=0.0, le=1.0)
+    confidence_tier: Literal["low", "medium", "high"]
     probability_up: float = Field(ge=0.0, le=1.0)
-    signal: Literal["strong_buy", "buy", "hold", "sell", "strong_sell"]
+    signal: Literal["bullish", "mildly_bullish", "neutral", "mildly_bearish", "bearish"]
 
 
 class PredictionEvaluation(ApiModel):
@@ -81,6 +81,9 @@ class PredictResponse(ApiModel):
     engine_note: str
     source: PredictionSource
     degraded: bool = False
+    degradation_code: str | None = None
+    degradation_message: str | None = None
+    # Deprecated compatibility alias. Mirrors degradation_message for older clients.
     degradation_reason: str | None = None
     history: list[HistoryPoint]
     forecast: list[ForecastPoint]

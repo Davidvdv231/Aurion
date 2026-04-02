@@ -15,24 +15,27 @@ services:
     volumes:
       - ../artifacts:/app/artifacts
     depends_on:
-      - redis
-      - postgres
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
-
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: stock_predictor
-      POSTGRES_USER: stock_predictor
-      POSTGRES_PASSWORD: stock_predictor
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-volumes:
-  postgres_data:
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5

@@ -47,6 +47,50 @@ class AnalogForecastModel:
     _future_returns: np.ndarray = field(default_factory=lambda: np.array([]))
     _fitted: bool = False
 
+    @property
+    def model_name(self) -> str:
+        return f"analog-k{self.n_neighbors}-lb{self.lookback}"
+
+    @property
+    def top_k(self) -> int:
+        return self.n_neighbors
+
+    @property
+    def feature_columns(self) -> list[str]:
+        return list(FEATURE_COLUMNS)
+
+    @property
+    def asset_type(self) -> str:
+        return "generic"
+
+    def to_state(self) -> dict:
+        """Serialize model state for persistence."""
+        return {
+            "lookback": self.lookback,
+            "horizon": self.horizon,
+            "n_neighbors": self.n_neighbors,
+            "feature_mean": self._feature_mean,
+            "feature_std": self._feature_std,
+            "windows": self._windows,
+            "future_returns": self._future_returns,
+            "fitted": self._fitted,
+        }
+
+    @classmethod
+    def from_state(cls, state: dict) -> "AnalogForecastModel":
+        """Restore a model from serialized state."""
+        model = cls(
+            lookback=int(state["lookback"]),
+            horizon=int(state["horizon"]),
+            n_neighbors=int(state.get("n_neighbors", state.get("top_k", 24))),
+        )
+        model._feature_mean = np.asarray(state["feature_mean"])
+        model._feature_std = np.asarray(state["feature_std"])
+        model._windows = np.asarray(state["windows"])
+        model._future_returns = np.asarray(state["future_returns"])
+        model._fitted = bool(state.get("fitted", True))
+        return model
+
     def fit(self, close: pd.Series, ohlcv: pd.DataFrame | None = None) -> None:
         """Fit the model on historical data."""
         if ohlcv is not None and "Close" in ohlcv.columns:

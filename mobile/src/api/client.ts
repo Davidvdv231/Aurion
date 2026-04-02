@@ -51,7 +51,7 @@ export function createApiClient() {
       ),
     topAssets: (assetType: AssetType, limit = 8) =>
       requestJson<TopAssetsResponse>(`/api/top-assets?asset_type=${assetType}&limit=${limit}`),
-    predict: (symbol: string, assetType: AssetType, horizon = 7, engine: ForecastEngine = "stat") =>
+    predict: (symbol: string, assetType: AssetType, horizon = 7, engine: ForecastEngine = "ml") =>
       requestJson<PredictResponse>("/api/predict", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

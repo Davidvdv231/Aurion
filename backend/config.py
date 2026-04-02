@@ -123,7 +123,7 @@ def get_settings() -> Settings:
             "https://api.openai.com/v1/chat/completions",
         ).strip()
         or "https://api.openai.com/v1/chat/completions",
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-5-mini").strip() or "gpt-5-mini",
+        openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini",
         openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
         stock_llm_api_url=os.getenv("STOCK_LLM_API_URL", "").strip(),
         stock_llm_api_key=os.getenv("STOCK_LLM_API_KEY", "").strip(),

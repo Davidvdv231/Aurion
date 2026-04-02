@@ -115,7 +115,6 @@ backend/
     features.py
     dataset.py
     model.py
-    backtest.py
     registry.py
     service.py
 frontend/

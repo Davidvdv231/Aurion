@@ -1,4 +1,4 @@
-import type { AssetType, ForecastPoint, HistoryPoint, PredictResponse, TickerItem } from "@/api/types";
+import type { AssetType, ConfidenceTier, ForecastPoint, HistoryPoint, PredictResponse, TickerItem } from "@/api/types";
 
 export interface DemoMarketCard {
   symbol: string;
@@ -36,6 +36,17 @@ function buildHistory(base: number): HistoryPoint[] {
     date: isoDaysAhead(-(30 - index)),
     close: base * (1 + index * 0.002),
   }));
+}
+
+function buildSignal(
+  expectedReturnPct: number,
+  confidence: number,
+): PredictResponse["summary"]["signal"] {
+  if (expectedReturnPct > 5 && confidence >= 0.67) return "bullish";
+  if (expectedReturnPct > 1.5 && confidence >= 0.45) return "mildly_bullish";
+  if (expectedReturnPct < -5 && confidence >= 0.67) return "bearish";
+  if (expectedReturnPct < -1.5 && confidence >= 0.45) return "mildly_bearish";
+  return "neutral";
 }
 
 export const demoMarketCards: DemoMarketCard[] = [
@@ -91,6 +102,12 @@ export function getDemoForecast(symbol: string, assetType: AssetType): PredictRe
   const base = asset.price;
   const drift = asset.trend === "bullish" ? 0.012 : asset.trend === "bearish" ? -0.009 : 0.004;
   const volatility = assetType === "crypto" ? 0.08 : 0.04;
+  const forecast = buildForecast(base, drift, volatility);
+  const expectedPrice = forecast[forecast.length - 1]?.predicted ?? base;
+  const expectedReturnPct = ((expectedPrice / base) - 1) * 100;
+  const confidenceTier: ConfidenceTier =
+    asset.confidence >= 0.67 ? "high" : asset.confidence >= 0.45 ? "medium" : "low";
+  const probabilityUp = asset.trend === "bullish" ? 0.68 : asset.trend === "bearish" ? 0.34 : 0.54;
 
   return {
     symbol: asset.symbol,
@@ -99,20 +116,30 @@ export function getDemoForecast(symbol: string, assetType: AssetType): PredictRe
     currency: "USD",
     generated_at: new Date().toISOString(),
     horizon_days: 7,
-    engine_requested: "stat",
-    engine_used: "stat",
+    engine_requested: "ml",
+    engine_used: "stat_fallback",
     model_name: "Demo analog forecast",
     engine_note: "Fallback-demo data while backend is unavailable.",
     source: { market_data: "demo", forecast: "demo" },
     degraded: true,
-    degradation_reason: "Fallback demo data",
+    degradation_code: "demo_data_unavailable",
+    degradation_message: "Using fallback demo data while the backend is unavailable.",
+    degradation_reason: "Using fallback demo data while the backend is unavailable.",
     history: buildHistory(base),
-    forecast: buildForecast(base, drift, volatility),
+    forecast,
     stats: {
       daily_trend_pct: drift * 100,
       last_close: base,
     },
+    summary: {
+      expected_price: expectedPrice,
+      expected_return_pct: expectedReturnPct,
+      trend: asset.trend,
+      confidence_tier: confidenceTier,
+      probability_up: probabilityUp,
+      signal: buildSignal(expectedReturnPct, asset.confidence),
+    },
+    evaluation: null,
     disclaimer: "Demo-only forecast. This is not financial advice.",
   };
 }
-

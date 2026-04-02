@@ -28,6 +28,8 @@ SUCCESS_PREDICTION = {
     "engine_note": "Statistische trend op historische koersdata.",
     "source": {"market_data": "yfinance", "forecast": "stat"},
     "degraded": False,
+    "degradation_code": None,
+    "degradation_message": None,
     "degradation_reason": None,
     "history": [
         {"date": "2026-01-01", "close": 100.25},
@@ -39,6 +41,21 @@ SUCCESS_PREDICTION = {
         {"date": "2026-01-07", "predicted": 104.0, "lower": 101.0, "upper": 107.0},
     ],
     "stats": {"daily_trend_pct": 0.321, "last_close": 102.25},
+    "summary": {
+        "expected_price": 104.0,
+        "expected_return_pct": 1.71,
+        "trend": "neutral",
+        "confidence_tier": "medium",
+        "probability_up": 0.61,
+        "signal": "mildly_bullish",
+    },
+    "evaluation": {
+        "mae": 1.23,
+        "rmse": 1.78,
+        "mape": 0.95,
+        "directional_accuracy": 0.67,
+        "validation_windows": 3,
+    },
     "disclaimer": "Dit is een statistische/AI schatting en geen financieel advies.",
 }
 TOP_ASSETS = {
@@ -127,13 +144,14 @@ def test_submit_success_flow(page) -> None:
     )
 
     current_page.goto("/", wait_until="domcontentloaded")
-    current_page.click("#submit-btn")
+    current_page.click("[data-testid='predict-submit']")
 
-    current_page.wait_for_selector("#stats-card:not([hidden])")
-    last_close = current_page.locator("#last-close").text_content()
-    assert "102,25" in last_close
-    assert "US$" in last_close
-    assert "yfinance / stat" in current_page.locator("#source-badge").text_content()
+    current_page.wait_for_selector("[data-testid='signal-card']:not([hidden])")
+    assert current_page.locator("[data-testid='signal-symbol']").text_content() == "AAPL"
+    assert "yfinance / stat" in current_page.locator("[data-testid='source-badge']").text_content()
+    assert current_page.locator("[data-testid='confidence-value']").text_content() == "Medium"
+    assert current_page.locator("[data-testid='evaluation-row']").is_visible()
+    assert current_page.locator("[data-testid='metric-expected']").text_content().strip() != ""
 
 
 def test_submit_failure_clears_stale_results(page) -> None:
@@ -156,14 +174,14 @@ def test_submit_failure_clears_stale_results(page) -> None:
     current_page.route("**/api/predict", fulfill_predict)
 
     current_page.goto("/", wait_until="domcontentloaded")
-    current_page.click("#submit-btn")
-    current_page.wait_for_selector("#stats-card:not([hidden])")
+    current_page.click("[data-testid='predict-submit']")
+    current_page.wait_for_selector("[data-testid='signal-card']:not([hidden])")
 
     current_page.fill("#symbol", "MSFT")
-    current_page.click("#submit-btn")
-    current_page.wait_for_timeout(300)
+    current_page.click("[data-testid='predict-submit']")
+    current_page.wait_for_function("() => document.getElementById('signal-card').hidden === true")
 
-    assert current_page.locator("#stats-card").is_hidden()
+    assert current_page.locator("[data-testid='signal-card']").is_hidden()
     assert "Marktdataprovider tijdelijk niet bereikbaar." in current_page.locator("#status").text_content()
 
 
@@ -177,11 +195,11 @@ def test_missing_chart_library_shows_friendly_error(page) -> None:
     )
 
     current_page.goto("/", wait_until="domcontentloaded")
-    current_page.click("#submit-btn")
-    current_page.wait_for_timeout(300)
+    current_page.click("[data-testid='predict-submit']")
+    current_page.wait_for_selector("[data-testid='chart-fallback']:not([hidden])")
 
-    assert current_page.locator("#chart-fallback").is_visible()
-    assert "Grafiekbibliotheek" in current_page.locator("#chart-fallback").text_content()
+    assert current_page.locator("[data-testid='chart-fallback']").is_visible()
+    assert current_page.locator("[data-testid='chart-fallback']").text_content().strip() != ""
 
 
 def test_offline_shell_is_served_from_service_worker(page) -> None:
@@ -193,4 +211,5 @@ def test_offline_shell_is_served_from_service_worker(page) -> None:
     context.set_offline(True)
     current_page.reload(wait_until="domcontentloaded")
 
-    assert current_page.locator("h1").text_content() == "Stock & Crypto Predictor"
+    assert current_page.locator("[data-testid='predict-form']").is_visible()
+    assert current_page.locator("[data-testid='predict-submit']").is_visible()

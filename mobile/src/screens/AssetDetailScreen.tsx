@@ -42,6 +42,13 @@ function ChartPlaceholder({ points }: { points: PredictResponse["history"] }) {
   );
 }
 
+function formatSignalLabel(signal: PredictResponse["summary"]["signal"]) {
+  return signal
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function AssetDetailScreen({ route, navigation }: Props) {
   const { symbol, assetType, name } = route.params;
   const { isSaved, toggle } = useWatchlist();
@@ -95,7 +102,7 @@ export function AssetDetailScreen({ route, navigation }: Props) {
           <Text style={styles.symbol}>{data.symbol}</Text>
           <Text style={styles.name}>{name || data.requested_symbol}</Text>
         </View>
-        <TrendChip trend={data.stats.daily_trend_pct >= 0 ? "bullish" : "bearish"} />
+        <TrendChip trend={data.summary.trend} />
       </View>
 
       <View style={styles.card}>
@@ -103,8 +110,16 @@ export function AssetDetailScreen({ route, navigation }: Props) {
         <Text style={styles.stat}>
           Last close {data.currency} {data.stats.last_close.toFixed(2)}
         </Text>
-        <Text style={styles.stat}>Daily trend {data.stats.daily_trend_pct.toFixed(2)}%</Text>
+        <Text style={styles.stat}>
+          Expected {data.currency} {data.summary.expected_price.toFixed(2)} ({data.summary.expected_return_pct.toFixed(2)}%)
+        </Text>
+        <Text style={styles.stat}>
+          Signal {formatSignalLabel(data.summary.signal)} | Probability up {Math.round(data.summary.probability_up * 100)}%
+        </Text>
         <Text style={styles.note}>{data.engine_note}</Text>
+        {data.evaluation?.validation_windows != null ? (
+          <Text style={styles.note}>Validated on {data.evaluation.validation_windows} windows.</Text>
+        ) : null}
       </View>
 
       <ChartPlaceholder points={data.history} />
@@ -119,13 +134,21 @@ export function AssetDetailScreen({ route, navigation }: Props) {
       </View>
 
       <View style={styles.card}>
-        <ConfidenceMeter value={Math.min(0.95, Math.max(0.25, data.stats.daily_trend_pct / 10 + 0.5))} />
+        <ConfidenceMeter
+          tier={data.summary.confidence_tier}
+          probabilityUp={data.summary.probability_up}
+          degraded={data.degraded}
+        />
       </View>
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Model output</Text>
         <Text style={styles.note}>
           This MVP exposes trend direction, banded forecast and confidence. No guarantee, no advice.
+        </Text>
+        {data.degraded && data.degradation_message ? <Text style={styles.warning}>{data.degradation_message}</Text> : null}
+        <Text style={styles.note}>
+          Source {data.source.market_data} / {data.source.forecast}
         </Text>
         <Text style={styles.footerText}>{data.disclaimer}</Text>
       </View>
@@ -212,6 +235,12 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSizes.sm,
     lineHeight: 20,
   },
+  warning: {
+    color: theme.colors.warning,
+    fontSize: theme.fontSizes.sm,
+    lineHeight: 20,
+    fontWeight: "600",
+  },
   footerText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSizes.xs,
@@ -262,4 +291,3 @@ const styles = StyleSheet.create({
     paddingVertical: theme.space.sm,
   },
 });
-

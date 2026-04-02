@@ -47,7 +47,7 @@
       <aside class="panel controls-panel">
         <div class="card">
           <h2 class="panel-title">Predict</h2>
-          <form id="predict-form" class="form-stack">
+          <form id="predict-form" class="form-stack" data-testid="predict-form">
             <div class="form-group">
               <label for="asset-type">Market</label>
               <div class="segmented-control" id="asset-type-control">
@@ -98,7 +98,7 @@
               </div>
             </div>
 
-            <button id="submit-btn" type="submit" class="btn-primary">
+            <button id="submit-btn" type="submit" class="btn-primary" data-testid="predict-submit">
               <span class="btn-text">Generate Forecast</span>
               <span class="btn-loader" hidden>
                 <span class="spinner"></span>
@@ -140,12 +140,17 @@
 
       <!-- Right Panel: Results -->
       <section class="panel results-panel">
+        <!-- Disclaimer Banner (shown after first prediction) -->
+        <div class="disclaimer-banner" id="disclaimer-banner" hidden>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+          <span>Aurion provides market analysis, not financial advice. Predictions are statistical estimates &mdash; past performance does not guarantee future results.</span>
+        </div>
         <!-- Signal Card (hidden until prediction) -->
-        <div class="card signal-card" id="signal-card" hidden>
+        <div class="card signal-card" id="signal-card" data-testid="signal-card" hidden>
           <div class="signal-header">
             <div class="signal-badge" id="signal-badge">HOLD</div>
             <div class="signal-meta">
-              <span class="signal-symbol" id="signal-symbol">-</span>
+              <span class="signal-symbol" id="signal-symbol" data-testid="signal-symbol">-</span>
               <span class="signal-engine" id="signal-engine">-</span>
             </div>
           </div>
@@ -157,7 +162,7 @@
             </div>
             <div class="metric">
               <span class="metric-label">Expected</span>
-              <span class="metric-value" id="metric-expected">-</span>
+              <span class="metric-value" id="metric-expected" data-testid="metric-expected">-</span>
             </div>
             <div class="metric">
               <span class="metric-label">Return</span>
@@ -175,19 +180,19 @@
             <div class="confidence-bar">
               <div class="confidence-fill" id="confidence-fill" style="width: 50%"></div>
             </div>
-            <span class="confidence-value" id="confidence-value">50%</span>
+            <span class="confidence-value" id="confidence-value" data-testid="confidence-value">50%</span>
           </div>
 
           <!-- Evaluation metrics (ML only) -->
-          <div class="eval-row" id="eval-row" hidden>
+          <div class="eval-row" id="eval-row" data-testid="evaluation-row" hidden>
             <span class="eval-item" id="eval-mae" title="Mean Absolute Error">MAE: -</span>
             <span class="eval-item" id="eval-dir" title="Directional Accuracy">Dir: -</span>
             <span class="eval-item" id="eval-mape" title="Mean Absolute Percentage Error">MAPE: -</span>
           </div>
 
           <div class="meta-row">
-            <span id="source-badge" class="tag" hidden>-</span>
-            <span id="degraded-badge" class="tag tag--warning" hidden>Fallback</span>
+            <span id="source-badge" class="tag" data-testid="source-badge" hidden>-</span>
+            <span id="degraded-badge" class="tag tag--warning" data-testid="degraded-badge" hidden>Fallback</span>
           </div>
         </div>
 
@@ -208,7 +213,7 @@
             <p>Select a symbol and generate a forecast to see the chart</p>
           </div>
           <canvas id="stock-chart" aria-label="Price forecast chart" hidden></canvas>
-          <p id="chart-fallback" class="chart-fallback" hidden></p>
+          <p id="chart-fallback" class="chart-fallback" data-testid="chart-fallback" hidden></p>
           <p id="disclaimer" class="disclaimer" hidden></p>
         </div>
       </section>

@@ -39,6 +39,9 @@ const evalMape = document.getElementById("eval-mape");
 const sourceBadgeNode = document.getElementById("source-badge");
 const degradedBadgeNode = document.getElementById("degraded-badge");
 
+// Disclaimer banner
+const disclaimerBanner = document.getElementById("disclaimer-banner");
+
 // Chart
 const chartHeader = document.getElementById("chart-header");
 const chartTitle = document.getElementById("chart-title");
@@ -214,6 +217,7 @@ function hideSuggestions() {
 
 function clearResults() {
   signalCard.hidden = true;
+  disclaimerBanner.hidden = true;
   chartHeader.hidden = true;
   chartEmpty.hidden = false;
   chartCanvas.hidden = true;
@@ -603,11 +607,18 @@ function renderChart(data) {
 // =============================================
 function updateSignalCard(data) {
   signalCard.hidden = false;
+  disclaimerBanner.hidden = false;
   state.lastPrediction = data;
 
   const summary = data.summary;
-  const signalText = summary.signal.replace("_", " ").toUpperCase();
-  signalBadge.textContent = signalText;
+  const signalLabels = {
+    bullish: "Bullish Outlook",
+    mildly_bullish: "Mildly Bullish",
+    neutral: "Neutral",
+    mildly_bearish: "Mildly Bearish",
+    bearish: "Bearish Outlook",
+  };
+  signalBadge.textContent = signalLabels[summary.signal] || summary.signal;
   signalBadge.setAttribute("data-signal", summary.signal);
 
   signalSymbol.textContent = data.symbol;
@@ -625,13 +636,13 @@ function updateSignalCard(data) {
   metricTrend.textContent = summary.trend.charAt(0).toUpperCase() + summary.trend.slice(1);
   metricTrend.className = `metric-value ${summary.trend === "bullish" ? "positive" : summary.trend === "bearish" ? "negative" : ""}`;
 
-  // Confidence
-  const confPct = Math.round(summary.confidence_score * 100);
-  confidenceFill.style.width = `${confPct}%`;
-  confidenceValue.textContent = `${confPct}%`;
-  if (confPct < 40) confidenceFill.setAttribute("data-level", "low");
-  else if (confPct < 70) confidenceFill.setAttribute("data-level", "medium");
-  else confidenceFill.setAttribute("data-level", "high");
+  // Confidence tier
+  const tier = summary.confidence_tier || "low";
+  const tierWidths = { low: "30%", medium: "60%", high: "90%" };
+  const tierLabels = { low: "Low", medium: "Medium", high: "High" };
+  confidenceFill.style.width = tierWidths[tier] || "30%";
+  confidenceValue.textContent = tierLabels[tier] || tier;
+  confidenceFill.setAttribute("data-level", tier);
 
   // Evaluation metrics
   if (data.evaluation) {
@@ -649,7 +660,9 @@ function updateSignalCard(data) {
 
   if (data.degraded) {
     degradedBadgeNode.hidden = false;
-    degradedBadgeNode.textContent = data.degradation_reason ? `Fallback: ${data.degradation_reason}` : "Fallback active";
+    degradedBadgeNode.textContent = data.degradation_message
+      ? `Using statistical fallback \u2014 ${data.degradation_message}`
+      : "Using statistical fallback";
   } else {
     degradedBadgeNode.hidden = true;
   }
@@ -665,6 +678,66 @@ function updateSignalCard(data) {
 // =============================================
 // PREDICTION
 // =============================================
+function isFiniteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function clampProbability(value) {
+  return isFiniteNumber(value) ? Math.max(0, Math.min(1, value)) : 0.5;
+}
+
+function deriveSummaryTrend(expectedReturnPct) {
+  if (expectedReturnPct > 2) return "bullish";
+  if (expectedReturnPct < -2) return "bearish";
+  return "neutral";
+}
+
+function normalizePredictResponse(payload) {
+  const history = Array.isArray(payload?.history) ? payload.history : [];
+  const forecast = Array.isArray(payload?.forecast) ? payload.forecast : [];
+  const stats = payload?.stats || {};
+  const lastClose = isFiniteNumber(stats.last_close) ? stats.last_close : 0;
+  const finalPredicted = forecast.length > 0 && isFiniteNumber(forecast[forecast.length - 1]?.predicted)
+    ? forecast[forecast.length - 1].predicted
+    : lastClose;
+  const summary = payload?.summary || {};
+  const expectedPrice = isFiniteNumber(summary.expected_price) ? summary.expected_price : finalPredicted;
+  const expectedReturnPct = isFiniteNumber(summary.expected_return_pct)
+    ? summary.expected_return_pct
+    : lastClose > 0 ? ((expectedPrice / lastClose) - 1) * 100 : 0;
+  const degradationMessage = payload?.degradation_message ?? payload?.degradation_reason ?? null;
+  const allowedTiers = new Set(["low", "medium", "high"]);
+  const allowedTrends = new Set(["bullish", "bearish", "neutral"]);
+  const allowedSignals = new Set(["bullish", "mildly_bullish", "neutral", "mildly_bearish", "bearish"]);
+
+  return {
+    ...payload,
+    history,
+    forecast,
+    stats: {
+      daily_trend_pct: isFiniteNumber(stats.daily_trend_pct) ? stats.daily_trend_pct : 0,
+      last_close: lastClose,
+    },
+    source: {
+      market_data: payload?.source?.market_data || "unknown",
+      forecast: payload?.source?.forecast || "unknown",
+    },
+    degraded: Boolean(payload?.degraded),
+    degradation_code: payload?.degradation_code ?? null,
+    degradation_message: degradationMessage,
+    degradation_reason: degradationMessage,
+    evaluation: payload?.evaluation ?? null,
+    summary: {
+      expected_price: expectedPrice,
+      expected_return_pct: expectedReturnPct,
+      trend: allowedTrends.has(summary.trend) ? summary.trend : deriveSummaryTrend(expectedReturnPct),
+      confidence_tier: allowedTiers.has(summary.confidence_tier) ? summary.confidence_tier : "low",
+      probability_up: clampProbability(summary.probability_up),
+      signal: allowedSignals.has(summary.signal) ? summary.signal : "neutral",
+    },
+  };
+}
+
 async function fetchPrediction(payload, controller) {
   const res = await fetch("/api/predict", {
     method: "POST",
@@ -682,7 +755,7 @@ async function fetchPrediction(payload, controller) {
     error.statusCode = res.status;
     throw error;
   }
-  return data;
+  return normalizePredictResponse(data);
 }
 
 async function loadPrediction(event) {

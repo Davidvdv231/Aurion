@@ -508,6 +508,26 @@ input[type="range"]::-webkit-slider-thumb:hover {
   50% { opacity: 0.8; }
 }
 
+/* --- Disclaimer Banner --- */
+.disclaimer-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.7rem 1rem;
+  border-radius: var(--radius-md);
+  background: var(--yellow-bg);
+  border: 1px solid rgba(245,158,11,0.15);
+  color: var(--yellow);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.disclaimer-banner svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
 /* --- Signal Card --- */
 .signal-card {
   animation: card-in 0.4s ease-out;
@@ -534,19 +554,19 @@ input[type="range"]::-webkit-slider-thumb:hover {
   text-transform: uppercase;
 }
 
-.signal-badge[data-signal="strong_buy"],
-.signal-badge[data-signal="buy"] {
+.signal-badge[data-signal="bullish"],
+.signal-badge[data-signal="mildly_bullish"] {
   background: var(--green-bg);
   color: var(--green);
 }
 
-.signal-badge[data-signal="hold"] {
+.signal-badge[data-signal="neutral"] {
   background: var(--yellow-bg);
   color: var(--yellow);
 }
 
-.signal-badge[data-signal="sell"],
-.signal-badge[data-signal="strong_sell"] {
+.signal-badge[data-signal="mildly_bearish"],
+.signal-badge[data-signal="bearish"] {
   background: var(--red-bg);
   color: var(--red);
 }
@@ -687,6 +707,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .tag--warning {
   background: var(--yellow-bg);
   color: var(--yellow);
+  flex-basis: 100%;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.78rem;
+  border: 1px solid rgba(245,158,11,0.2);
+  border-radius: var(--radius-sm);
 }
 
 .meta-row {

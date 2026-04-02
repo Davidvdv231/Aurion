@@ -1,5 +1,9 @@
 export type AssetType = "stock" | "crypto";
-export type ForecastEngine = "stat" | "ml";
+export type ForecastEngine = "stat" | "ml" | "ai";
+export type EngineUsed = "stat" | "ml" | "ai" | "stat_fallback" | "ml_fallback";
+export type PredictionTrend = "bullish" | "bearish" | "neutral";
+export type ConfidenceTier = "low" | "medium" | "high";
+export type PredictionSignal = "bullish" | "mildly_bullish" | "neutral" | "mildly_bearish" | "bearish";
 
 export interface TickerItem {
   symbol: string;
@@ -37,6 +41,33 @@ export interface ForecastPoint {
   upper: number;
 }
 
+export interface PredictStats {
+  daily_trend_pct: number;
+  last_close: number;
+}
+
+export interface PredictionSummary {
+  expected_price: number;
+  expected_return_pct: number;
+  trend: PredictionTrend;
+  confidence_tier: ConfidenceTier;
+  probability_up: number;
+  signal: PredictionSignal;
+}
+
+export interface PredictionEvaluation {
+  mae: number | null;
+  rmse: number | null;
+  mape: number | null;
+  directional_accuracy: number | null;
+  validation_windows: number | null;
+}
+
+export interface PredictionSource {
+  market_data: string;
+  forecast: string;
+}
+
 export interface PredictResponse {
   symbol: string;
   requested_symbol: string;
@@ -44,22 +75,19 @@ export interface PredictResponse {
   currency: string;
   generated_at: string;
   horizon_days: number;
-  engine_requested: "stat" | "ai";
-  engine_used: "stat" | "ai" | "stat_fallback";
+  engine_requested: ForecastEngine;
+  engine_used: EngineUsed;
   model_name: string;
   engine_note: string;
-  source: {
-    market_data: string;
-    forecast: string;
-  };
+  source: PredictionSource;
   degraded: boolean;
+  degradation_code: string | null;
+  degradation_message: string | null;
   degradation_reason: string | null;
   history: HistoryPoint[];
   forecast: ForecastPoint[];
-  stats: {
-    daily_trend_pct: number;
-    last_close: number;
-  };
+  stats: PredictStats;
+  summary: PredictionSummary;
+  evaluation: PredictionEvaluation | null;
   disclaimer: string;
 }
-

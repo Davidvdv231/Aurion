@@ -1,24 +1,48 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 
+import type { ConfidenceTier } from "@/api/types";
 import { theme } from "@/theme/theme";
 
 interface ConfidenceMeterProps {
-  value: number;
+  tier: ConfidenceTier;
+  probabilityUp?: number | null;
+  degraded?: boolean;
 }
 
-export function ConfidenceMeter({ value }: ConfidenceMeterProps) {
-  const pct = Math.max(0, Math.min(100, Math.round(value * 100)));
+const tierWidths: Record<ConfidenceTier, string> = {
+  low: "30%",
+  medium: "60%",
+  high: "90%",
+};
+
+const tierLabels: Record<ConfidenceTier, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+};
+
+export function ConfidenceMeter({ tier, probabilityUp, degraded = false }: ConfidenceMeterProps) {
+  const captionParts: string[] = [];
+  if (typeof probabilityUp === "number") {
+    captionParts.push(`Probability up: ${Math.round(Math.max(0, Math.min(1, probabilityUp)) * 100)}%.`);
+  }
+  if (degraded) {
+    captionParts.push("Fallback conditions applied.");
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.labelRow}>
         <Text style={styles.label}>Confidence</Text>
-        <Text style={styles.value}>{pct}%</Text>
+        <Text style={styles.value}>{tierLabels[tier]}</Text>
       </View>
       <View style={styles.track}>
-        <View style={[styles.fill, { width: `${pct}%` }]} />
+        <View style={[styles.fill, { width: tierWidths[tier] }]} />
       </View>
-      <Text style={styles.caption}>Probabilistic score based on historical patterns and uncertainty.</Text>
+      <Text style={styles.caption}>
+        {captionParts.join(" ") || "Confidence tier reflects forecast band width and validation quality."}
+      </Text>
     </View>
   );
 }
@@ -58,4 +82,3 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 });
-
