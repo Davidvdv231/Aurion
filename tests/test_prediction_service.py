@@ -7,7 +7,7 @@ import pandas as pd
 
 from backend.config import Settings
 from backend.errors import ServiceError
-from backend.ml.model import BacktestMetrics, ForecastResult
+from backend.ml.model import BacktestMetrics, FeatureContribution, ForecastResult
 from backend.models import PredictRequest
 from backend.services.cache import CacheBackend
 from backend.services.market_data import MarketSeries
@@ -98,6 +98,16 @@ def test_prediction_service_uses_ml_engine_when_quality_gate_passes(monkeypatch)
                 lower=[205.0, 207.0],
                 upper=[215.0, 217.0],
                 neighbors_used=12,
+                top_features=[
+                    FeatureContribution(
+                        feature="momentum_10",
+                        contribution=0.62,
+                        value=0.041,
+                        direction="bullish",
+                    )
+                ],
+                avg_neighbor_distance=0.13,
+                nearest_analog_date="2024-11-08",
             ),
             BacktestMetrics(
                 mae=2.4,
@@ -117,9 +127,12 @@ def test_prediction_service_uses_ml_engine_when_quality_gate_passes(monkeypatch)
     assert response.engine_requested == "ml"
     assert response.engine_used == "ml"
     assert response.source.forecast == "ml_analog"
+    assert response.source.analysis == "ml_analog"
     assert response.degraded is False
     assert response.evaluation is not None
     assert response.evaluation.directional_accuracy == 0.71
+    assert response.explanation is not None
+    assert response.explanation.nearest_analog_date == "2024-11-08"
 
 
 def test_prediction_service_falls_back_to_stat_when_ml_quality_is_insufficient(monkeypatch) -> None:
@@ -133,6 +146,16 @@ def test_prediction_service_falls_back_to_stat_when_ml_quality_is_insufficient(m
                 lower=[205.0, 206.0],
                 upper=[215.0, 216.0],
                 neighbors_used=12,
+                top_features=[
+                    FeatureContribution(
+                        feature="rsi_14",
+                        contribution=0.8,
+                        value=68.0,
+                        direction="bullish",
+                    )
+                ],
+                avg_neighbor_distance=0.17,
+                nearest_analog_date="2024-09-18",
             ),
             BacktestMetrics(
                 mae=4.2,
@@ -153,8 +176,13 @@ def test_prediction_service_falls_back_to_stat_when_ml_quality_is_insufficient(m
     assert response.degraded is True
     assert response.degradation_code == "model_quality_insufficient"
     assert response.source.forecast == "stat_fallback"
+    assert response.source.analysis == "ml_analog"
     assert response.evaluation is not None
     assert response.evaluation.validation_windows == 3
+    assert response.explanation is not None
+    assert response.explanation.nearest_analog_date == "2024-09-18"
+    assert response.explanation.top_features[0].feature == "rsi_14"
+    assert "closest historical patterns" in response.explanation.narrative
 
 
 def test_prediction_service_falls_back_to_stat_when_ml_runtime_fails(monkeypatch) -> None:
@@ -174,6 +202,8 @@ def test_prediction_service_falls_back_to_stat_when_ml_runtime_fails(monkeypatch
     assert response.degradation_message is not None
     assert "model offline" in response.degradation_message
     assert response.source.forecast == "stat_fallback"
+    assert response.source.analysis is None
+    assert response.explanation is None
 
 
 def test_prediction_service_falls_back_to_stat_when_ai_provider_fails(monkeypatch) -> None:
@@ -203,3 +233,5 @@ def test_prediction_service_falls_back_to_stat_when_ai_provider_fails(monkeypatc
     assert response.degradation_code == "ai_provider_unavailable"
     assert response.degradation_message == "AI unavailable (OpenAI niet bereikbaar.). Fell back to statistical forecast."
     assert response.source.forecast == "stat_fallback"
+    assert response.source.analysis is None
+    assert response.explanation is None

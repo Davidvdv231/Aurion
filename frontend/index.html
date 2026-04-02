@@ -196,6 +196,21 @@
           </div>
         </div>
 
+        <!-- Explanation Card (analysis details, collapsible) -->
+        <div class="card explanation-card" id="explanation-card" data-testid="explanation-card" hidden>
+          <button class="explanation-header" id="explanation-toggle" type="button" aria-expanded="true">
+            <span class="explanation-title">Analysis details</span>
+            <svg class="explanation-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="explanation-body" id="explanation-body">
+            <p class="explanation-source" id="explanation-source" data-testid="explanation-source"></p>
+            <p class="explanation-note" id="explanation-note" data-testid="explanation-note" hidden></p>
+            <p class="explanation-narrative" id="explanation-narrative"></p>
+            <div class="explanation-features" id="explanation-features"></div>
+            <p class="explanation-analog" id="explanation-analog"></p>
+          </div>
+        </div>
+
         <!-- Chart Card -->
         <div class="card chart-card">
           <div class="chart-header" id="chart-header" hidden>

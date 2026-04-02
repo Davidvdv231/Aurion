@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import json
 import logging
-from typing import Any
+from typing import Any, Literal
 from urllib.error import HTTPError, URLError
 from urllib.request import Request as UrlRequest, urlopen
 
+import numpy as np
 import pandas as pd
 import yfinance as yf
 
@@ -38,6 +39,8 @@ SUFFIX_CURRENCY_MAP = {
     ".V": "CAD",
 }
 
+DataQuality = Literal["clean", "patched", "degraded"]
+
 
 @dataclass(slots=True)
 class MarketSeries:
@@ -45,6 +48,63 @@ class MarketSeries:
     resolved_symbol: str
     currency: str
     source: str
+    data_quality: DataQuality = "clean"
+    data_warnings: list[str] = field(default_factory=list)
+    stale: bool = False
+
+
+def _check_ohlcv_integrity(close: pd.Series, symbol: str) -> tuple[pd.Series, DataQuality, list[str]]:
+    """Validate and patch OHLCV close series. Returns (patched_series, quality, warnings)."""
+    warnings: list[str] = []
+    quality: DataQuality = "clean"
+
+    # NaN ratio check
+    nan_count = int(close.isna().sum())
+    nan_ratio = nan_count / len(close) if len(close) > 0 else 0.0
+    if nan_ratio > 0.05:
+        warnings.append(f"High NaN ratio ({nan_ratio:.1%}, {nan_count} points) — forward-filled.")
+        quality = "degraded"
+    elif nan_count > 0:
+        warnings.append(f"{nan_count} NaN values forward-filled.")
+        quality = "patched"
+
+    if nan_count > 0:
+        close = close.ffill().bfill()
+
+    # Gap detection (>5 consecutive missing trading days)
+    if hasattr(close.index, "to_series"):
+        day_gaps = close.index.to_series().diff().dt.days
+        max_gap = int(day_gaps.max()) if len(day_gaps) > 1 else 0
+        if max_gap > 7:  # 5 trading days ≈ 7 calendar days
+            warnings.append(f"Suspicious gap of {max_gap} calendar days detected.")
+            if quality == "clean":
+                quality = "patched"
+
+    # Extreme outlier detection (daily return > ±50%)
+    returns = close.pct_change().abs()
+    extreme_count = int((returns > 0.50).sum())
+    if extreme_count > 0:
+        warnings.append(f"{extreme_count} extreme daily moves (>50%) — possible split or data error.")
+        quality = "degraded"
+
+    if warnings:
+        logger.warning("OHLCV integrity issues for %s: %s", symbol, "; ".join(warnings))
+
+    return close, quality, warnings
+
+
+def _check_staleness(close: pd.Series, asset_type: AssetType) -> bool:
+    """Return True if the most recent data point is older than 3 trading days."""
+    if close.empty:
+        return True
+    last_date = pd.Timestamp(close.index[-1])
+    now = pd.Timestamp.now(tz="UTC")
+    if last_date.tzinfo is None:
+        last_date = last_date.tz_localize("UTC")
+    calendar_days = (now - last_date).days
+    # 3 trading days ≈ 5 calendar days (weekends) for stocks, 3 days for crypto (24/7)
+    threshold = 3 if asset_type == "crypto" else 5
+    return calendar_days > threshold
 
 
 def normalize_symbol_input(symbol: str) -> str:
@@ -172,6 +232,17 @@ def fetch_close_prices(
             insufficient_history_matches.append(candidate)
             continue
 
+        close, data_quality, data_warnings = _check_ohlcv_integrity(close, candidate)
+        stale = _check_staleness(close, asset_type)
+        if stale:
+            data_warnings.append("Data may be stale (last point >3 trading days old).")
+            logger.warning("Stale data for %s: last date %s", candidate, close.index[-1])
+
+        # Re-check length after patching (ffill shouldn't reduce it, but be safe)
+        if len(close.dropna()) < 60:
+            insufficient_history_matches.append(candidate)
+            continue
+
         currency = infer_currency(candidate, asset_type=asset_type)
         serialized = {
             "provider": "yfinance",
@@ -186,6 +257,9 @@ def fetch_close_prices(
             resolved_symbol=candidate,
             currency=currency,
             source="yfinance",
+            data_quality=data_quality,
+            data_warnings=data_warnings,
+            stale=stale,
         )
 
     if insufficient_history_matches:

@@ -48,9 +48,28 @@ class PredictionEvaluation(ApiModel):
     validation_windows: int | None = None
 
 
+class ExplanationFeature(ApiModel):
+    feature: str
+    contribution: float
+    value: float
+    direction: Literal["bullish", "bearish", "neutral"]
+
+
+class PredictionExplanation(ApiModel):
+    top_features: list[ExplanationFeature]
+    neighbors_used: int
+    avg_neighbor_distance: float
+    nearest_analog_date: str
+    narrative: str
+
+
 class PredictionSource(ApiModel):
     market_data: str
     forecast: str
+    analysis: str | None = None
+    data_quality: Literal["clean", "patched", "degraded"] = "clean"
+    data_warnings: list[str] = Field(default_factory=list)
+    stale: bool = False
 
 
 class PredictRequest(ApiModel):
@@ -90,12 +109,16 @@ class PredictResponse(ApiModel):
     stats: PredictStats
     summary: PredictionSummary
     evaluation: PredictionEvaluation | None = None
+    explanation: PredictionExplanation | None = None
     disclaimer: str
 
 
 class HealthResponse(ApiModel):
     status: str
     timestamp: str
+    redis: str = "not_configured"
+    cache_size: int = 0
+    uptime_seconds: int = 0
 
 
 class TickerItem(ApiModel):

@@ -39,6 +39,15 @@ const evalMape = document.getElementById("eval-mape");
 const sourceBadgeNode = document.getElementById("source-badge");
 const degradedBadgeNode = document.getElementById("degraded-badge");
 
+// Explanation card
+const explanationCard = document.getElementById("explanation-card");
+const explanationSource = document.getElementById("explanation-source");
+const explanationNote = document.getElementById("explanation-note");
+const explanationNarrative = document.getElementById("explanation-narrative");
+const explanationFeatures = document.getElementById("explanation-features");
+const explanationAnalog = document.getElementById("explanation-analog");
+const explanationToggle = document.getElementById("explanation-toggle");
+
 // Disclaimer banner
 const disclaimerBanner = document.getElementById("disclaimer-banner");
 
@@ -206,6 +215,17 @@ function formatPercent(value) {
   return `${sign}${value.toFixed(2)}%`;
 }
 
+function formatSourceLabel(value) {
+  const labels = {
+    stat: "Statistical baseline",
+    stat_fallback: "Statistical fallback",
+    ml_analog: "ML analog analysis",
+    ai: "AI forecast",
+    unknown: "Unknown",
+  };
+  return labels[value] || String(value || "Unknown").replace(/_/g, " ");
+}
+
 // =============================================
 // UI STATE
 // =============================================
@@ -217,6 +237,7 @@ function hideSuggestions() {
 
 function clearResults() {
   signalCard.hidden = true;
+  explanationCard.hidden = true;
   disclaimerBanner.hidden = true;
   chartHeader.hidden = true;
   chartEmpty.hidden = false;
@@ -579,17 +600,29 @@ function renderChart(data) {
           },
         },
         tooltip: {
-          backgroundColor: "rgba(0,0,0,0.8)",
+          backgroundColor: "rgba(0,0,0,0.85)",
           titleFont: { size: 12 },
           bodyFont: { size: 12 },
-          padding: 10,
+          padding: 12,
           cornerRadius: 8,
           displayColors: false,
           callbacks: {
             label: (ctx) => {
               if (ctx.dataset.label?.startsWith("_")) return null;
+              if (ctx.dataset.label === "Confidence Band") return null;
               const val = ctx.parsed.y;
-              return val !== null ? `${ctx.dataset.label}: ${val.toFixed(2)}` : null;
+              if (val === null) return null;
+              return `${ctx.dataset.label}: ${val.toFixed(2)}`;
+            },
+            afterBody: (items) => {
+              if (!items.length) return "";
+              const idx = items[0].dataIndex;
+              const upper = upperBand[idx];
+              const lower = lowerBand[idx];
+              if (upper != null && lower != null) {
+                return `Band: ${lower.toFixed(2)} \u2013 ${upper.toFixed(2)}`;
+              }
+              return "";
             },
           },
         },
@@ -636,12 +669,13 @@ function updateSignalCard(data) {
   metricTrend.textContent = summary.trend.charAt(0).toUpperCase() + summary.trend.slice(1);
   metricTrend.className = `metric-value ${summary.trend === "bullish" ? "positive" : summary.trend === "bearish" ? "negative" : ""}`;
 
-  // Confidence tier
+  // Confidence tier + probability readout
   const tier = summary.confidence_tier || "low";
   const tierWidths = { low: "30%", medium: "60%", high: "90%" };
   const tierLabels = { low: "Low", medium: "Medium", high: "High" };
   confidenceFill.style.width = tierWidths[tier] || "30%";
-  confidenceValue.textContent = tierLabels[tier] || tier;
+  const probPct = (summary.probability_up * 100).toFixed(0);
+  confidenceValue.textContent = `${tierLabels[tier] || tier} (${probPct}%)`;
   confidenceFill.setAttribute("data-level", tier);
 
   // Evaluation metrics
@@ -673,6 +707,47 @@ function updateSignalCard(data) {
 
   // Show watchlist add button
   watchlistAddBtn.hidden = false;
+
+  // Explanation card
+  if (data.explanation && data.explanation.top_features?.length > 0) {
+    explanationCard.hidden = false;
+    explanationSource.textContent = `Forecast source: ${formatSourceLabel(data.source.forecast)}. Explanation source: ${formatSourceLabel(data.source.analysis)}.`;
+    if (data.source.analysis && data.source.analysis !== data.source.forecast) {
+      explanationNote.hidden = false;
+      explanationNote.textContent = "Final forecast uses the statistical fallback. This explanation summarizes the ML analog analysis that ran before the quality gate rejected it.";
+    } else {
+      explanationNote.hidden = true;
+      explanationNote.textContent = "";
+    }
+    explanationNarrative.textContent = data.explanation.narrative || "";
+
+    // Render feature bars
+    explanationFeatures.innerHTML = "";
+    const maxContrib = Math.max(...data.explanation.top_features.map((f) => f.contribution), 0.01);
+    for (const feat of data.explanation.top_features) {
+      const barPct = Math.round((feat.contribution / maxContrib) * 100);
+      const dirClass = feat.direction === "bullish" ? "positive" : feat.direction === "bearish" ? "negative" : "";
+      const row = document.createElement("div");
+      row.className = "explain-feature";
+      row.innerHTML = `
+        <span class="explain-feature-name">${feat.feature.replace(/_/g, " ")}</span>
+        <div class="explain-bar-track">
+          <div class="explain-bar-fill ${dirClass}" style="width: ${barPct}%"></div>
+        </div>
+        <span class="explain-feature-dir ${dirClass}">${feat.direction}</span>
+      `;
+      explanationFeatures.appendChild(row);
+    }
+
+    explanationAnalog.textContent = data.explanation.nearest_analog_date
+      ? `Nearest analog: ${data.explanation.nearest_analog_date}`
+      : "";
+  } else {
+    explanationCard.hidden = true;
+    explanationSource.textContent = "";
+    explanationNote.hidden = true;
+    explanationNote.textContent = "";
+  }
 }
 
 // =============================================
@@ -721,12 +796,17 @@ function normalizePredictResponse(payload) {
     source: {
       market_data: payload?.source?.market_data || "unknown",
       forecast: payload?.source?.forecast || "unknown",
+      analysis: payload?.source?.analysis ?? null,
+      data_quality: payload?.source?.data_quality || "clean",
+      data_warnings: Array.isArray(payload?.source?.data_warnings) ? payload.source.data_warnings : [],
+      stale: Boolean(payload?.source?.stale),
     },
     degraded: Boolean(payload?.degraded),
     degradation_code: payload?.degradation_code ?? null,
     degradation_message: degradationMessage,
     degradation_reason: degradationMessage,
     evaluation: payload?.evaluation ?? null,
+    explanation: payload?.explanation ?? null,
     summary: {
       expected_price: expectedPrice,
       expected_return_pct: expectedReturnPct,
@@ -775,6 +855,9 @@ async function loadPrediction(event) {
   symbolInput.value = symbol;
   hideSuggestions();
   clearResults();
+  // Show skeleton loaders while fetching
+  signalCard.hidden = false;
+  signalCard.classList.add("skeleton-loading");
   setLoading(true);
   setStatus(`Analyzing ${symbol}...`);
 
@@ -788,6 +871,7 @@ async function loadPrediction(event) {
     if (currentId !== state.predictionRequestId) return;
 
     try {
+      signalCard.classList.remove("skeleton-loading");
       chartEmpty.hidden = true;
       chartCanvas.hidden = false;
       chartHeader.hidden = false;
@@ -828,6 +912,14 @@ symbolInput.addEventListener("focus", queueSuggestionsLoad);
 symbolInput.addEventListener("keydown", handleSuggestionKeyboard);
 document.addEventListener("click", (e) => { if (!e.target.closest(".autocomplete-wrap")) hideSuggestions(); });
 themeToggle.addEventListener("click", toggleTheme);
+
+// Explanation toggle
+explanationToggle.addEventListener("click", () => {
+  const body = document.getElementById("explanation-body");
+  const isOpen = !body.hidden;
+  body.hidden = isOpen;
+  explanationToggle.setAttribute("aria-expanded", String(!isOpen));
+});
 
 // Watchlist add
 watchlistAddBtn.addEventListener("click", () => {

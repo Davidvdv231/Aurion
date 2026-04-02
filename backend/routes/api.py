@@ -19,6 +19,7 @@ from backend.services.cache import CacheBackend
 from backend.services.market_data import (
     resolve_top_assets,
 )
+from backend.services.metrics import PredictionMetrics
 from backend.services.prediction import build_prediction_response
 from backend.services.rate_limit import RateLimiter
 from backend.ticker_catalog import AssetType, search_tickers
@@ -38,18 +39,49 @@ def _rate_limiter(request: FastAPIRequest) -> RateLimiter:
     return request.app.state.rate_limiter
 
 
+def _metrics(request: FastAPIRequest) -> PredictionMetrics:
+    return request.app.state.metrics
+
+
 async def _predict_impl(request: FastAPIRequest, payload: PredictRequest) -> PredictResponse:
     _rate_limiter(request).enforce_predict_limit(request=request, engine=payload.engine)
     return await build_prediction_response(
         payload,
         settings=_settings(request),
         cache_backend=_cache_backend(request),
+        metrics=_metrics(request),
     )
 
 
 @router.get("/api/health", response_model=HealthResponse)
-def health() -> HealthResponse:
-    return HealthResponse(status="ok", timestamp=datetime.now(timezone.utc).isoformat())
+def health(request: FastAPIRequest) -> HealthResponse:
+    import time as _time
+    from backend.app import _BOOT_TIME
+
+    cache = _cache_backend(request)
+    uptime = int(_time.monotonic() - _BOOT_TIME)
+
+    # Check Redis connectivity
+    redis_status = "not_configured"
+    if cache._redis is not None:
+        try:
+            cache._redis.ping()
+            redis_status = "connected"
+        except Exception:
+            redis_status = "unavailable"
+
+    return HealthResponse(
+        status="ok",
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        redis=redis_status,
+        cache_size=len(cache._memory._items),
+        uptime_seconds=uptime,
+    )
+
+
+@router.get("/api/metrics")
+def metrics(request: FastAPIRequest) -> dict:
+    return _metrics(request).snapshot()
 
 
 @router.get("/api/tickers", response_model=TickerSearchResponse)

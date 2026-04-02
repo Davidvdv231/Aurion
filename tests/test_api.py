@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from backend.ml.model import BacktestMetrics, ForecastResult
+from backend.ml.model import BacktestMetrics, FeatureContribution, ForecastResult
 from backend.errors import ServiceError
 from backend.services.market_data import MarketSeries
 
@@ -24,7 +24,10 @@ def _assert_predict_contract(payload: dict, *, evaluation_expected: bool) -> Non
     assert payload["engine_used"] in {"stat", "ml", "ai", "stat_fallback", "ml_fallback"}
     assert payload["model_name"]
     assert payload["engine_note"]
-    assert set(payload["source"]) == {"market_data", "forecast"}
+    assert {"market_data", "forecast", "analysis", "data_quality", "data_warnings", "stale"} <= set(payload["source"])
+    assert payload["source"]["data_quality"] in {"clean", "patched", "degraded"}
+    assert isinstance(payload["source"]["data_warnings"], list)
+    assert isinstance(payload["source"]["stale"], bool)
     assert set(payload["stats"]) == {"daily_trend_pct", "last_close"}
     assert set(payload["summary"]) == {
         "expected_price",
@@ -69,6 +72,17 @@ def _assert_predict_contract(payload: dict, *, evaluation_expected: bool) -> Non
     else:
         assert payload["evaluation"] is None
 
+    if payload["explanation"] is not None:
+        assert set(payload["explanation"]) == {
+            "top_features",
+            "neighbors_used",
+            "avg_neighbor_distance",
+            "nearest_analog_date",
+            "narrative",
+        }
+        assert isinstance(payload["explanation"]["top_features"], list)
+        assert payload["source"]["analysis"]
+
 
 def test_predict_success_returns_typed_contract(client, monkeypatch) -> None:
     monkeypatch.setattr(
@@ -92,7 +106,9 @@ def test_predict_success_returns_typed_contract(client, monkeypatch) -> None:
     assert payload["currency"] == "USD"
     assert payload["engine_requested"] == "stat"
     assert payload["engine_used"] == "stat"
-    assert payload["source"] == {"market_data": "yfinance", "forecast": "stat"}
+    assert payload["source"]["market_data"] == "yfinance"
+    assert payload["source"]["forecast"] == "stat"
+    assert payload["source"]["data_quality"] == "clean"
     assert payload["degraded"] is False
     assert payload["summary"]["confidence_tier"] in {"low", "medium", "high"}
 
@@ -195,6 +211,16 @@ def test_predict_degrades_to_statistical_fallback_when_ml_quality_gate_fails(cli
                 lower=[205.0, 206.0],
                 upper=[215.0, 216.0],
                 neighbors_used=12,
+                top_features=[
+                    FeatureContribution(
+                        feature="rsi_14",
+                        contribution=0.8,
+                        value=68.0,
+                        direction="bullish",
+                    )
+                ],
+                avg_neighbor_distance=0.17,
+                nearest_analog_date="2024-09-18",
             ),
             BacktestMetrics(
                 mae=4.2,
@@ -225,8 +251,12 @@ def test_predict_degrades_to_statistical_fallback_when_ml_quality_gate_fails(cli
     )
     assert payload["degradation_reason"] == payload["degradation_message"]
     assert payload["source"]["forecast"] == "stat_fallback"
+    assert payload["source"]["analysis"] == "ml_analog"
     assert payload["evaluation"]["directional_accuracy"] == 0.45
     assert payload["evaluation"]["validation_windows"] == 3
+    assert payload["explanation"] is not None
+    assert payload["explanation"]["nearest_analog_date"] == "2024-09-18"
+    assert payload["explanation"]["top_features"][0]["feature"] == "rsi_14"
 
 
 def test_predict_degrades_to_statistical_fallback_when_ai_fails(client, monkeypatch) -> None:

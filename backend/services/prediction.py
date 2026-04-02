@@ -4,14 +4,17 @@ import asyncio
 from datetime import datetime, timezone
 import logging
 import math
+import time
 from functools import partial
 
 from backend.config import Settings
 from backend.errors import ServiceError
 from backend.models import (
+    ExplanationFeature,
     PredictRequest,
     PredictResponse,
     PredictionEvaluation,
+    PredictionExplanation,
     PredictionSource,
     PredictionSummary,
 )
@@ -19,6 +22,7 @@ from backend.services.ai import build_ai_forecast
 from backend.services.cache import CacheBackend
 from backend.services.forecast import build_stat_forecast
 from backend.services.market_data import fetch_close_prices, normalize_symbol_input
+from backend.services.metrics import PredictionMetrics
 
 logger = logging.getLogger("stock_predictor.prediction")
 
@@ -117,13 +121,108 @@ def _build_summary(
     )
 
 
+_FEATURE_LABELS: dict[str, str] = {
+    "rsi_14": "RSI (14)",
+    "macd": "MACD line",
+    "macd_signal": "MACD signal",
+    "macd_hist": "MACD histogram",
+    "momentum_10": "10-day momentum",
+    "bb_bandwidth": "Bollinger bandwidth",
+    "bb_position": "Bollinger position",
+    "volatility_5": "5-day volatility",
+    "volatility_20": "20-day volatility",
+    "return_1": "1-day return",
+    "return_5": "5-day return",
+    "sma_5": "SMA-5 gap",
+    "sma_10": "SMA-10 gap",
+    "sma_20": "SMA-20 gap",
+    "sma_50": "SMA-50 gap",
+    "ema_12": "EMA-12 gap",
+    "ema_26": "EMA-26 gap",
+    "volume_change_5": "5-day volume change",
+    "volume_zscore_20": "Volume z-score (20)",
+    "price_to_sma_20": "Price-to-SMA20 ratio",
+    "high_low_range": "High-low range",
+    "close_open_gap": "Close-open gap",
+    "log_return_1": "Log return (1d)",
+}
+
+
+def _build_narrative(
+    top_features: list[ExplanationFeature],
+    summary: PredictionSummary,
+    neighbors_used: int,
+    nearest_analog_date: str,
+) -> str:
+    """Generate a plain-English explanation of the prediction."""
+    parts: list[str] = []
+
+    # Lead with the most influential feature
+    if top_features:
+        f = top_features[0]
+        label = _FEATURE_LABELS.get(f.feature, f.feature)
+        if f.feature == "rsi_14":
+            rsi_val = f.value
+            if rsi_val > 70:
+                parts.append(f"{label} at {rsi_val:.0f} suggests overbought conditions.")
+            elif rsi_val < 30:
+                parts.append(f"{label} at {rsi_val:.0f} suggests oversold conditions.")
+            else:
+                parts.append(f"{label} at {rsi_val:.0f} is in a neutral zone.")
+        elif "volatility" in f.feature:
+            parts.append(f"{label} is elevated, widening the uncertainty range.")
+        elif "momentum" in f.feature or "return" in f.feature:
+            direction = "positive" if f.value > 0 else "negative"
+            parts.append(f"{label} is {direction} ({f.value:+.2%}), driving the signal.")
+        else:
+            parts.append(f"{label} is the strongest differentiator from historical analogs.")
+
+    # Analog context
+    parts.append(
+        f"The {neighbors_used} closest historical patterns averaged a "
+        f"{summary.expected_return_pct:+.1f}% move over the forecast horizon."
+    )
+
+    # Confidence reasoning
+    tier = summary.confidence_tier
+    if tier == "high":
+        parts.append("Confidence is high because forecast bands are tight relative to expected return.")
+    elif tier == "low":
+        parts.append("Confidence is low because bands are wide — the outcome is uncertain.")
+    else:
+        parts.append("Confidence is medium — bands are moderate relative to expected return.")
+
+    if nearest_analog_date:
+        parts.append(f"Nearest analog period: {nearest_analog_date}.")
+
+    return " ".join(parts)
+
+
+def _build_explanation(meta: dict, summary: PredictionSummary) -> PredictionExplanation:
+    narrative = _build_narrative(
+        meta["features"],
+        summary,
+        meta["neighbors_used"],
+        meta["nearest_analog_date"],
+    )
+    return PredictionExplanation(
+        top_features=meta["features"],
+        neighbors_used=meta["neighbors_used"],
+        avg_neighbor_distance=meta["avg_neighbor_distance"],
+        nearest_analog_date=meta["nearest_analog_date"],
+        narrative=narrative,
+    )
+
+
 async def build_prediction_response(
     payload: PredictRequest,
     *,
     settings: Settings,
     cache_backend: CacheBackend,
+    metrics: PredictionMetrics | None = None,
 ) -> PredictResponse:
     ticker = normalize_symbol_input(payload.symbol)
+    t_start = time.perf_counter()
     _log_prediction_event(
         logging.INFO,
         "prediction.started",
@@ -134,6 +233,7 @@ async def build_prediction_response(
     )
 
     loop = asyncio.get_running_loop()
+    t_market = time.perf_counter()
     market_series = await loop.run_in_executor(
         None,
         partial(
@@ -145,6 +245,8 @@ async def build_prediction_response(
         ),
     )
 
+    market_data_ms = round((time.perf_counter() - t_market) * 1000, 1)
+
     history, stat_forecast, stats = build_stat_forecast(
         market_series.close,
         payload.horizon,
@@ -155,16 +257,27 @@ async def build_prediction_response(
     model_name = "Statistical Trend"
     engine_note = "Log-linear statistical trend model on historical prices."
     forecast = stat_forecast
-    source = PredictionSource(market_data=market_series.source, forecast="stat")
+    source = PredictionSource(
+        market_data=market_series.source,
+        forecast="stat",
+        analysis=None,
+        data_quality=market_series.data_quality,
+        data_warnings=market_series.data_warnings,
+        stale=market_series.stale,
+    )
     degraded, degradation_code, degradation_message, degradation_reason = _degradation_fields(
         degraded=False,
     )
     evaluation = None
+    explanation = None
+    _ml_explain_meta: dict | None = None
+    model_ms: float | None = None
 
     if payload.engine == "ml":
         try:
             from backend.ml.service import train_and_predict
 
+            t_model = time.perf_counter()
             ml_result, ml_metrics = await loop.run_in_executor(
                 None,
                 partial(
@@ -176,6 +289,7 @@ async def build_prediction_response(
                 ),
             )
 
+            model_ms = round((time.perf_counter() - t_model) * 1000, 1)
             forecast = [
                 {
                     "date": ml_result.dates[i],
@@ -192,6 +306,22 @@ async def build_prediction_response(
                 directional_accuracy=ml_metrics.directional_accuracy,
                 validation_windows=ml_metrics.validation_windows,
             )
+            ml_summary = _build_summary(forecast, stats, evaluation)
+            _ml_explain_meta = {
+                "neighbors_used": ml_result.neighbors_used,
+                "avg_neighbor_distance": ml_result.avg_neighbor_distance,
+                "nearest_analog_date": ml_result.nearest_analog_date,
+                "features": [
+                    ExplanationFeature(
+                        feature=fc.feature,
+                        contribution=fc.contribution,
+                        value=fc.value,
+                        direction=fc.direction,
+                    )
+                    for fc in ml_result.top_features
+                ],
+                "summary": ml_summary,
+            }
 
             if ml_metrics.validation_windows >= 2 and ml_metrics.directional_accuracy < 0.50:
                 _log_prediction_event(
@@ -226,7 +356,14 @@ async def build_prediction_response(
                         "Returned the statistical fallback forecast instead."
                     ),
                 )
-                source = PredictionSource(market_data=market_series.source, forecast="stat_fallback")
+                source = PredictionSource(
+                    market_data=market_series.source,
+                    forecast="stat_fallback",
+                    analysis="ml_analog",
+                    data_quality=market_series.data_quality,
+                    data_warnings=market_series.data_warnings,
+                    stale=market_series.stale,
+                )
             else:
                 engine_used = "ml"
                 model_name = "Aurion Analog Forecaster"
@@ -234,7 +371,14 @@ async def build_prediction_response(
                     f"Pattern-matching ML model using {ml_result.neighbors_used} nearest historical analogs "
                     f"with {len(market_series.close)} data points."
                 )
-                source = PredictionSource(market_data=market_series.source, forecast="ml_analog")
+                source = PredictionSource(
+                    market_data=market_series.source,
+                    forecast="ml_analog",
+                    analysis="ml_analog",
+                    data_quality=market_series.data_quality,
+                    data_warnings=market_series.data_warnings,
+                    stale=market_series.stale,
+                )
 
         except Exception as exc:
             _log_prediction_event(
@@ -260,10 +404,18 @@ async def build_prediction_response(
                 code="ml_engine_unavailable",
                 message=f"ML engine unavailable ({exc}). Fell back to statistical forecast.",
             )
-            source = PredictionSource(market_data=market_series.source, forecast="stat_fallback")
+            source = PredictionSource(
+                market_data=market_series.source,
+                forecast="stat_fallback",
+                analysis=None,
+                data_quality=market_series.data_quality,
+                data_warnings=market_series.data_warnings,
+                stale=market_series.stale,
+            )
 
     elif payload.engine == "ai":
         try:
+            t_model = time.perf_counter()
             ai_forecast, ai_model = await loop.run_in_executor(
                 None,
                 partial(
@@ -275,11 +427,19 @@ async def build_prediction_response(
                     settings=settings,
                 ),
             )
+            model_ms = round((time.perf_counter() - t_model) * 1000, 1)
             forecast = ai_forecast
             engine_used = "ai"
             model_name = ai_model["model"]
             engine_note = f"AI forecast via {ai_model['provider']} ({ai_model['model']})."
-            source = PredictionSource(market_data=market_series.source, forecast=ai_model["source"])
+            source = PredictionSource(
+                market_data=market_series.source,
+                forecast=ai_model["source"],
+                analysis=None,
+                data_quality=market_series.data_quality,
+                data_warnings=market_series.data_warnings,
+                stale=market_series.stale,
+            )
         except ServiceError as exc:
             _log_prediction_event(
                 logging.WARNING,
@@ -304,9 +464,19 @@ async def build_prediction_response(
                 code="ai_provider_unavailable",
                 message=f"AI unavailable ({exc.message}). Fell back to statistical forecast.",
             )
-            source = PredictionSource(market_data=market_series.source, forecast="stat_fallback")
+            source = PredictionSource(
+                market_data=market_series.source,
+                forecast="stat_fallback",
+                analysis=None,
+                data_quality=market_series.data_quality,
+                data_warnings=market_series.data_warnings,
+                stale=market_series.stale,
+            )
 
     summary = _build_summary(forecast, stats, evaluation)
+
+    if _ml_explain_meta is not None:
+        explanation = _build_explanation(_ml_explain_meta, _ml_explain_meta["summary"])
 
     response = PredictResponse(
         symbol=market_series.resolved_symbol,
@@ -329,8 +499,10 @@ async def build_prediction_response(
         stats=stats,
         summary=summary,
         evaluation=evaluation,
+        explanation=explanation,
         disclaimer="This is a statistical/AI estimate and not financial advice. Past performance does not guarantee future results.",
     )
+    total_ms = round((time.perf_counter() - t_start) * 1000, 1)
     _log_prediction_event(
         logging.INFO,
         "prediction.completed",
@@ -342,6 +514,19 @@ async def build_prediction_response(
         degradation_code=response.degradation_code,
         market_data_source=response.source.market_data,
         forecast_source=response.source.forecast,
+        analysis_source=response.source.analysis,
+        data_quality=response.source.data_quality,
+        stale=response.source.stale,
         validation_windows=response.evaluation.validation_windows if response.evaluation else None,
+        market_data_ms=market_data_ms,
+        model_ms=model_ms,
+        total_ms=total_ms,
     )
+    if metrics is not None:
+        metrics.record_prediction(
+            engine_used=response.engine_used,
+            total_ms=total_ms,
+            degraded=response.degraded,
+            degradation_code=response.degradation_code,
+        )
     return response

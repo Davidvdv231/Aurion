@@ -1,5 +1,5 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { type DimensionValue, StyleSheet, Text, View } from "react-native";
 
 import type { ConfidenceTier } from "@/api/types";
 import { theme } from "@/theme/theme";
@@ -10,7 +10,7 @@ interface ConfidenceMeterProps {
   degraded?: boolean;
 }
 
-const tierWidths: Record<ConfidenceTier, string> = {
+const tierWidths: Record<ConfidenceTier, DimensionValue> = {
   low: "30%",
   medium: "60%",
   high: "90%",

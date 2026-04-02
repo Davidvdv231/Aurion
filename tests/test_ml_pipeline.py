@@ -1,6 +1,8 @@
 """Tests for the ML pipeline: feature engineering, model training, and prediction."""
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 
@@ -79,11 +81,13 @@ def test_model_rejects_insufficient_data() -> None:
 
     model = AnalogForecastModel(lookback=45, horizon=5, n_neighbors=15)
 
-    try:
-        model.fit(close, ohlcv=short_df)
-        assert False, "Expected ValueError for insufficient data"
-    except ValueError:
-        pass
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        try:
+            model.fit(close, ohlcv=short_df)
+            assert False, "Expected ValueError for insufficient data"
+        except ValueError:
+            pass
 
 
 def test_train_and_predict_cache_separates_models_by_horizon() -> None:

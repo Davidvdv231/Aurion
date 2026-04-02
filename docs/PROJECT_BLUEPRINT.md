@@ -5,7 +5,26 @@
 - Phase 1 credibility fixes are complete.
 - P1 is complete: prediction orchestration is extracted from the FastAPI route, the web client has a small response-normalization boundary, and mobile rendering semantics align with the backend contract.
 - P1.5 is complete: prediction execution now emits structured start/completion/fallback logs, and service-level branching/fallback tests cover `stat`, `ml`, and compatibility `ai` paths.
-- Mobile is not installed in this workspace yet. The intended local readiness check is `npm install` followed by `npm run typecheck` inside `mobile/`.
+- P2 Sprint 1 is complete:
+  - OHLCV integrity checks: NaN ratio, gap detection, extreme outlier detection. Series is forward-filled and quality is flagged as `clean`, `patched`, or `degraded` in `PredictionSource`.
+  - Feature NaN guard: `compute_features()` now forward-fills and drops any remaining NaN rows with logging.
+  - Staleness detection: if the latest data point is >3 trading days old, `MarketSeries.stale=True` and a warning is included in the response.
+  - Timing instrumentation: `market_data_ms`, `model_ms`, and `total_ms` are logged in `prediction.completed`.
+  - JSON structured logging: all logs are now emitted as single-line JSON objects for aggregation.
+  - Deep health check: `/api/health` now reports Redis status, in-memory cache size, and process uptime.
+  - Mobile stabilized: dependencies installed, `@types/react-native` removed (RN 0.74 ships own types), `ConfidenceMeter` `DimensionValue` type fixed. `npm run typecheck` passes clean.
+  - Full Python test suite passes: 25/25.
+- P2 Sprint 2 is complete:
+  - Explainability: analog forecaster now computes top-5 feature contributions (weighted feature deltas from nearest neighbors), average neighbor distance, and nearest analog date.
+  - `PredictionExplanation` model added to response: `top_features`, `neighbors_used`, `avg_neighbor_distance`, `nearest_analog_date`, `narrative`.
+  - Plain-English narrative generator: template-driven, covers RSI levels, momentum direction, volatility, analog context, confidence reasoning, and nearest analog date.
+  - Web: collapsible "Why this prediction?" card with colored horizontal feature bars, narrative text, and nearest analog date. `data-testid="explanation-card"`.
+  - Web: Chart.js tooltips enhanced with confidence band range display. Probability readout added next to confidence meter (e.g., "High (72%)").
+  - Web: skeleton shimmer loader on signal card while prediction is in-flight.
+  - Web: `normalizePredictResponse` updated to pass through `source.data_quality`, `source.data_warnings`, `source.stale`, and `explanation`.
+  - `/api/metrics` endpoint: returns `predictions_total`, `predictions_by_engine`, `fallbacks_total`, `fallbacks_by_code`, `rate_limit_429_total`, `avg_prediction_ms`, `p95_prediction_ms`.
+  - `PredictionMetrics` in-memory counter with thread-safe recording, integrated into prediction service.
+  - Full Python test suite passes: 25/25. Mobile typecheck: 0 errors.
 
 ## Solution Summary
 

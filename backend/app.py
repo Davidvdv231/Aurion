@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import logging
+import time
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -17,13 +19,35 @@ from backend.config import get_settings
 from backend.errors import ErrorEnvelope, ServiceError
 from backend.routes import router as api_router
 from backend.services.cache import CacheBackend
+from backend.services.metrics import PredictionMetrics
 from backend.services.rate_limit import RateLimiter
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+class _JsonFormatter(logging.Formatter):
+    """Emit one JSON object per log line for structured log aggregation."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        entry: dict = {
+            "ts": self.formatTime(record, self.datefmt),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        # Merge prediction_* extras from structured logging
+        for key, value in record.__dict__.items():
+            if key.startswith("prediction_"):
+                entry[key] = value
+        if record.exc_info and record.exc_info[0] is not None:
+            entry["exc"] = self.formatException(record.exc_info)
+        return json.dumps(entry, default=str)
+
+
+_handler = logging.StreamHandler()
+_handler.setFormatter(_JsonFormatter())
+logging.basicConfig(level=logging.INFO, handlers=[_handler])
 logger = logging.getLogger("stock_predictor.app")
+
+# Record process start time for uptime reporting
+_BOOT_TIME = time.monotonic()
 
 # Maximum request body size (1 MB)
 MAX_REQUEST_BODY_BYTES = 1_048_576
@@ -112,6 +136,7 @@ def create_app() -> FastAPI:
     app.state.settings = settings
     app.state.cache_backend = CacheBackend(settings)
     app.state.rate_limiter = RateLimiter(settings)
+    app.state.metrics = PredictionMetrics()
 
     @app.exception_handler(ServiceError)
     async def handle_service_error(_: Request, exc: ServiceError) -> JSONResponse:

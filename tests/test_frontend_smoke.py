@@ -26,7 +26,14 @@ SUCCESS_PREDICTION = {
     "engine_used": "stat",
     "model_name": "Statistical trend",
     "engine_note": "Statistische trend op historische koersdata.",
-    "source": {"market_data": "yfinance", "forecast": "stat"},
+    "source": {
+        "market_data": "yfinance",
+        "forecast": "stat",
+        "analysis": None,
+        "data_quality": "clean",
+        "data_warnings": [],
+        "stale": False,
+    },
     "degraded": False,
     "degradation_code": None,
     "degradation_message": None,
@@ -56,7 +63,41 @@ SUCCESS_PREDICTION = {
         "directional_accuracy": 0.67,
         "validation_windows": 3,
     },
+    "explanation": None,
     "disclaimer": "Dit is een statistische/AI schatting en geen financieel advies.",
+}
+FALLBACK_EXPLANATION_PREDICTION = {
+    **SUCCESS_PREDICTION,
+    "engine_requested": "ml",
+    "engine_used": "stat_fallback",
+    "model_name": "Statistical Fallback",
+    "engine_note": "ML model did not pass quality check and fell back to the statistical forecast.",
+    "source": {
+        "market_data": "yfinance",
+        "forecast": "stat_fallback",
+        "analysis": "ml_analog",
+        "data_quality": "clean",
+        "data_warnings": [],
+        "stale": False,
+    },
+    "degraded": True,
+    "degradation_code": "model_quality_insufficient",
+    "degradation_message": "ML model quality was insufficient for production use. Returned the statistical fallback forecast instead.",
+    "degradation_reason": "ML model quality was insufficient for production use. Returned the statistical fallback forecast instead.",
+    "explanation": {
+        "top_features": [
+            {
+                "feature": "rsi_14",
+                "contribution": 0.8,
+                "value": 68.0,
+                "direction": "bullish",
+            }
+        ],
+        "neighbors_used": 12,
+        "avg_neighbor_distance": 0.17,
+        "nearest_analog_date": "2024-09-18",
+        "narrative": "RSI (14) at 68 is in a neutral zone. The 12 closest historical patterns averaged a +1.7% move over the forecast horizon.",
+    },
 }
 TOP_ASSETS = {
     "generated_at": "2026-03-10T12:00:00+00:00",
@@ -149,7 +190,7 @@ def test_submit_success_flow(page) -> None:
     current_page.wait_for_selector("[data-testid='signal-card']:not([hidden])")
     assert current_page.locator("[data-testid='signal-symbol']").text_content() == "AAPL"
     assert "yfinance / stat" in current_page.locator("[data-testid='source-badge']").text_content()
-    assert current_page.locator("[data-testid='confidence-value']").text_content() == "Medium"
+    assert "Medium" in current_page.locator("[data-testid='confidence-value']").text_content()
     assert current_page.locator("[data-testid='evaluation-row']").is_visible()
     assert current_page.locator("[data-testid='metric-expected']").text_content().strip() != ""
 
@@ -200,6 +241,27 @@ def test_missing_chart_library_shows_friendly_error(page) -> None:
 
     assert current_page.locator("[data-testid='chart-fallback']").is_visible()
     assert current_page.locator("[data-testid='chart-fallback']").text_content().strip() != ""
+
+
+def test_fallback_explanation_is_visible_and_honestly_labeled(page) -> None:
+    current_page, _ = page
+    _mock_top_assets(current_page)
+    current_page.route(
+        "**/api/predict",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(FALLBACK_EXPLANATION_PREDICTION),
+        ),
+    )
+
+    current_page.goto("/", wait_until="domcontentloaded")
+    current_page.click("[data-testid='predict-submit']")
+
+    current_page.wait_for_selector("[data-testid='explanation-card']:not([hidden])")
+    assert "Forecast source: Statistical fallback." in current_page.locator("[data-testid='explanation-source']").text_content()
+    assert "Explanation source: ML analog analysis." in current_page.locator("[data-testid='explanation-source']").text_content()
+    assert "Final forecast uses the statistical fallback." in current_page.locator("[data-testid='explanation-note']").text_content()
 
 
 def test_offline_shell_is_served_from_service_worker(page) -> None:

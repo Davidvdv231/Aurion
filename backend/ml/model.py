@@ -10,12 +10,23 @@ from backend.ml.features import FEATURE_COLUMNS, compute_features
 
 
 @dataclass(slots=True)
+class FeatureContribution:
+    feature: str
+    contribution: float
+    value: float
+    direction: str  # "bullish" | "bearish" | "neutral"
+
+
+@dataclass(slots=True)
 class ForecastResult:
     dates: list[str]
     predicted: np.ndarray
     lower: np.ndarray
     upper: np.ndarray
     neighbors_used: int
+    top_features: list[FeatureContribution] = field(default_factory=list)
+    avg_neighbor_distance: float = 0.0
+    nearest_analog_date: str = ""
 
 
 @dataclass(slots=True)
@@ -99,8 +110,12 @@ class AnalogForecastModel:
             df = pd.DataFrame({"Close": close})
 
         features = compute_features(df)
+        if len(features) <= self.lookback + self.horizon:
+            raise ValueError("Insufficient data to fit model")
+
         feat_matrix = features[FEATURE_COLUMNS].to_numpy(dtype=np.float64)
-        close_arr = close.to_numpy(dtype=np.float64)
+        aligned_close = df["Close"].astype(float).reindex(features.index)
+        close_arr = aligned_close.to_numpy(dtype=np.float64)
 
         # Replace NaN/inf with 0 for normalization
         feat_matrix = np.nan_to_num(feat_matrix, nan=0.0, posinf=0.0, neginf=0.0)
@@ -183,6 +198,58 @@ class AnalogForecastModel:
         weights = 1.0 / (nearest_distances + epsilon)
         weights /= weights.sum()
 
+        # Compute top feature contributions
+        # For each feature dimension, the contribution is how much the query
+        # differs from the weighted-average neighbor value, scaled by that
+        # feature's importance (inverse-distance weight of neighbors whose
+        # future return matched the forecast direction).
+        n_features = len(FEATURE_COLUMNS)
+        query_features = normalized[-1]  # last row = current feature vector
+        weighted_neighbor_features = np.zeros(n_features)
+        for idx_i, w in zip(nearest_idx, weights):
+            # Each stored window is (lookback * n_features) flattened;
+            # take the last row (most recent features of that window).
+            window_features = self._windows[idx_i].reshape(self.lookback, n_features)[-1]
+            weighted_neighbor_features += w * window_features
+
+        feature_deltas = query_features - weighted_neighbor_features
+        # Contribution magnitude = |delta| (how different current state is from analogs)
+        abs_deltas = np.abs(feature_deltas)
+        top_5_idx = np.argsort(abs_deltas)[::-1][:5]
+
+        # Determine forecast direction for labeling
+        avg_neighbor_distance = float(np.average(nearest_distances, weights=weights))
+
+        top_features: list[FeatureContribution] = []
+        for fi in top_5_idx:
+            delta = float(feature_deltas[fi])
+            raw_value = float(feat_matrix[-1, fi])  # un-normalized current value
+            if abs(delta) < 0.05:
+                direction = "neutral"
+            elif delta > 0:
+                direction = "bullish"
+            else:
+                direction = "bearish"
+            top_features.append(FeatureContribution(
+                feature=FEATURE_COLUMNS[fi],
+                contribution=round(float(abs_deltas[fi]), 4),
+                value=round(raw_value, 4),
+                direction=direction,
+            ))
+
+        # Find nearest analog date for context
+        best_neighbor_idx = nearest_idx[np.argmin(nearest_distances)]
+        # The window at position i in _windows was built from data starting at
+        # index (lookback + i) in the original feature matrix. The "date" of
+        # that analog is approximately features.index[lookback + best_neighbor_idx].
+        nearest_analog_date = ""
+        try:
+            analog_position = self.lookback + int(best_neighbor_idx)
+            if analog_position < len(features.index):
+                nearest_analog_date = str(features.index[analog_position].date())
+        except Exception:
+            pass
+
         # Trim or extend returns to match requested horizon
         actual_horizon = min(horizon, nearest_returns.shape[1])
         trimmed_returns = nearest_returns[:, :actual_horizon]
@@ -220,6 +287,9 @@ class AnalogForecastModel:
             lower=lower,
             upper=upper,
             neighbors_used=k,
+            top_features=top_features,
+            avg_neighbor_distance=round(avg_neighbor_distance, 4),
+            nearest_analog_date=nearest_analog_date,
         )
 
     def backtest(self, close: pd.Series, ohlcv: pd.DataFrame | None, n_folds: int = 5) -> BacktestMetrics:

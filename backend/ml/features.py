@@ -1,8 +1,12 @@
 """Technical indicator feature engineering for the ML pipeline."""
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger("stock_predictor.features")
 
 
 def compute_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -72,6 +76,21 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     vol_ma20 = volume.rolling(20).mean()
     vol_std20 = volume.rolling(20).std().replace(0, np.nan)
     features["volume_zscore_20"] = (volume - vol_ma20) / vol_std20
+
+    # NaN guard: forward-fill then drop any remaining NaN rows
+    pre_count = len(features)
+    features = features.ffill()
+    nan_cols = features.columns[features.isna().any()].tolist()
+    if nan_cols:
+        logger.warning(
+            "Feature NaN guard: %d columns still have NaN after ffill (%s), dropping %d rows",
+            len(nan_cols),
+            ", ".join(nan_cols[:5]),
+            int(features.isna().any(axis=1).sum()),
+        )
+    features = features.dropna()
+    if len(features) < pre_count:
+        logger.info("Feature NaN guard: dropped %d/%d rows", pre_count - len(features), pre_count)
 
     return features
 

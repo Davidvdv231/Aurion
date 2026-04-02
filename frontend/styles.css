@@ -787,6 +787,148 @@ input[type="range"]::-webkit-slider-thumb:hover {
   line-height: 1.5;
 }
 
+/* --- Explanation Card --- */
+.explanation-card {
+  animation: card-in 0.4s ease-out;
+}
+
+.explanation-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: var(--text-primary);
+  font-family: var(--font);
+}
+
+.explanation-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.explanation-chevron {
+  transition: transform var(--transition);
+  color: var(--text-muted);
+}
+
+.explanation-header[aria-expanded="false"] .explanation-chevron {
+  transform: rotate(-90deg);
+}
+
+.explanation-body {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.explanation-source {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.explanation-note {
+  font-size: 0.75rem;
+  color: var(--yellow);
+  background: var(--yellow-bg);
+  border: 1px solid rgba(245,158,11,0.18);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.7rem;
+  line-height: 1.5;
+}
+
+.explanation-narrative {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.explanation-features {
+  display: grid;
+  gap: 6px;
+}
+
+.explain-feature {
+  display: grid;
+  grid-template-columns: 120px 1fr 70px;
+  align-items: center;
+  gap: 8px;
+}
+
+.explain-feature-name {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: capitalize;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.explain-bar-track {
+  height: 6px;
+  background: var(--bg-base);
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.explain-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.6s ease-out;
+}
+
+.explain-bar-fill.positive { background: var(--green); }
+.explain-bar-fill.negative { background: var(--red); }
+
+.explain-feature-dir {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.explain-feature-dir.positive { color: var(--green); }
+.explain-feature-dir.negative { color: var(--red); }
+
+.explanation-analog {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* --- Skeleton Loading for Signal Card --- */
+.signal-card.skeleton-loading .signal-header,
+.signal-card.skeleton-loading .signal-metrics,
+.signal-card.skeleton-loading .confidence-row,
+.signal-card.skeleton-loading .eval-row,
+.signal-card.skeleton-loading .meta-row {
+  visibility: hidden;
+}
+
+.signal-card.skeleton-loading::before {
+  content: '';
+  display: block;
+  height: 200px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-hover) 50%, var(--bg-elevated) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* --- Global Status --- */
 .global-status {
   position: fixed;
