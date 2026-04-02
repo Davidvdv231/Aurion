@@ -194,3 +194,15 @@ def test_offline_shell_is_served_from_service_worker(page) -> None:
     current_page.reload(wait_until="domcontentloaded")
 
     assert current_page.locator("h1").text_content() == "Stock & Crypto Predictor"
+
+
+def test_offline_submit_shows_clear_status(page) -> None:
+    current_page, context = page
+    _mock_top_assets(current_page)
+
+    current_page.goto("/", wait_until="load")
+    current_page.evaluate("() => navigator.serviceWorker.ready.then(() => true)")
+    context.set_offline(True)
+    current_page.click("#submit-btn")
+
+    assert "Je bent offline" in current_page.locator("#status").text_content()

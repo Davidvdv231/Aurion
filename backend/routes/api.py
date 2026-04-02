@@ -18,8 +18,10 @@ from backend.models import (
 )
 from backend.services.ai import build_ai_forecast
 from backend.services.cache import CacheBackend
-from backend.services.forecast import build_stat_forecast
+from backend.services.forecast import build_prediction_summary, build_stat_forecast
+from backend.services.ml_prediction import build_ml_prediction
 from backend.services.market_data import (
+    fetch_market_history,
     fetch_close_prices,
     normalize_symbol_input,
     resolve_top_assets,
@@ -68,8 +70,50 @@ def _predict_impl(request: FastAPIRequest, payload: PredictRequest) -> PredictRe
     source = PredictionSource(market_data=market_series.source, forecast="stat")
     degraded = False
     degradation_reason = None
+    summary = build_prediction_summary(stat_forecast, last_close=stats["last_close"])
+    evaluation = None
+    model_version = None
 
-    if payload.engine == "ai":
+    if payload.engine == "ml":
+        try:
+            market_history = fetch_market_history(
+                symbol=ticker,
+                asset_type=payload.asset_type,
+                cache_backend=_cache_backend(request),
+                settings=settings,
+            )
+            ml_result = build_ml_prediction(
+                market_history,
+                symbol=market_history.resolved_symbol,
+                asset_type=payload.asset_type,
+                horizon=payload.horizon,
+                settings=settings,
+            )
+            history = ml_result.history
+            forecast = ml_result.forecast
+            stats = ml_result.stats
+            summary = ml_result.summary
+            evaluation = ml_result.evaluation
+            model_version = ml_result.model_version
+            engine_used = "ml"
+            model_name = ml_result.model_name
+            engine_note = ml_result.engine_note
+            source = PredictionSource(market_data=market_history.source, forecast=ml_result.forecast_source)
+        except (ServiceError, ValueError) as exc:
+            error_message = exc.message if isinstance(exc, ServiceError) else str(exc)
+            logger.warning(
+                "ML forecast degraded to statistical fallback for symbol=%s: %s",
+                market_series.resolved_symbol,
+                error_message,
+            )
+            engine_used = "stat_fallback"
+            model_name = "Statistical fallback"
+            engine_note = f"ML-engine niet beschikbaar ({error_message}). Teruggevallen op statistische forecast."
+            degraded = True
+            degradation_reason = error_message
+            source = PredictionSource(market_data=market_series.source, forecast="stat_fallback")
+
+    elif payload.engine == "ai":
         try:
             forecast, ai_model = build_ai_forecast(
                 market_series.resolved_symbol,
@@ -82,6 +126,7 @@ def _predict_impl(request: FastAPIRequest, payload: PredictRequest) -> PredictRe
             model_name = ai_model["model"]
             engine_note = f"AI forecast via {ai_model['provider']} ({ai_model['model']})."
             source = PredictionSource(market_data=market_series.source, forecast=ai_model["source"])
+            summary = build_prediction_summary(forecast, last_close=stats["last_close"])
         except ServiceError as exc:
             logger.warning(
                 "AI forecast degraded to statistical fallback for symbol=%s: %s",
@@ -112,7 +157,10 @@ def _predict_impl(request: FastAPIRequest, payload: PredictRequest) -> PredictRe
         history=history,
         forecast=forecast,
         stats=stats,
-        disclaimer="Dit is een statistische/AI schatting en geen financieel advies.",
+        summary=summary,
+        evaluation=evaluation,
+        model_version=model_version,
+        disclaimer="Dit is een probabilistische ML/statistische schatting en geen financieel advies.",
     )
 
 

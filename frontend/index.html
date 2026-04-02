@@ -30,9 +30,11 @@
           <label>
             Voorspellingsengine
             <select id="engine" name="engine">
-              <option value="stat">Statistisch model</option>
+              <option value="ml" selected>ML forecast (aanbevolen)</option>
+              <option value="stat">Benchmark: statistisch model</option>
               <option value="ai">AI model (OpenAI)</option>
             </select>
+            <span class="field-help">ML gebruikt patroonherkenning op historische OHLCV-data en indicatoren. Statistisch is alleen benchmark/fallback.</span>
           </label>
 
           <label>
@@ -45,9 +47,13 @@
                 value="AAPL"
                 maxlength="20"
                 autocomplete="off"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded="false"
+                aria-controls="ticker-suggestions"
                 required
               />
-              <ul id="ticker-suggestions" class="suggestions" hidden></ul>
+              <ul id="ticker-suggestions" class="suggestions" role="listbox" hidden></ul>
             </div>
             <span id="symbol-help" class="field-help">Aandelen: AAPL, INGA, KBC | Crypto: BTC, ETH, SOL</span>
           </label>
@@ -84,10 +90,30 @@
             <h3>Model</h3>
             <p id="model-name">-</p>
           </article>
+          <article>
+            <h3>Verwachte return</h3>
+            <p id="expected-return">-</p>
+          </article>
+          <article>
+            <h3>Trend</h3>
+            <p id="trend-label">-</p>
+          </article>
+          <article>
+            <h3>Confidence</h3>
+            <p id="confidence-score">-</p>
+          </article>
+          <article>
+            <h3>Signaal</h3>
+            <p id="signal-label">-</p>
+          </article>
         </div>
         <div class="meta-row">
           <p id="source-badge" class="badge" hidden>Bronnen: -</p>
           <p id="degraded-badge" class="badge badge--warning" hidden>Fallback actief</p>
+        </div>
+        <div class="meta-row" id="evaluation-row" hidden>
+          <p id="metric-mae" class="badge badge--neutral">MAE: -</p>
+          <p id="metric-direction" class="badge badge--neutral">Directional accuracy: -</p>
         </div>
         <p id="disclaimer" class="disclaimer"></p>
       </section>

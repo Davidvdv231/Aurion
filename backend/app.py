@@ -39,6 +39,7 @@ def _normalized_validation_issues(exc: RequestValidationError) -> list[dict]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    settings.artifacts_root.mkdir(parents=True, exist_ok=True)
     app = FastAPI(title=settings.app_title, version=settings.version)
 
     app.add_middleware(

@@ -12,15 +12,24 @@ const statsCard = document.getElementById("stats-card");
 const lastCloseNode = document.getElementById("last-close");
 const trendNode = document.getElementById("trend");
 const modelNameNode = document.getElementById("model-name");
+const expectedReturnNode = document.getElementById("expected-return");
+const trendLabelNode = document.getElementById("trend-label");
+const confidenceScoreNode = document.getElementById("confidence-score");
+const signalLabelNode = document.getElementById("signal-label");
 const disclaimerNode = document.getElementById("disclaimer");
 const sourceBadgeNode = document.getElementById("source-badge");
 const degradedBadgeNode = document.getElementById("degraded-badge");
+const evaluationRowNode = document.getElementById("evaluation-row");
+const metricMaeNode = document.getElementById("metric-mae");
+const metricDirectionNode = document.getElementById("metric-direction");
 const chartFallbackNode = document.getElementById("chart-fallback");
 const submitButton = document.getElementById("submit-btn");
 
 const state = {
   chart: undefined,
   suggestionTimer: undefined,
+  suggestionItems: [],
+  activeSuggestionIndex: -1,
   suggestionRequestId: 0,
   topAssetsRequestId: 0,
   predictionRequestId: 0,
@@ -80,17 +89,57 @@ function formatCurrency(value, currency) {
 }
 
 function hideSuggestions() {
+  state.suggestionItems = [];
+  state.activeSuggestionIndex = -1;
+  symbolInput.setAttribute("aria-expanded", "false");
+  symbolInput.removeAttribute("aria-activedescendant");
   suggestionsNode.hidden = true;
   suggestionsNode.innerHTML = "";
+}
+
+function selectSuggestion(item) {
+  symbolInput.value = item.symbol;
+  hideSuggestions();
+  form.requestSubmit();
+}
+
+function updateActiveSuggestion(nextIndex) {
+  const count = state.suggestionItems.length;
+  if (!count) {
+    state.activeSuggestionIndex = -1;
+    symbolInput.removeAttribute("aria-activedescendant");
+    return;
+  }
+
+  const normalizedIndex = ((nextIndex % count) + count) % count;
+  state.activeSuggestionIndex = normalizedIndex;
+
+  const buttons = suggestionsNode.querySelectorAll(".suggestion-item");
+  for (const [index, button] of buttons.entries()) {
+    const isActive = index === normalizedIndex;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", isActive ? "true" : "false");
+    if (isActive) {
+      symbolInput.setAttribute("aria-activedescendant", button.id);
+      button.scrollIntoView({ block: "nearest" });
+    }
+  }
 }
 
 function clearResults() {
   statsCard.hidden = true;
   sourceBadgeNode.hidden = true;
   degradedBadgeNode.hidden = true;
+  evaluationRowNode.hidden = true;
   disclaimerNode.textContent = "";
   chartFallbackNode.hidden = true;
   chartFallbackNode.textContent = "";
+  expectedReturnNode.textContent = "-";
+  trendLabelNode.textContent = "-";
+  confidenceScoreNode.textContent = "-";
+  signalLabelNode.textContent = "-";
+  metricMaeNode.textContent = "MAE: -";
+  metricDirectionNode.textContent = "Directional accuracy: -";
 
   if (state.chart) {
     state.chart.destroy();
@@ -123,13 +172,15 @@ function applyAssetTypeUi() {
 
 function renderSuggestions(tickers) {
   suggestionsNode.innerHTML = "";
+  state.suggestionItems = Array.isArray(tickers) ? tickers : [];
+  state.activeSuggestionIndex = -1;
 
-  if (!Array.isArray(tickers) || tickers.length === 0) {
+  if (state.suggestionItems.length === 0) {
     hideSuggestions();
     return;
   }
 
-  for (const item of tickers) {
+  for (const [index, item] of state.suggestionItems.entries()) {
     const listItem = document.createElement("li");
     const button = document.createElement("button");
     const symbolSpan = document.createElement("span");
@@ -137,6 +188,9 @@ function renderSuggestions(tickers) {
 
     button.type = "button";
     button.className = "suggestion-item";
+    button.id = `suggestion-${index}`;
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", "false");
 
     symbolSpan.className = "suggestion-symbol";
     symbolSpan.textContent = item.symbol;
@@ -147,16 +201,13 @@ function renderSuggestions(tickers) {
     button.appendChild(symbolSpan);
     button.appendChild(nameSpan);
 
-    button.addEventListener("click", () => {
-      symbolInput.value = item.symbol;
-      hideSuggestions();
-      form.requestSubmit();
-    });
+    button.addEventListener("click", () => selectSuggestion(item));
 
     listItem.appendChild(button);
     suggestionsNode.appendChild(listItem);
   }
 
+  symbolInput.setAttribute("aria-expanded", "true");
   suggestionsNode.hidden = false;
 }
 
@@ -253,6 +304,11 @@ async function loadTopAssets() {
 
   const controller = new AbortController();
   state.activeTopAssetsController = controller;
+
+  if (navigator.onLine === false) {
+    topAssetsNode.textContent = "Offline: top assets vereisen een netwerkverbinding.";
+    return;
+  }
 
   try {
     const response = await fetch(
@@ -390,6 +446,8 @@ function updateStats(data) {
   const sign = data.stats.daily_trend_pct >= 0 ? "+" : "";
   trendNode.textContent = `${sign}${data.stats.daily_trend_pct.toFixed(3)}% / dag`;
   modelNameNode.textContent = data.model_name;
+  updateSummary(data.summary);
+  updateEvaluation(data.evaluation);
   sourceBadgeNode.hidden = false;
   sourceBadgeNode.textContent = `Bronnen: ${data.source.market_data} / ${data.source.forecast}`;
 
@@ -403,6 +461,53 @@ function updateStats(data) {
   }
 
   disclaimerNode.textContent = `${data.disclaimer} ${data.engine_note || ""}`.trim();
+}
+
+function updateSummary(summary) {
+  if (!summary || typeof summary !== "object") {
+    expectedReturnNode.textContent = "-";
+    trendLabelNode.textContent = "-";
+    confidenceScoreNode.textContent = "-";
+    signalLabelNode.textContent = "-";
+    return;
+  }
+
+  const expectedReturn = Number(summary.expected_return_pct);
+  const confidence = Number(summary.confidence_score);
+  const probabilityUp = Number(summary.probability_up);
+
+  if (Number.isFinite(expectedReturn)) {
+    const sign = expectedReturn >= 0 ? "+" : "";
+    expectedReturnNode.textContent = `${sign}${expectedReturn.toFixed(2)}%`;
+  } else {
+    expectedReturnNode.textContent = "-";
+  }
+
+  trendLabelNode.textContent = typeof summary.trend === "string" ? summary.trend : "-";
+  signalLabelNode.textContent = typeof summary.signal === "string" ? summary.signal : "-";
+
+  if (Number.isFinite(confidence)) {
+    const confidencePct = (confidence * 100).toFixed(0);
+    const probabilityText = Number.isFinite(probabilityUp) ? ` | up ${Math.round(probabilityUp * 100)}%` : "";
+    confidenceScoreNode.textContent = `${confidencePct}%${probabilityText}`;
+  } else {
+    confidenceScoreNode.textContent = "-";
+  }
+}
+
+function updateEvaluation(evaluation) {
+  if (!evaluation || typeof evaluation !== "object") {
+    evaluationRowNode.hidden = true;
+    return;
+  }
+
+  const mae = Number(evaluation.mae);
+  const directionalAccuracy = Number(evaluation.directional_accuracy);
+  metricMaeNode.textContent = Number.isFinite(mae) ? `MAE: ${mae.toFixed(2)}` : "MAE: -";
+  metricDirectionNode.textContent = Number.isFinite(directionalAccuracy)
+    ? `Directional accuracy: ${(directionalAccuracy * 100).toFixed(0)}%`
+    : "Directional accuracy: -";
+  evaluationRowNode.hidden = false;
 }
 
 async function fetchPrediction(payload, controller) {
@@ -438,7 +543,7 @@ async function loadPrediction(event) {
 
   const symbol = symbolInput.value.trim().toUpperCase();
   const horizon = Number.parseInt(horizonInput.value, 10);
-  const engine = engineInput.value === "ai" ? "ai" : "stat";
+  const engine = ["ml", "ai", "stat"].includes(engineInput.value) ? engineInput.value : "ml";
   const assetType = currentAssetType();
 
   if (!symbol) {
@@ -450,6 +555,13 @@ async function loadPrediction(event) {
   if (!Number.isInteger(horizon) || horizon < 7 || horizon > 45) {
     clearResults();
     setStatus("Horizon moet tussen 7 en 45 dagen liggen.", true);
+    return;
+  }
+
+  if (navigator.onLine === false) {
+    clearResults();
+    state.uiState = "error";
+    setStatus("Je bent offline. Voorspellingen vereisen een netwerkverbinding.", true);
     return;
   }
 
@@ -532,6 +644,31 @@ assetTypeInput.addEventListener("change", () => {
 symbolInput.addEventListener("input", queueSuggestionsLoad);
 symbolInput.addEventListener("focus", queueSuggestionsLoad);
 symbolInput.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowDown") {
+    if (suggestionsNode.hidden) {
+      queueSuggestionsLoad();
+      return;
+    }
+    event.preventDefault();
+    updateActiveSuggestion(state.activeSuggestionIndex + 1);
+    return;
+  }
+
+  if (event.key === "ArrowUp") {
+    if (suggestionsNode.hidden) {
+      return;
+    }
+    event.preventDefault();
+    updateActiveSuggestion(state.activeSuggestionIndex - 1);
+    return;
+  }
+
+  if (event.key === "Enter" && !suggestionsNode.hidden && state.activeSuggestionIndex >= 0) {
+    event.preventDefault();
+    selectSuggestion(state.suggestionItems[state.activeSuggestionIndex]);
+    return;
+  }
+
   if (event.key === "Escape") {
     hideSuggestions();
   }
@@ -550,6 +687,20 @@ if ("serviceWorker" in navigator) {
     });
   });
 }
+
+window.addEventListener("online", () => {
+  if (state.uiState === "error" && statusNode.textContent.includes("offline")) {
+    setStatus("Verbinding hersteld. Je kunt opnieuw een voorspelling opvragen.");
+  }
+  loadTopAssets();
+});
+
+window.addEventListener("offline", () => {
+  topAssetsNode.textContent = "Offline: top assets vereisen een netwerkverbinding.";
+  if (state.uiState !== "loading") {
+    setStatus("Je bent offline. De app-shell blijft beschikbaar, maar live data niet.", true);
+  }
+});
 
 window.__stockPredictor = {
   formatCurrency,

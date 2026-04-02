@@ -1,82 +1,208 @@
-# Stock & Crypto Predictor
+# AI Stock & Crypto Forecasting Platform
 
-Cross-platform PWA (telefoon + pc) met FastAPI backend om 1-maands voorspellingen te tonen voor aandelen en crypto.
+Een production-minded MVP voor een schaalbare forecasting app voor aandelen en crypto. De huidige codebasis bevat:
 
-## Stack
-- Frontend: Vanilla HTML/CSS/JS + lokale Chart.js bundle
-- Backend: FastAPI + Pydantic models
-- Data: yfinance + lokale catalog + Yahoo trending + CoinGecko top crypto
-- Reliability: Redis-backed rate limiting/cache (met in-memory fallback als Redis niet beschikbaar is)
-- Forecast:
-  - `stat`: lineaire trend op log-prijzen met 80% band
-  - `ai`: OpenAI (ingebouwd) of custom endpoint fallback
+- een `FastAPI` backend met zoek-, top-assets- en predict-endpoints
+- een modulaire ML-pipeline op historische OHLCV-data
+- probabilistische forecasts met confidence bands, trendclassificatie en backtestmetrics
+- een bestaande web/PWA-shell
+- een nieuwe Expo/React Native mobiele MVP in `mobile/`
+- Docker- en artifact-structuur als basis voor verdere productie-uitrol
 
-## Snel starten
-1. Maak en activeer een virtuele omgeving:
-   - `python -m venv .venv`
-   - `.\.venv\Scripts\Activate.ps1`
-2. Installeer runtime dependencies:
-   - `pip install -r backend/requirements.txt`
-3. Maak een lokale config:
-   - `Copy-Item .env.example .env`
-4. Vul in `.env` de keys in die je nodig hebt.
-5. Start de app:
-   - `python backend/main.py`
-6. Open:
-   - `http://127.0.0.1:8000`
+## Korte samenvatting
 
-De app leest nu automatisch `.env` uit de project-root. Gewone shell environment variables blijven voorrang houden op `.env`.
+De hoofdengine is niet langer een simpele lineaire voorspeller. De MVP gebruikt een niet-lineaire analog forecaster die vergelijkbare historische marktpatronen zoekt op basis van technische indicatoren en daaruit een dagelijkse forecast path afleidt. De statistische trendlijn blijft bestaan als benchmark en fallback.
 
-## API
+De applicatie claimt geen marktzekerheid. Elke forecast is probabilistisch, bevat onzekerheidsbanden en wordt gekoppeld aan evaluatiemetrics.
+
+## Aanbevolen architectuur
+
+### Backend
+
+- `FastAPI` als API-laag
+- servicegrenzen voor market data, caching, rate limiting en forecasting
+- compatibiliteit met bestaande webclient
+
+### Data-opslag
+
+- MVP: lokale `artifacts/` voor modelversies en ruwe snapshots
+- cache/rate limits: Redis wanneer beschikbaar, anders in-memory fallback
+- productierichting: PostgreSQL of TimescaleDB voor metadata, gebruikersdata en prediction snapshots
+
+### ML-pipeline
+
+- ingestie van OHLCV via `yfinance`
+- feature engineering voor returns, volatility, RSI, MACD, moving averages en Bollinger Bands
+- supervised dataset construction voor horizon-based forecasting
+- walk-forward validation en rolling backtesting
+- model registry met versiebeheer per artifact
+
+### API
+
 - `GET /api/health`
-- `GET /api/tickers?query=K&limit=12&asset_type=stock`
-- `GET /api/tickers?query=BTC&limit=12&asset_type=crypto`
-- `GET /api/top-assets?limit=10&asset_type=stock`
-- `GET /api/top-assets?limit=10&asset_type=crypto`
+- `GET /api/tickers`
+- `GET /api/top-assets`
 - `POST /api/predict`
 
-Voorbeeld request:
-```json
-{
-  "symbol": "AAPL",
-  "horizon": 30,
-  "engine": "stat",
-  "asset_type": "stock"
-}
+### Mobiele app
+
+- Expo + React Native TypeScript
+- splash/login flow
+- home/dashboard
+- asset detail met forecast cards en confidence indicator
+- watchlist met lokale opslag
+
+### Deployment
+
+- `backend/Dockerfile`
+- `infra/docker-compose.yml` met API, Redis en PostgreSQL
+- duidelijke scheiding tussen training, validatie en online inference
+
+## Tech stack
+
+### Geïmplementeerd in deze MVP
+
+- Python
+- FastAPI
+- Pandas / NumPy
+- yfinance
+- Redis fallback cache/rate limiting
+- Expo / React Native TypeScript
+- Docker
+
+### Productieroadmap
+
+- PostgreSQL / TimescaleDB
+- object storage voor model artifacts
+- scheduled retraining worker
+- XGBoost/LightGBM adapters
+- GRU/LSTM/TFT experimenttracking
+
+## Modelaanpak
+
+### Huidige hoofdmodel
+
+- `Analog Pattern Forecaster`
+- niet-lineair
+- werkt op genormaliseerde feature-windows
+- kiest vergelijkbare historische marktsituaties
+- maakt dagelijkse padvoorspellingen met lower/upper bands via gewogen kwantielen
+
+### Benchmark / fallback
+
+- `stat` engine: log-lineaire trendbenchmark
+- gebruikt voor vergelijking en degraded fallback wanneer ML niet bruikbaar is
+
+### Metrics
+
+- MAE
+- RMSE
+- MAPE
+- directional accuracy
+- rolling walk-forward folds
+
+## Projectstructuur
+
+```text
+backend/
+  app.py
+  main.py
+  config.py
+  models.py
+  routes/
+  services/
+  ml/
+    features.py
+    dataset.py
+    model.py
+    backtest.py
+    registry.py
+    service.py
+frontend/
+  index.html
+  app.js
+  styles.css
+mobile/
+  App.tsx
+  src/
+  README.md
+infra/
+  docker-compose.yml
+docs/
+  PROJECT_BLUEPRINT.md
+artifacts/
+  data/
+  models/
+tests/
 ```
 
-Belangrijke responsevelden:
-- `currency`
-- `source.market_data`
-- `source.forecast`
-- `degraded`
-- `degradation_reason`
+## Belangrijkste output van `/api/predict`
 
-## AI configuratie
-### OpenAI (standaard ingebouwd)
-- `OPENAI_API_KEY` (vereist voor `engine=ai`)
-- `OPENAI_MODEL` (optioneel, default: `gpt-5-mini`)
+- `forecast`: dagelijkse voorspelde prijzen met `lower` en `upper`
+- `stats`: laatste koers en dagelijkse trend
+- `summary`:
+  - expected price
+  - expected return %
+  - bullish / bearish / neutral
+  - confidence score
+  - probability up
+  - buy / hold / sell als model-output, niet als advies
+- `evaluation`:
+  - MAE
+  - RMSE
+  - MAPE
+  - directional accuracy
+  - validation windows
+- `model_version`
 
-### Custom AI endpoint (optioneel alternatief)
-- `STOCK_LLM_API_URL`
-- `STOCK_LLM_API_KEY` (optioneel)
+## Lokale start
 
-Als `engine=ai` niet beschikbaar is, valt de app automatisch terug op `stat` en zet de response `degraded=true`.
+### Backend
 
-## Security, limits en proxy-config
-- `CORS_ALLOW_ORIGINS` (optioneel, comma-separated origins voor productie)
-- `RATE_LIMIT_WINDOW_SECONDS` (default `60`)
-- `RATE_LIMIT_MAX_REQUESTS_STAT` (default `30` per window)
-- `RATE_LIMIT_MAX_REQUESTS_AI` (default `8` per window)
-- `REDIS_URL` (aanbevolen voor gedeelde rate limiting/cache)
-- `REDIS_PREFIX` (default `stock-predictor`)
-- `TRUSTED_PROXY_IPS` (comma-separated proxy IPs; alleen dan wordt `X-Forwarded-For` vertrouwd)
+1. Maak een venv:
+   - `python -m venv .venv`
+   - `.\.venv\Scripts\Activate.ps1`
+2. Installeer dependencies:
+   - `pip install -r backend/requirements.txt`
+3. Maak config:
+   - `Copy-Item .env.example .env`
+4. Start de API:
+   - `python backend/main.py`
+
+### Mobiele app
+
+Zie `mobile/README.md`.
 
 ## Tests
-1. Installeer dev dependencies:
-   - `pip install -r requirements-dev.txt`
-2. Run alles:
-   - `pytest -q`
 
-## Belangrijke noot
-Geen enkel model (ook AI/LLM) kan koersvoorspellingen garanderen. Gebruik dit als indicatie, niet als financieel advies.
+- Gerichte backendtests:
+  - `.\.venv\Scripts\python.exe -m pytest tests\test_api.py tests\test_config.py tests\test_forecast.py tests\test_market_data.py tests\test_ml_pipeline.py -q`
+- Volledige suite:
+  - `.\.venv\Scripts\python.exe -m pytest -q`
+
+## Configuratie
+
+Belangrijke `.env` keys:
+
+- `REDIS_URL`
+- `ARTIFACTS_ROOT`
+- `ML_NEIGHBOR_COUNT`
+- `ML_BACKTEST_WINDOWS`
+- `ML_MIN_HISTORY_ROWS`
+- `RATE_LIMIT_WINDOW_SECONDS`
+- `RATE_LIMIT_MAX_REQUESTS_STAT`
+- `RATE_LIMIT_MAX_REQUESTS_AI`
+
+## Beperkingen van de MVP
+
+- Databron is nog `yfinance`; voor publieke release is een productiefeed aanbevolen.
+- Model is per-asset en on-demand trainbaar; scheduled retraining en central artifact promotion zijn logische volgende stappen.
+- De mobiele app is scaffolded maar niet in deze workspace geïnstalleerd of lokaal gestart.
+
+## Volgende uitbreidingen
+
+1. Voeg geplande retraining en modelpromotie toe.
+2. Introduceer meerdere modeladapters en model selection per asset/horizon.
+3. Verplaats metadata en gebruikersdata naar PostgreSQL.
+4. Voeg echte auth, pushnotificaties en portfolio/watchlist sync toe in de mobiele app.
+5. Bereid store release pipelines voor via Expo EAS of native CI/CD.

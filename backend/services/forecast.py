@@ -164,3 +164,76 @@ def normalize_ai_forecast_rows(
         )
 
     return normalized_forecast
+
+
+def build_prediction_summary(
+    forecast: list[dict],
+    last_close: float,
+    probability_up: float | None = None,
+) -> dict | None:
+    if not forecast:
+        return None
+
+    final_point = forecast[-1]
+    expected_price = float(final_point["predicted"])
+    expected_return_pct = ((expected_price / max(last_close, 0.01)) - 1.0) * 100.0
+
+    if probability_up is None:
+        probability_up = 0.5
+        if expected_return_pct > 0.3:
+            probability_up = 0.58
+        elif expected_return_pct < -0.3:
+            probability_up = 0.42
+
+    interval_width_pct = ((float(final_point["upper"]) - float(final_point["lower"])) / max(expected_price, 0.01)) * 100.0
+    confidence_score = max(0.15, min(0.95, abs(probability_up - 0.5) * 2.0 * max(0.2, 1.0 - (interval_width_pct / 35.0))))
+
+    if probability_up >= 0.58 and expected_return_pct >= 1.0:
+        trend = "bullish"
+        signal = "buy"
+    elif probability_up <= 0.42 and expected_return_pct <= -1.0:
+        trend = "bearish"
+        signal = "sell"
+    else:
+        trend = "neutral"
+        signal = "hold"
+
+    return {
+        "expected_price": round(expected_price, 2),
+        "expected_return_pct": round(expected_return_pct, 3),
+        "trend": trend,
+        "confidence_score": round(confidence_score, 3),
+        "probability_up": round(float(probability_up), 3),
+        "signal": signal,
+    }
+
+
+def build_evaluation_summary(
+    metrics: dict | None,
+    benchmark_metrics: dict | None = None,
+) -> dict | None:
+    if not metrics:
+        return None
+
+    return {
+        "mae": _rounded_metric(metrics.get("mae")),
+        "rmse": _rounded_metric(metrics.get("rmse")),
+        "mape": _rounded_metric(metrics.get("mape")),
+        "directional_accuracy": _rounded_metric(metrics.get("directional_accuracy")),
+        "benchmark_mae": _rounded_metric((benchmark_metrics or {}).get("mae")),
+        "benchmark_directional_accuracy": _rounded_metric((benchmark_metrics or {}).get("directional_accuracy")),
+        "sample_size": _int_metric(metrics.get("sample_size")),
+        "validation_windows": _int_metric(metrics.get("windows")),
+    }
+
+
+def _rounded_metric(value: float | int | None) -> float | None:
+    if value is None:
+        return None
+    return round(float(value), 4)
+
+
+def _int_metric(value: float | int | None) -> int | None:
+    if value is None:
+        return None
+    return int(value)

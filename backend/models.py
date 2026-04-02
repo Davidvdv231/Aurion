@@ -6,8 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.ticker_catalog import AssetType
 
-EngineType = Literal["stat", "ai"]
-EngineUsed = Literal["stat", "ai", "stat_fallback"]
+EngineType = Literal["ml", "stat", "ai"]
+EngineUsed = Literal["ml", "stat", "ai", "stat_fallback"]
 
 
 class ApiModel(BaseModel):
@@ -31,6 +31,26 @@ class PredictStats(ApiModel):
     last_close: float
 
 
+class PredictionSummary(ApiModel):
+    expected_price: float
+    expected_return_pct: float
+    trend: Literal["bullish", "bearish", "neutral"]
+    confidence_score: float = Field(..., ge=0.0, le=1.0)
+    probability_up: float = Field(..., ge=0.0, le=1.0)
+    signal: Literal["buy", "hold", "sell"]
+
+
+class PredictionEvaluation(ApiModel):
+    mae: float | None = None
+    rmse: float | None = None
+    mape: float | None = None
+    directional_accuracy: float | None = None
+    benchmark_mae: float | None = None
+    benchmark_directional_accuracy: float | None = None
+    sample_size: int | None = None
+    validation_windows: int | None = None
+
+
 class PredictionSource(ApiModel):
     market_data: str
     forecast: str
@@ -39,7 +59,7 @@ class PredictionSource(ApiModel):
 class PredictRequest(ApiModel):
     symbol: str = Field(..., min_length=1, max_length=20)
     horizon: int = Field(30, ge=7, le=45)
-    engine: EngineType = "stat"
+    engine: EngineType = "ml"
     asset_type: AssetType = "stock"
 
     @field_validator("symbol")
@@ -68,6 +88,9 @@ class PredictResponse(ApiModel):
     history: list[HistoryPoint]
     forecast: list[ForecastPoint]
     stats: PredictStats
+    summary: PredictionSummary | None = None
+    evaluation: PredictionEvaluation | None = None
+    model_version: str | None = None
     disclaimer: str
 
 
