@@ -6,8 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.ticker_catalog import AssetType
 
-EngineType = Literal["ml", "stat", "ai"]
-EngineUsed = Literal["ml", "stat", "ai", "stat_fallback"]
+EngineType = Literal["stat", "ml", "ai"]
+EngineUsed = Literal["stat", "ml", "ai", "stat_fallback", "ml_fallback"]
 
 
 class ApiModel(BaseModel):
@@ -35,9 +35,9 @@ class PredictionSummary(ApiModel):
     expected_price: float
     expected_return_pct: float
     trend: Literal["bullish", "bearish", "neutral"]
-    confidence_score: float = Field(..., ge=0.0, le=1.0)
-    probability_up: float = Field(..., ge=0.0, le=1.0)
-    signal: Literal["buy", "hold", "sell"]
+    confidence_score: float = Field(ge=0.0, le=1.0)
+    probability_up: float = Field(ge=0.0, le=1.0)
+    signal: Literal["strong_buy", "buy", "hold", "sell", "strong_sell"]
 
 
 class PredictionEvaluation(ApiModel):
@@ -45,9 +45,6 @@ class PredictionEvaluation(ApiModel):
     rmse: float | None = None
     mape: float | None = None
     directional_accuracy: float | None = None
-    benchmark_mae: float | None = None
-    benchmark_directional_accuracy: float | None = None
-    sample_size: int | None = None
     validation_windows: int | None = None
 
 
@@ -67,7 +64,7 @@ class PredictRequest(ApiModel):
     def validate_symbol(cls, value: str) -> str:
         normalized = value.strip().upper()
         if not normalized or not normalized.isascii() or " " in normalized:
-            raise ValueError("Ticker symbool is ongeldig.")
+            raise ValueError("Invalid ticker symbol.")
         return normalized
 
 
@@ -88,9 +85,8 @@ class PredictResponse(ApiModel):
     history: list[HistoryPoint]
     forecast: list[ForecastPoint]
     stats: PredictStats
-    summary: PredictionSummary | None = None
+    summary: PredictionSummary
     evaluation: PredictionEvaluation | None = None
-    model_version: str | None = None
     disclaimer: str
 
 

@@ -47,18 +47,6 @@ class MarketSeries:
     source: str
 
 
-@dataclass(slots=True)
-class MarketHistory:
-    frame: pd.DataFrame
-    resolved_symbol: str
-    currency: str
-    source: str
-
-    @property
-    def close(self) -> pd.Series:
-        return self.frame["Close"].astype(float)
-
-
 def normalize_symbol_input(symbol: str) -> str:
     return symbol.strip().upper()
 
@@ -108,25 +96,6 @@ def infer_currency(symbol: str, asset_type: AssetType) -> str:
     return "USD"
 
 
-def _normalize_downloaded_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    normalized = frame.copy()
-    if isinstance(normalized.columns, pd.MultiIndex):
-        normalized.columns = normalized.columns.get_level_values(0)
-
-    required_columns = ("Open", "High", "Low", "Close")
-    if any(column not in normalized for column in required_columns):
-        return pd.DataFrame()
-
-    if "Volume" not in normalized:
-        normalized["Volume"] = 0.0
-
-    normalized = normalized.loc[:, ["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["Close"])
-    normalized.index = pd.to_datetime(normalized.index)
-    if getattr(normalized.index, "tz", None) is not None:
-        normalized.index = normalized.index.tz_localize(None)
-    return normalized.astype(float)
-
-
 def _serialize_close_series(close: pd.Series) -> list[dict[str, Any]]:
     return [
         {"date": idx.date().isoformat(), "close": round(float(price), 6)}
@@ -140,47 +109,12 @@ def _deserialize_close_series(points: list[dict[str, Any]]) -> pd.Series:
     return pd.Series(values, index=dates, dtype=float)
 
 
-def _serialize_market_frame(frame: pd.DataFrame) -> list[dict[str, Any]]:
-    serialized: list[dict[str, Any]] = []
-    for idx, row in frame.iterrows():
-        serialized.append(
-            {
-                "date": idx.date().isoformat(),
-                "open": round(float(row["Open"]), 6),
-                "high": round(float(row["High"]), 6),
-                "low": round(float(row["Low"]), 6),
-                "close": round(float(row["Close"]), 6),
-                "volume": round(float(row["Volume"]), 6),
-            }
-        )
-    return serialized
-
-
-def _deserialize_market_frame(points: list[dict[str, Any]]) -> pd.DataFrame:
-    if not points:
-        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
-
-    frame = pd.DataFrame.from_records(points)
-    frame["date"] = pd.to_datetime(frame["date"])
-    frame = frame.set_index("date").sort_index()
-    frame = frame.rename(
-        columns={
-            "open": "Open",
-            "high": "High",
-            "low": "Low",
-            "close": "Close",
-            "volume": "Volume",
-        }
-    )
-    return frame.astype(float)
-
-
-def fetch_market_history(
+def fetch_close_prices(
     symbol: str,
     asset_type: AssetType,
     cache_backend: CacheBackend,
     settings: Settings,
-) -> MarketHistory:
+) -> MarketSeries:
     cache_key = f"history:{asset_type}:{symbol}"
     cached_payload = cache_backend.get_json(cache_key)
     if isinstance(cached_payload, dict):
@@ -194,9 +128,8 @@ def fetch_market_history(
             and isinstance(resolved_symbol, str)
             and isinstance(currency, str)
         ):
-            frame = _deserialize_market_frame(points)
-            return MarketHistory(
-                frame=frame,
+            return MarketSeries(
+                close=_deserialize_close_series(points),
                 resolved_symbol=resolved_symbol,
                 currency=currency,
                 source=f"cache:{provider}",
@@ -228,11 +161,12 @@ def fetch_market_history(
             logger.warning("yfinance returned invalid payload type for candidate=%s", candidate)
             continue
 
-        frame = _normalize_downloaded_frame(frame)
-        if frame.empty:
+        if frame.empty or "Close" not in frame:
             continue
 
-        close = frame["Close"].dropna()
+        close_column = frame["Close"]
+        close = close_column.iloc[:, 0] if isinstance(close_column, pd.DataFrame) else close_column
+        close = close.dropna()
 
         if len(close) < 60:
             insufficient_history_matches.append(candidate)
@@ -243,12 +177,12 @@ def fetch_market_history(
             "provider": "yfinance",
             "resolved_symbol": candidate,
             "currency": currency,
-            "points": _serialize_market_frame(frame),
+            "points": _serialize_close_series(close),
         }
         cache_backend.set_json(cache_key, serialized, settings.history_cache_ttl_seconds)
 
-        return MarketHistory(
-            frame=frame,
+        return MarketSeries(
+            close=close,
             resolved_symbol=candidate,
             currency=currency,
             source="yfinance",
@@ -259,7 +193,7 @@ def fetch_market_history(
             status_code=400,
             code="insufficient_history",
             message=(
-                "Data gevonden, maar onvoldoende historiek voor een betrouwbare voorspelling "
+                "Data found but insufficient history for a reliable forecast "
                 f"(ticker: {insufficient_history_matches[0]})."
             ),
             provider="yfinance",
@@ -269,37 +203,17 @@ def fetch_market_history(
         raise ServiceError(
             status_code=502,
             code="provider_unavailable",
-            message="Marktdataprovider tijdelijk niet bereikbaar.",
+            message="Market data provider temporarily unavailable.",
             provider="yfinance",
             retryable=True,
         )
 
     detail = (
-        "Geen cryptodata gevonden. Probeer bv BTC, ETH, SOL of BTC-USD."
+        "No crypto data found. Try BTC, ETH, SOL or BTC-USD."
         if asset_type == "crypto"
-        else "Geen koersdata gevonden. Probeer een Yahoo ticker, bv AAPL, INGA.AS, HEIA.AS, KBC.BR."
+        else "No price data found. Try a Yahoo ticker like AAPL, INGA.AS, HEIA.AS, KBC.BR."
     )
     raise ServiceError(status_code=404, code="not_found", message=detail, provider="yfinance")
-
-
-def fetch_close_prices(
-    symbol: str,
-    asset_type: AssetType,
-    cache_backend: CacheBackend,
-    settings: Settings,
-) -> MarketSeries:
-    history = fetch_market_history(
-        symbol=symbol,
-        asset_type=asset_type,
-        cache_backend=cache_backend,
-        settings=settings,
-    )
-    return MarketSeries(
-        close=history.close,
-        resolved_symbol=history.resolved_symbol,
-        currency=history.currency,
-        source=history.source,
-    )
 
 
 def _fetch_yahoo_trending(region: str = "US", count: int = 20) -> list[str]:

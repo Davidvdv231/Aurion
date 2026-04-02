@@ -3,27 +3,13 @@ from __future__ import annotations
 import pandas as pd
 
 from backend.errors import ServiceError
-from backend.services.market_data import MarketHistory, MarketSeries
+from backend.services.market_data import MarketSeries
 
 
 def _close_series() -> pd.Series:
     index = pd.bdate_range("2025-01-02", periods=120)
     values = pd.Series(range(100, 220), index=index, dtype=float)
     return values
-
-
-def _ohlcv_frame() -> pd.DataFrame:
-    close = _close_series()
-    return pd.DataFrame(
-        {
-            "Open": close - 1.0,
-            "High": close + 1.5,
-            "Low": close - 1.5,
-            "Close": close,
-            "Volume": 1_000_000.0,
-        },
-        index=close.index,
-    )
 
 
 def test_predict_success_returns_typed_contract(client, monkeypatch) -> None:
@@ -47,69 +33,6 @@ def test_predict_success_returns_typed_contract(client, monkeypatch) -> None:
     assert payload["currency"] == "USD"
     assert payload["source"] == {"market_data": "yfinance", "forecast": "stat"}
     assert payload["degraded"] is False
-
-
-def test_predict_ml_returns_summary_and_evaluation(client, monkeypatch) -> None:
-    monkeypatch.setattr(
-        "backend.routes.api.fetch_close_prices",
-        lambda **_: MarketSeries(
-            close=_close_series(),
-            resolved_symbol="AAPL",
-            currency="USD",
-            source="yfinance",
-        ),
-    )
-    monkeypatch.setattr(
-        "backend.routes.api.fetch_market_history",
-        lambda **_: MarketHistory(
-            frame=_ohlcv_frame(),
-            resolved_symbol="AAPL",
-            currency="USD",
-            source="yfinance",
-        ),
-    )
-
-    class _MLResult:
-        history = [{"date": "2025-01-01", "close": 100.0}]
-        forecast = [{"date": "2025-01-02", "predicted": 101.0, "lower": 99.5, "upper": 102.5}]
-        stats = {"daily_trend_pct": 0.8, "last_close": 100.0}
-        summary = {
-            "expected_price": 101.0,
-            "expected_return_pct": 1.0,
-            "trend": "bullish",
-            "confidence_score": 0.72,
-            "probability_up": 0.68,
-            "signal": "buy",
-        }
-        evaluation = {
-            "mae": 1.23,
-            "rmse": 1.55,
-            "mape": 1.1,
-            "directional_accuracy": 0.64,
-            "benchmark_mae": None,
-            "benchmark_directional_accuracy": None,
-            "sample_size": 30,
-            "validation_windows": 6,
-        }
-        model_name = "Analog Pattern Forecaster"
-        model_version = "20260325T120000-test"
-        engine_note = "Probabilistische analog-forecast."
-        forecast_source = "ml_hybrid"
-
-    monkeypatch.setattr("backend.routes.api.build_ml_prediction", lambda *_, **__: _MLResult())
-
-    response = client.post(
-        "/api/predict",
-        json={"symbol": "AAPL", "horizon": 30, "engine": "ml", "asset_type": "stock"},
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["engine_used"] == "ml"
-    assert payload["source"] == {"market_data": "yfinance", "forecast": "ml_hybrid"}
-    assert payload["summary"]["trend"] == "bullish"
-    assert payload["evaluation"]["directional_accuracy"] == 0.64
-    assert payload["model_version"] == "20260325T120000-test"
 
 
 def test_predict_get_is_kept_for_backward_compatibility(client, monkeypatch) -> None:

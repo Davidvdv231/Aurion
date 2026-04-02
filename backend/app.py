@@ -7,8 +7,11 @@ from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 from backend.config import get_settings
 from backend.errors import ErrorEnvelope, ServiceError
@@ -21,6 +24,9 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 logger = logging.getLogger("stock_predictor.app")
+
+# Maximum request body size (1 MB)
+MAX_REQUEST_BODY_BYTES = 1_048_576
 
 
 def _normalized_validation_issues(exc: RequestValidationError) -> list[dict]:
@@ -37,11 +43,65 @@ def _normalized_validation_issues(exc: RequestValidationError) -> list[dict]:
     return issues
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security headers to all responses."""
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'"
+        )
+
+        # Cache-Control for static assets
+        path = request.url.path
+        if path.startswith("/vendor/") or path.startswith("/icons/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif path.endswith((".css", ".js", ".webmanifest")):
+            response.headers["Cache-Control"] = "public, max-age=3600, stale-while-revalidate=86400"
+        elif path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+
+        return response
+
+
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    """Reject request bodies exceeding the size limit."""
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > MAX_REQUEST_BODY_BYTES:
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "error": {
+                        "code": "payload_too_large",
+                        "message": f"Request body exceeds {MAX_REQUEST_BODY_BYTES // 1024}KB limit.",
+                        "retryable": False,
+                    }
+                },
+            )
+        return await call_next(request)
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
-    settings.artifacts_root.mkdir(parents=True, exist_ok=True)
     app = FastAPI(title=settings.app_title, version=settings.version)
 
+    # Middleware stack (order matters: outermost first)
+    app.add_middleware(GZipMiddleware, minimum_size=500)
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(RequestSizeLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_allow_origins),
@@ -62,7 +122,7 @@ def create_app() -> FastAPI:
         envelope = ErrorEnvelope(
             error={
                 "code": "invalid_request",
-                "message": "Request payload is ongeldig.",
+                "message": "Invalid request payload.",
                 "details": {"issues": _normalized_validation_issues(exc)},
             }
         )
@@ -74,7 +134,7 @@ def create_app() -> FastAPI:
         envelope = ErrorEnvelope(
             error={
                 "code": "internal_error",
-                "message": "Interne serverfout.",
+                "message": "Internal server error.",
                 "retryable": False,
             }
         )

@@ -1,13 +1,13 @@
 {
   "id": "/",
-  "name": "Stock Predictor",
-  "short_name": "Stocks",
-  "description": "Bekijk historische koersen en een 1-maands stock voorspelling.",
+  "name": "Aurion - AI Market Intelligence",
+  "short_name": "Aurion",
+  "description": "AI-powered stock and crypto price forecasting with ML pattern analysis.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f4f7fb",
-  "theme_color": "#0b172a",
+  "background_color": "#0a0e1a",
+  "theme_color": "#0a0e1a",
   "icons": [
     {
       "src": "/icons/icon-192.png",

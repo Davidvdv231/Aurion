@@ -29,7 +29,7 @@ def _extract_json_payload(text: str, provider: str) -> dict:
         raise ServiceError(
             status_code=502,
             code="provider_invalid_response",
-            message="AI model antwoord was geen geldige JSON.",
+            message="AI model response was not valid JSON.",
             provider=provider,
             retryable=True,
         ) from exc
@@ -38,7 +38,7 @@ def _extract_json_payload(text: str, provider: str) -> dict:
         raise ServiceError(
             status_code=502,
             code="provider_invalid_response",
-            message="AI model antwoord moet een JSON object zijn.",
+            message="AI model response must be a JSON object.",
             provider=provider,
             retryable=True,
         )
@@ -94,7 +94,7 @@ def _build_external_ai_forecast(
         raise ServiceError(
             status_code=502,
             code="provider_unavailable",
-            message="Externe AI niet bereikbaar.",
+            message="External AI service unreachable.",
             provider="external_ai",
             retryable=True,
         ) from exc
@@ -105,7 +105,7 @@ def _build_external_ai_forecast(
         raise ServiceError(
             status_code=502,
             code="provider_invalid_response",
-            message="Externe AI antwoord moet een forecast lijst bevatten.",
+            message="External AI response must contain a forecast list.",
             provider="external_ai",
             retryable=True,
         )
@@ -192,7 +192,7 @@ def _build_openai_forecast(
         raise ServiceError(
             status_code=502,
             code="provider_unavailable",
-            message="OpenAI niet bereikbaar.",
+            message="OpenAI service unreachable.",
             provider="openai",
             retryable=True,
         ) from exc
@@ -203,7 +203,7 @@ def _build_openai_forecast(
         raise ServiceError(
             status_code=502,
             code="provider_invalid_response",
-            message="OpenAI antwoord was geen geldige JSON.",
+            message="OpenAI response was not valid JSON.",
             provider="openai",
             retryable=True,
         ) from exc
@@ -213,7 +213,7 @@ def _build_openai_forecast(
         raise ServiceError(
             status_code=502,
             code="provider_invalid_response",
-            message="OpenAI antwoord bevat geen choices.",
+            message="OpenAI response contains no choices.",
             provider="openai",
             retryable=True,
         )
@@ -231,7 +231,7 @@ def _build_openai_forecast(
         raise ServiceError(
             status_code=502,
             code="provider_invalid_response",
-            message="OpenAI gaf geen bruikbare content terug.",
+            message="OpenAI returned no usable content.",
             provider="openai",
             retryable=True,
         )
@@ -242,7 +242,7 @@ def _build_openai_forecast(
         raise ServiceError(
             status_code=502,
             code="provider_invalid_response",
-            message="OpenAI antwoord moet een forecast lijst bevatten.",
+            message="OpenAI response must contain a forecast list.",
             provider="openai",
             retryable=True,
         )
@@ -292,7 +292,7 @@ def build_ai_forecast(
     raise ServiceError(
         status_code=400,
         code="not_configured",
-        message="AI engine niet geconfigureerd. Stel OPENAI_API_KEY of STOCK_LLM_API_URL in.",
+        message="AI engine not configured. Set OPENAI_API_KEY or STOCK_LLM_API_URL.",
         provider="ai",
         retryable=False,
     )

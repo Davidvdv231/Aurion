@@ -1,4 +1,4 @@
-const CACHE_NAME = "stock-predictor-v7";
+const CACHE_VERSION = "aurion-v1";
 const ASSETS = [
   "/",
   "/index.html",
@@ -9,11 +9,10 @@ const ASSETS = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/icon-512-maskable.png",
-  "/icon.svg",
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
+  event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(ASSETS)));
   self.skipWaiting();
 });
 
@@ -21,7 +20,9 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then((keys) =>
+        Promise.all(keys.filter((key) => key !== CACHE_VERSION).map((key) => caches.delete(key))),
+      )
       .then(() => self.clients.claim()),
   );
 });
@@ -38,6 +39,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // API requests: network-first, offline fallback
   if (requestUrl.pathname.startsWith("/api/")) {
     event.respondWith(
       fetch(request).catch(
@@ -46,7 +48,7 @@ self.addEventListener("fetch", (event) => {
             JSON.stringify({
               error: {
                 code: "provider_unavailable",
-                message: "Offline: API tijdelijk niet bereikbaar.",
+                message: "Offline: API temporarily unavailable.",
                 retryable: true,
               },
             }),
@@ -60,12 +62,13 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Static assets: network-first with cache fallback
   event.respondWith(
     fetch(request)
       .then((response) => {
         if (response && response.ok) {
           const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
+          caches.open(CACHE_VERSION).then((cache) => cache.put(request, responseClone));
         }
         return response;
       })

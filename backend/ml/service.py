@@ -1,76 +1,61 @@
+"""High-level ML service: train, cache, and predict."""
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Literal
+import logging
+from threading import Lock
 
 import pandas as pd
 
-from backend.ml.backtest import BacktestResult, walk_forward_backtest
-from backend.ml.baseline import BaselineForecast, build_statistical_baseline
-from backend.ml.model import AnalogForecastModel, ForecastOutput
-from backend.ml.registry import ModelArtifact, ModelRegistry
+from backend.ml.model import AnalogForecastModel, BacktestMetrics, ForecastResult
+from backend.ticker_catalog import AssetType
+
+logger = logging.getLogger("stock_predictor.ml")
+
+# In-memory model cache keyed by (asset_type, symbol)
+_model_cache: dict[tuple[str, str], AnalogForecastModel] = {}
+_model_lock = Lock()
+
+MIN_HISTORY_ROWS = 180
 
 
-@dataclass(slots=True)
-class ForecastServiceResult:
-    model: AnalogForecastModel
-    artifact: ModelArtifact | None
-    backtest: BacktestResult | None
-    validation: dict[str, float] | None
-
-
-def _default_model_factory(lookback: int, horizon: int, top_k: int, asset_type: str) -> AnalogForecastModel:
-    return AnalogForecastModel(lookback=lookback, horizon=horizon, top_k=top_k, asset_type=asset_type)
-
-
-def train_and_validate_model(
-    ohlcv: pd.DataFrame,
-    *,
-    asset_type: Literal["stock", "crypto"] = "stock",
+def train_and_predict(
+    symbol: str,
+    close: pd.Series,
+    horizon: int,
+    asset_type: AssetType,
+    ohlcv: pd.DataFrame | None = None,
+    n_neighbors: int = 24,
     lookback: int = 60,
-    horizon: int = 5,
-    top_k: int = 25,
-    registry_root: Path | str | None = None,
-    persist: bool = True,
-) -> ForecastServiceResult:
-    model = _default_model_factory(lookback, horizon, top_k, asset_type)
-    model.fit(ohlcv, asset_type=asset_type)
+    backtest_folds: int = 5,
+) -> tuple[ForecastResult, BacktestMetrics]:
+    """Train (or reuse) a model for the given symbol and return predictions."""
+    if len(close) < MIN_HISTORY_ROWS:
+        raise ValueError(
+            f"Need at least {MIN_HISTORY_ROWS} data points, got {len(close)}"
+        )
 
-    backtest = walk_forward_backtest(
-        ohlcv,
-        model_factory=lambda: _default_model_factory(lookback, horizon, top_k, asset_type),
-        min_train_size=max(lookback + horizon, 120),
-        step=max(1, horizon),
-        max_folds=5,
-    )
-    validation = dict(backtest.metrics)
-    artifact = None
-    if persist:
-        registry = ModelRegistry(registry_root)
-        artifact = registry.save(model, metadata={"backtest_metrics": backtest.metrics})
+    cache_key = (asset_type, symbol)
 
-    return ForecastServiceResult(model=model, artifact=artifact, backtest=backtest, validation=validation)
+    with _model_lock:
+        model = _model_cache.get(cache_key)
 
+    if model is None:
+        model = AnalogForecastModel(
+            lookback=lookback,
+            horizon=horizon,
+            n_neighbors=n_neighbors,
+        )
+        model.fit(close, ohlcv)
 
-def load_latest_model(
-    model_name: str = "analog_forecaster",
-    registry_root: Path | str | None = None,
-) -> AnalogForecastModel:
-    registry = ModelRegistry(registry_root)
-    return registry.load_latest(model_name)
+        with _model_lock:
+            _model_cache[cache_key] = model
 
+        logger.info(
+            "Trained new model for %s/%s (rows=%d, neighbors=%d)",
+            asset_type, symbol, len(close), n_neighbors,
+        )
 
-def predict_asset(
-    ohlcv: pd.DataFrame,
-    *,
-    asset_type: Literal["stock", "crypto"] = "stock",
-    lookback: int = 60,
-    horizon: int = 5,
-    top_k: int = 25,
-) -> tuple[AnalogForecastModel, ForecastOutput, BaselineForecast]:
-    model = _default_model_factory(lookback, horizon, top_k, asset_type)
-    model.fit(ohlcv, asset_type=asset_type)
-    forecast = model.predict(ohlcv, asset_type=asset_type)
-    baseline = build_statistical_baseline(ohlcv["close"], horizon=horizon, asset_type=asset_type)
-    return model, forecast, baseline
+    forecast = model.predict(close, ohlcv, horizon, asset_type=asset_type)
+    metrics = model.backtest(close, ohlcv, n_folds=backtest_folds)
+
+    return forecast, metrics

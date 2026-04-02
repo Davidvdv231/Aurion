@@ -8,19 +8,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
-PLACEHOLDER_PREFIXES = (
-    "HIER_JE_",
-    "YOUR_",
-    "CHANGEME",
-    "REPLACE_ME",
-    "<",
-)
-
-
 def _load_local_env() -> None:
-    if os.getenv("STOCK_PREDICTOR_DISABLE_DOTENV", "").strip().lower() in {"1", "true", "yes", "on"}:
-        return
-
     env_path = PROJECT_ROOT / ".env"
     if not env_path.is_file():
         return
@@ -85,39 +73,16 @@ def _csv_env(name: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
-def _path_env(name: str, default: Path) -> Path:
-    raw = os.getenv(name, "").strip()
-    if not raw:
-        return default
-    return Path(raw).expanduser()
-
-
-def _secret_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
-    if not value:
-        return ""
-
-    upper = value.upper()
-    if any(upper.startswith(prefix) for prefix in PLACEHOLDER_PREFIXES):
-        return ""
-
-    return value
-
-
 @dataclass(frozen=True, slots=True)
 class Settings:
     app_title: str
     version: str
     cors_allow_origins: tuple[str, ...]
-    artifacts_root: Path
     top_cache_ttl_seconds: int
     history_cache_ttl_seconds: int
     rate_limit_window_seconds: int
     rate_limit_max_requests_stat: int
     rate_limit_max_requests_ai: int
-    ml_neighbor_count: int
-    ml_backtest_windows: int
-    ml_min_history_rows: int
     openai_chat_completions_url: str
     openai_model: str
     openai_api_key: str
@@ -145,27 +110,23 @@ def get_settings() -> Settings:
         )
 
     return Settings(
-        app_title="Stock & Crypto Predictor API",
-        version="0.6.0",
+        app_title="Aurion - AI Market Intelligence API",
+        version="0.5.0",
         cors_allow_origins=cors_origins,
-        artifacts_root=_path_env("ARTIFACTS_ROOT", PROJECT_ROOT / "artifacts"),
         top_cache_ttl_seconds=_int_env("TOP_CACHE_TTL_SECONDS", 15 * 60, minimum=30),
         history_cache_ttl_seconds=_int_env("HISTORY_CACHE_TTL_SECONDS", 5 * 60, minimum=30),
         rate_limit_window_seconds=_int_env("RATE_LIMIT_WINDOW_SECONDS", 60, minimum=1),
         rate_limit_max_requests_stat=_int_env("RATE_LIMIT_MAX_REQUESTS_STAT", 30, minimum=0),
         rate_limit_max_requests_ai=_int_env("RATE_LIMIT_MAX_REQUESTS_AI", 8, minimum=0),
-        ml_neighbor_count=_int_env("ML_NEIGHBOR_COUNT", 24, minimum=5),
-        ml_backtest_windows=_int_env("ML_BACKTEST_WINDOWS", 24, minimum=4),
-        ml_min_history_rows=_int_env("ML_MIN_HISTORY_ROWS", 180, minimum=90),
         openai_chat_completions_url=os.getenv(
             "OPENAI_CHAT_COMPLETIONS_URL",
             "https://api.openai.com/v1/chat/completions",
         ).strip()
         or "https://api.openai.com/v1/chat/completions",
         openai_model=os.getenv("OPENAI_MODEL", "gpt-5-mini").strip() or "gpt-5-mini",
-        openai_api_key=_secret_env("OPENAI_API_KEY"),
+        openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
         stock_llm_api_url=os.getenv("STOCK_LLM_API_URL", "").strip(),
-        stock_llm_api_key=_secret_env("STOCK_LLM_API_KEY"),
+        stock_llm_api_key=os.getenv("STOCK_LLM_API_KEY", "").strip(),
         redis_url=os.getenv("REDIS_URL", "").strip(),
         redis_prefix=os.getenv("REDIS_PREFIX", "stock-predictor").strip() or "stock-predictor",
         redis_socket_timeout_seconds=_float_env("REDIS_SOCKET_TIMEOUT_SECONDS", 1.0, minimum=0.1),

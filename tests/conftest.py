@@ -26,11 +26,6 @@ APP_ENV_VARS = [
     "RATE_LIMIT_MAX_REQUESTS_STAT",
     "RATE_LIMIT_MAX_REQUESTS_AI",
     "TRUSTED_PROXY_IPS",
-    "ARTIFACTS_ROOT",
-    "ML_NEIGHBOR_COUNT",
-    "ML_BACKTEST_WINDOWS",
-    "ML_MIN_HISTORY_ROWS",
-    "STOCK_PREDICTOR_DISABLE_DOTENV",
 ]
 
 
@@ -40,7 +35,6 @@ def clear_settings_cache() -> None:
     originals = {name: os.environ.get(name) for name in APP_ENV_VARS}
     for name in APP_ENV_VARS:
         os.environ.pop(name, None)
-    os.environ["STOCK_PREDICTOR_DISABLE_DOTENV"] = "1"
 
     yield
 

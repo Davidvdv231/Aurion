@@ -126,6 +126,22 @@ class RateLimiter:
         raise ServiceError(
             status_code=429,
             code="rate_limited",
-            message=f"Te veel predict requests. Max {limit} requests per {window_seconds}s voor engine={engine}.",
+            message=f"Too many requests. Max {limit} requests per {window_seconds}s for engine={engine}.",
+            retryable=True,
+        )
+
+    def enforce_search_limit(self, request: FastAPIRequest) -> None:
+        """Rate limit ticker search: 60 requests per window."""
+        window_seconds = self._settings.rate_limit_window_seconds
+        limit = 60
+
+        client_key = f"search:{self._client_identifier(request)}"
+        if self._redis_allow_request(key=client_key, window_seconds=window_seconds, limit=limit):
+            return
+
+        raise ServiceError(
+            status_code=429,
+            code="rate_limited",
+            message=f"Too many search requests. Max {limit} per {window_seconds}s.",
             retryable=True,
         )

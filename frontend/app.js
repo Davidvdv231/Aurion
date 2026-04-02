@@ -1,146 +1,228 @@
+/* ============================================
+   AURION - AI Market Intelligence
+   Frontend Application
+   ============================================ */
+
+// --- DOM References ---
 const form = document.getElementById("predict-form");
 const assetTypeInput = document.getElementById("asset-type");
+const assetTypeControl = document.getElementById("asset-type-control");
 const engineInput = document.getElementById("engine");
+const engineControl = document.getElementById("engine-control");
 const symbolInput = document.getElementById("symbol");
 const horizonInput = document.getElementById("horizon");
-const symbolHelpNode = document.getElementById("symbol-help");
+const horizonValue = document.getElementById("horizon-value");
 const topTitleNode = document.getElementById("top-title");
 const suggestionsNode = document.getElementById("ticker-suggestions");
 const topAssetsNode = document.getElementById("top-assets");
 const statusNode = document.getElementById("status");
-const statsCard = document.getElementById("stats-card");
-const lastCloseNode = document.getElementById("last-close");
-const trendNode = document.getElementById("trend");
-const modelNameNode = document.getElementById("model-name");
-const expectedReturnNode = document.getElementById("expected-return");
-const trendLabelNode = document.getElementById("trend-label");
-const confidenceScoreNode = document.getElementById("confidence-score");
-const signalLabelNode = document.getElementById("signal-label");
-const disclaimerNode = document.getElementById("disclaimer");
+const submitButton = document.getElementById("submit-btn");
+const btnText = submitButton.querySelector(".btn-text");
+const btnLoader = submitButton.querySelector(".btn-loader");
+
+// Signal card
+const signalCard = document.getElementById("signal-card");
+const signalBadge = document.getElementById("signal-badge");
+const signalSymbol = document.getElementById("signal-symbol");
+const signalEngine = document.getElementById("signal-engine");
+const currencyTag = document.getElementById("currency-tag");
+const metricPrice = document.getElementById("metric-price");
+const metricExpected = document.getElementById("metric-expected");
+const metricReturn = document.getElementById("metric-return");
+const metricTrend = document.getElementById("metric-trend");
+const confidenceFill = document.getElementById("confidence-fill");
+const confidenceValue = document.getElementById("confidence-value");
+const evalRow = document.getElementById("eval-row");
+const evalMae = document.getElementById("eval-mae");
+const evalDir = document.getElementById("eval-dir");
+const evalMape = document.getElementById("eval-mape");
 const sourceBadgeNode = document.getElementById("source-badge");
 const degradedBadgeNode = document.getElementById("degraded-badge");
-const evaluationRowNode = document.getElementById("evaluation-row");
-const metricMaeNode = document.getElementById("metric-mae");
-const metricDirectionNode = document.getElementById("metric-direction");
-const chartFallbackNode = document.getElementById("chart-fallback");
-const submitButton = document.getElementById("submit-btn");
 
+// Chart
+const chartHeader = document.getElementById("chart-header");
+const chartTitle = document.getElementById("chart-title");
+const chartSubtitle = document.getElementById("chart-subtitle");
+const chartEmpty = document.getElementById("chart-empty");
+const chartCanvas = document.getElementById("stock-chart");
+const chartFallbackNode = document.getElementById("chart-fallback");
+const disclaimerNode = document.getElementById("disclaimer");
+
+// Theme
+const themeToggle = document.getElementById("theme-toggle");
+const themeIconDark = document.getElementById("theme-icon-dark");
+const themeIconLight = document.getElementById("theme-icon-light");
+
+// Watchlist
+const watchlistAddBtn = document.getElementById("watchlist-add");
+const watchlistItems = document.getElementById("watchlist-items");
+
+// --- State ---
 const state = {
   chart: undefined,
   suggestionTimer: undefined,
-  suggestionItems: [],
-  activeSuggestionIndex: -1,
   suggestionRequestId: 0,
   topAssetsRequestId: 0,
   predictionRequestId: 0,
   activeSuggestionController: undefined,
   activeTopAssetsController: undefined,
   activePredictionController: undefined,
-  uiState: "idle",
+  lastPrediction: null,
+  activeSuggestionIndex: -1,
 };
 
+// =============================================
+// THEME
+// =============================================
+function initTheme() {
+  const saved = localStorage.getItem("aurion-theme");
+  const theme = saved || "dark";
+  document.documentElement.setAttribute("data-theme", theme);
+  updateThemeIcons(theme);
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme");
+  const next = current === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("aurion-theme", next);
+  updateThemeIcons(next);
+  if (state.chart) updateChartTheme(state.chart);
+}
+
+function updateThemeIcons(theme) {
+  themeIconDark.style.display = theme === "dark" ? "block" : "none";
+  themeIconLight.style.display = theme === "light" ? "block" : "none";
+}
+
+function getChartColors() {
+  const style = getComputedStyle(document.documentElement);
+  return {
+    history: style.getPropertyValue("--chart-history").trim(),
+    forecast: style.getPropertyValue("--chart-forecast").trim(),
+    band: style.getPropertyValue("--chart-band").trim(),
+    grid: style.getPropertyValue("--chart-grid").trim(),
+    text: style.getPropertyValue("--text-muted").trim(),
+  };
+}
+
+function updateChartTheme(chart) {
+  const colors = getChartColors();
+  chart.options.scales.x.ticks.color = colors.text;
+  chart.options.scales.y.ticks.color = colors.text;
+  chart.options.scales.x.grid.color = colors.grid;
+  chart.options.scales.y.grid.color = colors.grid;
+  chart.data.datasets[0].borderColor = colors.history;
+  chart.data.datasets[1].borderColor = colors.forecast;
+  chart.data.datasets[2].borderColor = "transparent";
+  chart.data.datasets[2].backgroundColor = colors.band;
+  chart.data.datasets[3].borderColor = "transparent";
+  chart.update("none");
+}
+
+// =============================================
+// SEGMENTED CONTROLS
+// =============================================
+function initSegmentedControls() {
+  setupSegmented(assetTypeControl, assetTypeInput, () => {
+    applyAssetTypeUi();
+    hideSuggestions();
+    clearResults();
+    loadTopAssets();
+  });
+  setupSegmented(engineControl, engineInput);
+}
+
+function setupSegmented(control, hiddenInput, onChange) {
+  const buttons = control.querySelectorAll(".seg-btn");
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      buttons.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      hiddenInput.value = btn.dataset.value;
+      if (onChange) onChange(btn.dataset.value);
+    });
+  });
+}
+
+// =============================================
+// HORIZON SLIDER
+// =============================================
+function initHorizon() {
+  horizonInput.addEventListener("input", () => {
+    horizonValue.textContent = `${horizonInput.value}d`;
+  });
+}
+
+// =============================================
+// HELPERS
+// =============================================
 function currentAssetType() {
   return assetTypeInput.value === "crypto" ? "crypto" : "stock";
 }
 
 function setStatus(message, isError = false) {
   statusNode.textContent = message;
-  statusNode.style.color = isError ? "#dc2626" : "#1d4ed8";
+  statusNode.className = isError ? "global-status error" : "global-status";
+  if (message) {
+    clearTimeout(state.statusTimer);
+    state.statusTimer = setTimeout(() => { statusNode.textContent = ""; }, 5000);
+  }
 }
 
 function setLoading(isLoading) {
   submitButton.disabled = isLoading;
-  submitButton.textContent = isLoading ? "Bezig..." : "Toon voorspelling";
+  btnText.hidden = isLoading;
+  btnLoader.hidden = !isLoading;
 }
 
-function formatApiError(payload, fallbackMessage) {
+function formatApiError(payload, fallback) {
   if (payload && typeof payload === "object") {
-    if (payload.error && typeof payload.error.message === "string") {
-      return payload.error.message;
-    }
-
+    if (payload.error && typeof payload.error.message === "string") return payload.error.message;
     const detail = payload.detail;
-    if (Array.isArray(detail)) {
-      const first = detail[0];
-      if (first && typeof first === "object" && typeof first.msg === "string") {
-        return first.msg;
-      }
-    }
-
-    if (typeof detail === "string" && detail.trim()) {
-      return detail;
-    }
+    if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg;
+    if (typeof detail === "string" && detail.trim()) return detail;
   }
-
-  return fallbackMessage;
+  return fallback;
 }
 
 function formatCurrency(value, currency) {
   try {
-    return new Intl.NumberFormat("nl-BE", {
+    return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: currency || "USD",
       maximumFractionDigits: 2,
     }).format(value);
   } catch {
-    const amount = Number.isFinite(value) ? value.toFixed(2) : "0.00";
-    return `${amount} ${currency || "USD"}`;
+    return `${Number.isFinite(value) ? value.toFixed(2) : "0.00"} ${currency || "USD"}`;
   }
 }
 
+function formatPercent(value) {
+  const sign = value >= 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}%`;
+}
+
+// =============================================
+// UI STATE
+// =============================================
 function hideSuggestions() {
-  state.suggestionItems = [];
-  state.activeSuggestionIndex = -1;
-  symbolInput.setAttribute("aria-expanded", "false");
-  symbolInput.removeAttribute("aria-activedescendant");
   suggestionsNode.hidden = true;
   suggestionsNode.innerHTML = "";
-}
-
-function selectSuggestion(item) {
-  symbolInput.value = item.symbol;
-  hideSuggestions();
-  form.requestSubmit();
-}
-
-function updateActiveSuggestion(nextIndex) {
-  const count = state.suggestionItems.length;
-  if (!count) {
-    state.activeSuggestionIndex = -1;
-    symbolInput.removeAttribute("aria-activedescendant");
-    return;
-  }
-
-  const normalizedIndex = ((nextIndex % count) + count) % count;
-  state.activeSuggestionIndex = normalizedIndex;
-
-  const buttons = suggestionsNode.querySelectorAll(".suggestion-item");
-  for (const [index, button] of buttons.entries()) {
-    const isActive = index === normalizedIndex;
-    button.classList.toggle("is-active", isActive);
-    button.setAttribute("aria-selected", isActive ? "true" : "false");
-    if (isActive) {
-      symbolInput.setAttribute("aria-activedescendant", button.id);
-      button.scrollIntoView({ block: "nearest" });
-    }
-  }
+  state.activeSuggestionIndex = -1;
 }
 
 function clearResults() {
-  statsCard.hidden = true;
+  signalCard.hidden = true;
+  chartHeader.hidden = true;
+  chartEmpty.hidden = false;
+  chartCanvas.hidden = true;
+  chartFallbackNode.hidden = true;
+  disclaimerNode.hidden = true;
   sourceBadgeNode.hidden = true;
   degradedBadgeNode.hidden = true;
-  evaluationRowNode.hidden = true;
-  disclaimerNode.textContent = "";
-  chartFallbackNode.hidden = true;
-  chartFallbackNode.textContent = "";
-  expectedReturnNode.textContent = "-";
-  trendLabelNode.textContent = "-";
-  confidenceScoreNode.textContent = "-";
-  signalLabelNode.textContent = "-";
-  metricMaeNode.textContent = "MAE: -";
-  metricDirectionNode.textContent = "Directional accuracy: -";
-
+  evalRow.hidden = true;
+  watchlistAddBtn.hidden = true;
   if (state.chart) {
     state.chart.destroy();
     state.chart = undefined;
@@ -149,230 +231,272 @@ function clearResults() {
 
 function applyAssetTypeUi() {
   const assetType = currentAssetType();
-
-  if (assetType === "crypto") {
-    symbolHelpNode.textContent = "Crypto: BTC, ETH, SOL, XRP, DOGE...";
-    topTitleNode.textContent = "Top 10 Crypto Nu";
-
-    const current = symbolInput.value.trim().toUpperCase();
-    if (!current || current === "AAPL") {
-      symbolInput.value = "BTC";
-    }
-    return;
-  }
-
-  symbolHelpNode.textContent = "Aandelen: AAPL, INGA, KBC | Crypto: BTC, ETH, SOL";
-  topTitleNode.textContent = "Top 10 Aandelen Nu";
-
+  topTitleNode.textContent = assetType === "crypto" ? "Trending Crypto" : "Trending Stocks";
   const current = symbolInput.value.trim().toUpperCase();
-  if (!current || current === "BTC" || current.endsWith("-USD")) {
-    symbolInput.value = "AAPL";
+  if (assetType === "crypto") {
+    if (!current || current === "AAPL") symbolInput.value = "BTC";
+  } else {
+    if (!current || current === "BTC" || current.endsWith("-USD")) symbolInput.value = "AAPL";
   }
 }
 
+// =============================================
+// AUTOCOMPLETE with keyboard navigation
+// =============================================
 function renderSuggestions(tickers) {
   suggestionsNode.innerHTML = "";
-  state.suggestionItems = Array.isArray(tickers) ? tickers : [];
   state.activeSuggestionIndex = -1;
-
-  if (state.suggestionItems.length === 0) {
+  if (!Array.isArray(tickers) || tickers.length === 0) {
     hideSuggestions();
     return;
   }
 
-  for (const [index, item] of state.suggestionItems.entries()) {
-    const listItem = document.createElement("li");
-    const button = document.createElement("button");
-    const symbolSpan = document.createElement("span");
-    const nameSpan = document.createElement("span");
-
-    button.type = "button";
-    button.className = "suggestion-item";
-    button.id = `suggestion-${index}`;
-    button.setAttribute("role", "option");
-    button.setAttribute("aria-selected", "false");
-
-    symbolSpan.className = "suggestion-symbol";
-    symbolSpan.textContent = item.symbol;
-
-    nameSpan.className = "suggestion-name";
-    nameSpan.textContent = `${item.name} (${item.exchange})`;
-
-    button.appendChild(symbolSpan);
-    button.appendChild(nameSpan);
-
-    button.addEventListener("click", () => selectSuggestion(item));
-
-    listItem.appendChild(button);
-    suggestionsNode.appendChild(listItem);
+  for (let i = 0; i < tickers.length; i++) {
+    const item = tickers[i];
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "suggestion-item";
+    btn.dataset.index = i;
+    btn.innerHTML = `<span class="suggestion-symbol">${item.symbol}</span><span class="suggestion-name">${item.name} (${item.exchange})</span>`;
+    btn.addEventListener("click", () => {
+      symbolInput.value = item.symbol;
+      hideSuggestions();
+      form.requestSubmit();
+    });
+    li.appendChild(btn);
+    suggestionsNode.appendChild(li);
   }
-
-  symbolInput.setAttribute("aria-expanded", "true");
   suggestionsNode.hidden = false;
+}
+
+function updateSuggestionHighlight() {
+  const items = suggestionsNode.querySelectorAll(".suggestion-item");
+  items.forEach((item, i) => {
+    item.classList.toggle("active", i === state.activeSuggestionIndex);
+  });
+  // Scroll active item into view
+  if (state.activeSuggestionIndex >= 0 && items[state.activeSuggestionIndex]) {
+    items[state.activeSuggestionIndex].scrollIntoView({ block: "nearest" });
+  }
+}
+
+function handleSuggestionKeyboard(e) {
+  if (suggestionsNode.hidden) return;
+
+  const items = suggestionsNode.querySelectorAll(".suggestion-item");
+  if (!items.length) return;
+
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    state.activeSuggestionIndex = Math.min(state.activeSuggestionIndex + 1, items.length - 1);
+    updateSuggestionHighlight();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    state.activeSuggestionIndex = Math.max(state.activeSuggestionIndex - 1, -1);
+    updateSuggestionHighlight();
+  } else if (e.key === "Enter" && state.activeSuggestionIndex >= 0) {
+    e.preventDefault();
+    items[state.activeSuggestionIndex].click();
+  } else if (e.key === "Escape") {
+    hideSuggestions();
+  }
 }
 
 async function loadSuggestions() {
   const query = symbolInput.value.trim();
-  const assetType = currentAssetType();
+  if (!query) { hideSuggestions(); return; }
 
-  if (!query) {
-    hideSuggestions();
-    return;
-  }
-
-  if (state.activeSuggestionController) {
-    state.activeSuggestionController.abort();
-  }
-
-  const currentRequestId = ++state.suggestionRequestId;
+  if (state.activeSuggestionController) state.activeSuggestionController.abort();
+  const currentId = ++state.suggestionRequestId;
   const controller = new AbortController();
   state.activeSuggestionController = controller;
 
   try {
-    const response = await fetch(
-      `/api/tickers?query=${encodeURIComponent(query)}&limit=12&asset_type=${encodeURIComponent(assetType)}`,
+    const res = await fetch(
+      `/api/tickers?query=${encodeURIComponent(query)}&limit=10&asset_type=${encodeURIComponent(currentAssetType())}`,
       { signal: controller.signal },
     );
-    const data = await response.json();
-
-    if (currentRequestId !== state.suggestionRequestId) {
-      return;
-    }
-
-    if (!response.ok) {
-      hideSuggestions();
-      return;
-    }
-
+    const data = await res.json();
+    if (currentId !== state.suggestionRequestId) return;
+    if (!res.ok) { hideSuggestions(); return; }
     renderSuggestions(data.tickers || []);
-  } catch (error) {
-    if (error?.name !== "AbortError" && currentRequestId === state.suggestionRequestId) {
-      hideSuggestions();
-    }
+  } catch (e) {
+    if (e?.name !== "AbortError" && currentId === state.suggestionRequestId) hideSuggestions();
   }
 }
 
 function queueSuggestionsLoad() {
   clearTimeout(state.suggestionTimer);
-  state.suggestionTimer = setTimeout(loadSuggestions, 140);
+  state.suggestionTimer = setTimeout(loadSuggestions, 150);
 }
 
+// =============================================
+// TOP ASSETS
+// =============================================
 function renderTopAssets(items) {
   topAssetsNode.innerHTML = "";
-
   if (!Array.isArray(items) || items.length === 0) {
-    topAssetsNode.textContent = "Geen top tickers beschikbaar.";
+    topAssetsNode.innerHTML = '<p class="empty-hint">No trending assets available.</p>';
     return;
   }
 
   for (const item of items) {
-    const button = document.createElement("button");
-    const symbol = document.createElement("span");
-    const name = document.createElement("span");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chip-btn";
+    btn.title = `${item.symbol} - ${item.name}`;
+    btn.innerHTML = `<span class="chip-symbol">${item.symbol}</span><span class="chip-name">${item.name}</span>`;
+    btn.addEventListener("click", () => {
+      symbolInput.value = item.symbol;
+      hideSuggestions();
+      form.requestSubmit();
+    });
+    topAssetsNode.appendChild(btn);
+  }
+}
 
-    button.type = "button";
-    button.className = "chip-btn";
+async function loadTopAssets() {
+  topAssetsNode.innerHTML = `
+    <div class="skeleton-chips">
+      <div class="skeleton-chip"></div><div class="skeleton-chip"></div>
+      <div class="skeleton-chip"></div><div class="skeleton-chip"></div>
+      <div class="skeleton-chip"></div><div class="skeleton-chip"></div>
+    </div>`;
 
-    symbol.className = "chip-symbol";
-    symbol.textContent = item.symbol;
+  const currentId = ++state.topAssetsRequestId;
+  if (state.activeTopAssetsController) state.activeTopAssetsController.abort();
+  const controller = new AbortController();
+  state.activeTopAssetsController = controller;
 
-    name.className = "chip-name";
-    name.textContent = item.name;
+  try {
+    const res = await fetch(
+      `/api/top-assets?limit=10&asset_type=${encodeURIComponent(currentAssetType())}`,
+      { signal: controller.signal },
+    );
+    let data = null;
+    try { data = await res.json(); } catch { data = null; }
+    if (currentId !== state.topAssetsRequestId) return;
+    if (!res.ok) {
+      topAssetsNode.innerHTML = `<p class="empty-hint">${formatApiError(data, "Could not load trending assets.")}</p>`;
+      return;
+    }
+    renderTopAssets(data?.items || []);
+  } catch (e) {
+    if (e?.name === "AbortError" || currentId !== state.topAssetsRequestId) return;
+    topAssetsNode.innerHTML = '<p class="empty-hint">Could not load trending assets.</p>';
+  }
+}
 
-    button.title = `${item.symbol} - ${item.name}`;
-    button.appendChild(symbol);
-    button.appendChild(name);
+// =============================================
+// WATCHLIST (localStorage)
+// =============================================
+const WATCHLIST_KEY = "aurion-watchlist";
 
-    button.addEventListener("click", () => {
+function getWatchlist() {
+  try {
+    const raw = localStorage.getItem(WATCHLIST_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveWatchlist(list) {
+  localStorage.setItem(WATCHLIST_KEY, JSON.stringify(list));
+}
+
+function addToWatchlist(symbol, assetType) {
+  const list = getWatchlist();
+  if (list.some((item) => item.symbol === symbol)) return;
+  list.push({ symbol, asset_type: assetType });
+  saveWatchlist(list);
+  renderWatchlist();
+}
+
+function removeFromWatchlist(symbol) {
+  const list = getWatchlist().filter((item) => item.symbol !== symbol);
+  saveWatchlist(list);
+  renderWatchlist();
+}
+
+function renderWatchlist() {
+  const list = getWatchlist();
+  watchlistItems.innerHTML = "";
+
+  if (list.length === 0) {
+    watchlistItems.innerHTML = '<p class="empty-hint">No symbols saved yet. Generate a forecast and click + to add.</p>';
+    return;
+  }
+
+  for (const item of list) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chip-btn watchlist-chip";
+    btn.innerHTML = `
+      <div>
+        <span class="chip-symbol">${item.symbol}</span>
+        <span class="chip-name">${item.asset_type}</span>
+      </div>
+      <span class="chip-remove" title="Remove">&times;</span>
+    `;
+
+    // Click the chip area (not the remove button) to load the symbol
+    btn.addEventListener("click", (e) => {
+      if (e.target.closest(".chip-remove")) {
+        e.stopPropagation();
+        removeFromWatchlist(item.symbol);
+        return;
+      }
+      // Set asset type
+      const segBtns = assetTypeControl.querySelectorAll(".seg-btn");
+      segBtns.forEach((b) => {
+        b.classList.toggle("active", b.dataset.value === item.asset_type);
+      });
+      assetTypeInput.value = item.asset_type;
+      applyAssetTypeUi();
+
       symbolInput.value = item.symbol;
       hideSuggestions();
       form.requestSubmit();
     });
 
-    topAssetsNode.appendChild(button);
+    watchlistItems.appendChild(btn);
   }
 }
 
-async function loadTopAssets() {
-  topAssetsNode.textContent = "Top 10 laden...";
-  const assetType = currentAssetType();
-  const currentRequestId = ++state.topAssetsRequestId;
-
-  if (state.activeTopAssetsController) {
-    state.activeTopAssetsController.abort();
-  }
-
-  const controller = new AbortController();
-  state.activeTopAssetsController = controller;
-
-  if (navigator.onLine === false) {
-    topAssetsNode.textContent = "Offline: top assets vereisen een netwerkverbinding.";
-    return;
-  }
-
-  try {
-    const response = await fetch(
-      `/api/top-assets?limit=10&asset_type=${encodeURIComponent(assetType)}`,
-      { signal: controller.signal },
-    );
-
-    let data = null;
-    try {
-      data = await response.json();
-    } catch {
-      data = null;
-    }
-
-    if (currentRequestId !== state.topAssetsRequestId) {
-      return;
-    }
-
-    if (!response.ok) {
-      topAssetsNode.textContent = formatApiError(data, "Top 10 kon niet worden geladen.");
-      return;
-    }
-
-    renderTopAssets(data?.items || []);
-  } catch (error) {
-    if (error?.name === "AbortError" || currentRequestId !== state.topAssetsRequestId) {
-      return;
-    }
-    topAssetsNode.textContent = "Top 10 kon niet worden geladen.";
-  }
-}
-
+// =============================================
+// CHART
+// =============================================
 function buildDatasets(history, forecast) {
-  const historyDates = history.map((row) => row.date);
-  const forecastDates = forecast.map((row) => row.date);
+  const historyDates = history.map((r) => r.date);
+  const forecastDates = forecast.map((r) => r.date);
   const labels = [...historyDates, ...forecastDates];
 
-  const historyPrices = history.map((row) => row.close);
+  const historyPrices = history.map((r) => r.close);
   const historyData = [...historyPrices, ...Array(forecast.length).fill(null)];
-  const lastHistoricalPrice = historyPrices[historyPrices.length - 1];
+  const lastPrice = historyPrices[historyPrices.length - 1];
 
   const forecastLine = [
     ...Array(history.length - 1).fill(null),
-    lastHistoricalPrice,
-    ...forecast.map((row) => row.predicted),
+    lastPrice,
+    ...forecast.map((r) => r.predicted),
   ];
 
-  const lowerBand = [...Array(history.length).fill(null), ...forecast.map((row) => row.lower)];
-  const upperBand = [...Array(history.length).fill(null), ...forecast.map((row) => row.upper)];
+  const lowerBand = [...Array(history.length - 1).fill(null), lastPrice, ...forecast.map((r) => r.lower)];
+  const upperBand = [...Array(history.length - 1).fill(null), lastPrice, ...forecast.map((r) => r.upper)];
 
   return { labels, historyData, forecastLine, lowerBand, upperBand };
 }
 
 function renderChart(data) {
   if (typeof window.Chart !== "function") {
-    throw new Error("Grafiekbibliotheek ontbreekt. Herlaad de pagina of controleer de offline cache.");
+    throw new Error("Chart library not loaded. Please reload the page.");
   }
 
-  const canvas = document.getElementById("stock-chart");
-  const ctx = canvas.getContext("2d");
-  const { labels, historyData, forecastLine, lowerBand, upperBand } = buildDatasets(
-    data.history,
-    data.forecast,
-  );
+  const ctx = chartCanvas.getContext("2d");
+  const colors = getChartColors();
+  const { labels, historyData, forecastLine, lowerBand, upperBand } = buildDatasets(data.history, data.forecast);
 
   const config = {
     type: "line",
@@ -380,161 +504,184 @@ function renderChart(data) {
       labels,
       datasets: [
         {
-          label: "Historiek",
+          label: "Historical",
           data: historyData,
-          borderColor: "#0b172a",
+          borderColor: colors.history,
           borderWidth: 2,
-          tension: 0.25,
+          tension: 0.3,
           pointRadius: 0,
+          pointHoverRadius: 4,
+          order: 2,
         },
         {
-          label: "Voorspelling",
+          label: "Forecast",
           data: forecastLine,
-          borderColor: "#1d4ed8",
-          borderWidth: 2,
+          borderColor: colors.forecast,
+          borderWidth: 2.5,
           borderDash: [6, 4],
           tension: 0.3,
           pointRadius: 0,
+          pointHoverRadius: 4,
+          order: 1,
         },
         {
-          label: "Ondergrens (80%)",
-          data: lowerBand,
-          borderColor: "#94a3b8",
-          borderWidth: 1,
-          pointRadius: 0,
-        },
-        {
-          label: "Bovengrens (80%)",
+          label: "Confidence Band",
           data: upperBand,
-          borderColor: "#94a3b8",
-          borderWidth: 1,
+          borderColor: "transparent",
+          backgroundColor: colors.band,
+          fill: "+1",
+          tension: 0.3,
           pointRadius: 0,
+          order: 3,
+        },
+        {
+          label: "_lower",
+          data: lowerBand,
+          borderColor: "transparent",
+          backgroundColor: "transparent",
+          tension: 0.3,
+          pointRadius: 0,
+          order: 4,
         },
       ],
     },
     options: {
+      responsive: true,
       maintainAspectRatio: false,
-      interaction: {
-        mode: "index",
-        intersect: false,
-      },
+      interaction: { mode: "index", intersect: false },
       scales: {
         x: {
-          ticks: {
-            maxTicksLimit: 8,
-          },
+          ticks: { maxTicksLimit: 8, color: colors.text, font: { size: 11 } },
+          grid: { color: colors.grid },
+          border: { display: false },
+        },
+        y: {
+          ticks: { color: colors.text, font: { size: 11 } },
+          grid: { color: colors.grid },
+          border: { display: false },
         },
       },
       plugins: {
         legend: {
+          display: true,
           position: "bottom",
+          labels: {
+            color: colors.text,
+            usePointStyle: true,
+            pointStyle: "circle",
+            padding: 16,
+            font: { size: 11 },
+            filter: (item) => !item.text.startsWith("_"),
+          },
+        },
+        tooltip: {
+          backgroundColor: "rgba(0,0,0,0.8)",
+          titleFont: { size: 12 },
+          bodyFont: { size: 12 },
+          padding: 10,
+          cornerRadius: 8,
+          displayColors: false,
+          callbacks: {
+            label: (ctx) => {
+              if (ctx.dataset.label?.startsWith("_")) return null;
+              const val = ctx.parsed.y;
+              return val !== null ? `${ctx.dataset.label}: ${val.toFixed(2)}` : null;
+            },
+          },
         },
       },
+      animation: { duration: 600, easing: "easeOutCubic" },
     },
   };
 
-  if (state.chart) {
-    state.chart.destroy();
-  }
+  if (state.chart) state.chart.destroy();
   state.chart = new window.Chart(ctx, config);
 }
 
-function updateStats(data) {
-  statsCard.hidden = false;
-  lastCloseNode.textContent = formatCurrency(data.stats.last_close, data.currency);
+// =============================================
+// SIGNAL CARD
+// =============================================
+function updateSignalCard(data) {
+  signalCard.hidden = false;
+  state.lastPrediction = data;
 
-  const sign = data.stats.daily_trend_pct >= 0 ? "+" : "";
-  trendNode.textContent = `${sign}${data.stats.daily_trend_pct.toFixed(3)}% / dag`;
-  modelNameNode.textContent = data.model_name;
-  updateSummary(data.summary);
-  updateEvaluation(data.evaluation);
+  const summary = data.summary;
+  const signalText = summary.signal.replace("_", " ").toUpperCase();
+  signalBadge.textContent = signalText;
+  signalBadge.setAttribute("data-signal", summary.signal);
+
+  signalSymbol.textContent = data.symbol;
+  signalEngine.textContent = `${data.model_name} | ${data.engine_used.toUpperCase()}`;
+
+  // Currency tag
+  currencyTag.textContent = data.currency || "USD";
+
+  metricPrice.textContent = formatCurrency(data.stats.last_close, data.currency);
+  metricExpected.textContent = formatCurrency(summary.expected_price, data.currency);
+
+  metricReturn.textContent = formatPercent(summary.expected_return_pct);
+  metricReturn.className = `metric-value ${summary.expected_return_pct >= 0 ? "positive" : "negative"}`;
+
+  metricTrend.textContent = summary.trend.charAt(0).toUpperCase() + summary.trend.slice(1);
+  metricTrend.className = `metric-value ${summary.trend === "bullish" ? "positive" : summary.trend === "bearish" ? "negative" : ""}`;
+
+  // Confidence
+  const confPct = Math.round(summary.confidence_score * 100);
+  confidenceFill.style.width = `${confPct}%`;
+  confidenceValue.textContent = `${confPct}%`;
+  if (confPct < 40) confidenceFill.setAttribute("data-level", "low");
+  else if (confPct < 70) confidenceFill.setAttribute("data-level", "medium");
+  else confidenceFill.setAttribute("data-level", "high");
+
+  // Evaluation metrics
+  if (data.evaluation) {
+    evalRow.hidden = false;
+    evalMae.textContent = `MAE: ${data.evaluation.mae != null ? data.evaluation.mae.toFixed(2) : "-"}`;
+    evalDir.textContent = `Dir: ${data.evaluation.directional_accuracy != null ? (data.evaluation.directional_accuracy * 100).toFixed(0) + "%" : "-"}`;
+    evalMape.textContent = `MAPE: ${data.evaluation.mape != null ? data.evaluation.mape.toFixed(1) + "%" : "-"}`;
+  } else {
+    evalRow.hidden = true;
+  }
+
+  // Source & degradation
   sourceBadgeNode.hidden = false;
-  sourceBadgeNode.textContent = `Bronnen: ${data.source.market_data} / ${data.source.forecast}`;
+  sourceBadgeNode.textContent = `${data.source.market_data} / ${data.source.forecast}`;
 
   if (data.degraded) {
     degradedBadgeNode.hidden = false;
-    degradedBadgeNode.textContent = data.degradation_reason
-      ? `Fallback actief: ${data.degradation_reason}`
-      : "Fallback actief";
+    degradedBadgeNode.textContent = data.degradation_reason ? `Fallback: ${data.degradation_reason}` : "Fallback active";
   } else {
     degradedBadgeNode.hidden = true;
   }
 
+  // Disclaimer
+  disclaimerNode.hidden = false;
   disclaimerNode.textContent = `${data.disclaimer} ${data.engine_note || ""}`.trim();
+
+  // Show watchlist add button
+  watchlistAddBtn.hidden = false;
 }
 
-function updateSummary(summary) {
-  if (!summary || typeof summary !== "object") {
-    expectedReturnNode.textContent = "-";
-    trendLabelNode.textContent = "-";
-    confidenceScoreNode.textContent = "-";
-    signalLabelNode.textContent = "-";
-    return;
-  }
-
-  const expectedReturn = Number(summary.expected_return_pct);
-  const confidence = Number(summary.confidence_score);
-  const probabilityUp = Number(summary.probability_up);
-
-  if (Number.isFinite(expectedReturn)) {
-    const sign = expectedReturn >= 0 ? "+" : "";
-    expectedReturnNode.textContent = `${sign}${expectedReturn.toFixed(2)}%`;
-  } else {
-    expectedReturnNode.textContent = "-";
-  }
-
-  trendLabelNode.textContent = typeof summary.trend === "string" ? summary.trend : "-";
-  signalLabelNode.textContent = typeof summary.signal === "string" ? summary.signal : "-";
-
-  if (Number.isFinite(confidence)) {
-    const confidencePct = (confidence * 100).toFixed(0);
-    const probabilityText = Number.isFinite(probabilityUp) ? ` | up ${Math.round(probabilityUp * 100)}%` : "";
-    confidenceScoreNode.textContent = `${confidencePct}%${probabilityText}`;
-  } else {
-    confidenceScoreNode.textContent = "-";
-  }
-}
-
-function updateEvaluation(evaluation) {
-  if (!evaluation || typeof evaluation !== "object") {
-    evaluationRowNode.hidden = true;
-    return;
-  }
-
-  const mae = Number(evaluation.mae);
-  const directionalAccuracy = Number(evaluation.directional_accuracy);
-  metricMaeNode.textContent = Number.isFinite(mae) ? `MAE: ${mae.toFixed(2)}` : "MAE: -";
-  metricDirectionNode.textContent = Number.isFinite(directionalAccuracy)
-    ? `Directional accuracy: ${(directionalAccuracy * 100).toFixed(0)}%`
-    : "Directional accuracy: -";
-  evaluationRowNode.hidden = false;
-}
-
+// =============================================
+// PREDICTION
+// =============================================
 async function fetchPrediction(payload, controller) {
-  const response = await fetch("/api/predict", {
+  const res = await fetch("/api/predict", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(payload),
     signal: controller.signal,
   });
 
   let data = null;
-  try {
-    data = await response.json();
-  } catch {
-    data = null;
-  }
+  try { data = await res.json(); } catch { data = null; }
 
-  if (!response.ok) {
-    const error = new Error(formatApiError(data, "Fout bij ophalen van data."));
+  if (!res.ok) {
+    const error = new Error(formatApiError(data, "Error fetching prediction data."));
     error.isApiError = true;
-    error.statusCode = response.status;
+    error.statusCode = res.status;
     throw error;
   }
-
   return data;
 }
 
@@ -543,169 +690,93 @@ async function loadPrediction(event) {
 
   const symbol = symbolInput.value.trim().toUpperCase();
   const horizon = Number.parseInt(horizonInput.value, 10);
-  const engine = ["ml", "ai", "stat"].includes(engineInput.value) ? engineInput.value : "ml";
+  const engine = engineInput.value;
   const assetType = currentAssetType();
 
   if (!symbol) {
     clearResults();
-    setStatus("Vul een ticker symbool in.", true);
-    return;
-  }
-
-  if (!Number.isInteger(horizon) || horizon < 7 || horizon > 45) {
-    clearResults();
-    setStatus("Horizon moet tussen 7 en 45 dagen liggen.", true);
-    return;
-  }
-
-  if (navigator.onLine === false) {
-    clearResults();
-    state.uiState = "error";
-    setStatus("Je bent offline. Voorspellingen vereisen een netwerkverbinding.", true);
+    setStatus("Please enter a ticker symbol.", true);
     return;
   }
 
   symbolInput.value = symbol;
   hideSuggestions();
   clearResults();
-  state.uiState = "loading";
   setLoading(true);
-  setStatus("Data laden en voorspelling berekenen...");
+  setStatus(`Analyzing ${symbol}...`);
 
-  if (state.activePredictionController) {
-    state.activePredictionController.abort();
-  }
-
+  if (state.activePredictionController) state.activePredictionController.abort();
   const controller = new AbortController();
   state.activePredictionController = controller;
-  const currentRequestId = ++state.predictionRequestId;
+  const currentId = ++state.predictionRequestId;
 
   try {
-    const data = await fetchPrediction(
-      {
-        symbol,
-        horizon,
-        engine,
-        asset_type: assetType,
-      },
-      controller,
-    );
-
-    if (currentRequestId !== state.predictionRequestId) {
-      return;
-    }
+    const data = await fetchPrediction({ symbol, horizon, engine, asset_type: assetType }, controller);
+    if (currentId !== state.predictionRequestId) return;
 
     try {
+      chartEmpty.hidden = true;
+      chartCanvas.hidden = false;
+      chartHeader.hidden = false;
+      chartTitle.textContent = `${data.symbol} Price Forecast`;
+      chartSubtitle.textContent = `${data.horizon_days}d | ${data.engine_used.toUpperCase()} | ${data.currency}`;
+
       renderChart(data);
-      updateStats(data);
+      updateSignalCard(data);
     } catch (renderError) {
       clearResults();
       chartFallbackNode.hidden = false;
-      chartFallbackNode.textContent = renderError.message || "Grafiek renderen mislukt.";
-      state.uiState = "error";
+      chartFallbackNode.textContent = renderError.message || "Chart render failed.";
       setStatus(chartFallbackNode.textContent, true);
       return;
     }
 
-    state.uiState = "success";
-    const requested = data.requested_symbol || symbol;
-    const symbolLabel = requested !== data.symbol ? `${requested} -> ${data.symbol}` : data.symbol;
-    const assetLabel = data.asset_type === "crypto" ? "crypto" : "aandeel";
-
+    const assetLabel = data.asset_type === "crypto" ? "crypto" : "stock";
     if (data.degraded) {
-      setStatus(`Voorspelling geladen voor ${symbolLabel} (${assetLabel}) met fallback.`);
-      return;
+      setStatus(`Forecast loaded for ${data.symbol} (${assetLabel}) with fallback.`);
+    } else {
+      setStatus(`Forecast loaded for ${data.symbol} (${assetLabel}, ${data.engine_used}).`);
     }
-
-    setStatus(`Voorspelling geladen voor ${symbolLabel} (${assetLabel}, ${data.engine_used}).`);
   } catch (error) {
-    if (error?.name === "AbortError" || currentRequestId !== state.predictionRequestId) {
-      return;
-    }
-
+    if (error?.name === "AbortError" || currentId !== state.predictionRequestId) return;
     clearResults();
-    state.uiState = "error";
-    setStatus(error?.message || "Netwerkfout: kan de API niet bereiken.", true);
+    setStatus(error?.message || "Network error: cannot reach the API.", true);
   } finally {
-    if (currentRequestId === state.predictionRequestId) {
-      setLoading(false);
-    }
+    if (currentId === state.predictionRequestId) setLoading(false);
   }
 }
 
+// =============================================
+// EVENT LISTENERS
+// =============================================
 form.addEventListener("submit", loadPrediction);
-assetTypeInput.addEventListener("change", () => {
-  applyAssetTypeUi();
-  hideSuggestions();
-  clearResults();
-  loadTopAssets();
-  queueSuggestionsLoad();
-});
 symbolInput.addEventListener("input", queueSuggestionsLoad);
 symbolInput.addEventListener("focus", queueSuggestionsLoad);
-symbolInput.addEventListener("keydown", (event) => {
-  if (event.key === "ArrowDown") {
-    if (suggestionsNode.hidden) {
-      queueSuggestionsLoad();
-      return;
-    }
-    event.preventDefault();
-    updateActiveSuggestion(state.activeSuggestionIndex + 1);
-    return;
-  }
+symbolInput.addEventListener("keydown", handleSuggestionKeyboard);
+document.addEventListener("click", (e) => { if (!e.target.closest(".autocomplete-wrap")) hideSuggestions(); });
+themeToggle.addEventListener("click", toggleTheme);
 
-  if (event.key === "ArrowUp") {
-    if (suggestionsNode.hidden) {
-      return;
-    }
-    event.preventDefault();
-    updateActiveSuggestion(state.activeSuggestionIndex - 1);
-    return;
-  }
-
-  if (event.key === "Enter" && !suggestionsNode.hidden && state.activeSuggestionIndex >= 0) {
-    event.preventDefault();
-    selectSuggestion(state.suggestionItems[state.activeSuggestionIndex]);
-    return;
-  }
-
-  if (event.key === "Escape") {
-    hideSuggestions();
+// Watchlist add
+watchlistAddBtn.addEventListener("click", () => {
+  if (state.lastPrediction) {
+    addToWatchlist(state.lastPrediction.symbol, state.lastPrediction.asset_type);
+    setStatus(`${state.lastPrediction.symbol} added to watchlist.`);
   }
 });
 
-document.addEventListener("click", (event) => {
-  if (!event.target.closest(".autocomplete-wrap")) {
-    hideSuggestions();
-  }
-});
-
+// Service Worker
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {
-      // Non-blocking if registration fails.
-    });
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
   });
 }
 
-window.addEventListener("online", () => {
-  if (state.uiState === "error" && statusNode.textContent.includes("offline")) {
-    setStatus("Verbinding hersteld. Je kunt opnieuw een voorspelling opvragen.");
-  }
-  loadTopAssets();
-});
-
-window.addEventListener("offline", () => {
-  topAssetsNode.textContent = "Offline: top assets vereisen een netwerkverbinding.";
-  if (state.uiState !== "loading") {
-    setStatus("Je bent offline. De app-shell blijft beschikbaar, maar live data niet.", true);
-  }
-});
-
-window.__stockPredictor = {
-  formatCurrency,
-};
-
+// =============================================
+// INIT
+// =============================================
+initTheme();
+initSegmentedControls();
+initHorizon();
 applyAssetTypeUi();
 loadTopAssets();
-setStatus("Kies een ticker en vraag een voorspelling op.");
+renderWatchlist();
