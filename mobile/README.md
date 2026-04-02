@@ -13,13 +13,20 @@ Expo/React Native MVP voor een publieke forecasting app. Dit is de mobiele laag 
 ## Run
 1. Ga naar `mobile/`
 2. Installeer dependencies met `npm install`
-3. Start de app met `npm run start`
-4. Zet optioneel de backend URL via `EXPO_PUBLIC_API_BASE_URL`
+3. Doe een lokale sanity-check met `npm run typecheck`
+4. Start de app met `npm run start`
+5. Zet optioneel de backend URL via `EXPO_PUBLIC_API_BASE_URL`
 
 Voorbeeld:
 
 ```bash
 EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run start
+```
+
+Voor een snelle readiness-check zonder simulator:
+
+```bash
+npm run typecheck
 ```
 
 ## Architectuur
@@ -33,4 +40,3 @@ EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run start
 
 ## Opmerking
 De app moet niet worden gepresenteerd als financieel advies. Voorspellingen zijn probabilistisch en afhankelijk van data-kwaliteit, netwerk en backend-beschikbaarheid.
-

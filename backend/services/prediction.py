@@ -23,6 +23,20 @@ from backend.services.market_data import fetch_close_prices, normalize_symbol_in
 logger = logging.getLogger("stock_predictor.prediction")
 
 
+def _log_prediction_event(level: int, event: str, **fields: object) -> None:
+    clean_fields = {key: value for key, value in fields.items() if value is not None}
+    details = " ".join(f"{key}={clean_fields[key]}" for key in sorted(clean_fields))
+    message = event if not details else f"{event} {details}"
+    logger.log(
+        level,
+        message,
+        extra={
+            "prediction_event": event,
+            **{f"prediction_{key}": value for key, value in clean_fields.items()},
+        },
+    )
+
+
 def _degradation_fields(
     *,
     degraded: bool,
@@ -110,6 +124,14 @@ async def build_prediction_response(
     cache_backend: CacheBackend,
 ) -> PredictResponse:
     ticker = normalize_symbol_input(payload.symbol)
+    _log_prediction_event(
+        logging.INFO,
+        "prediction.started",
+        requested_symbol=ticker,
+        asset_type=payload.asset_type,
+        engine_requested=payload.engine,
+        horizon_days=payload.horizon,
+    )
 
     loop = asyncio.get_running_loop()
     market_series = await loop.run_in_executor(
@@ -172,10 +194,16 @@ async def build_prediction_response(
             )
 
             if ml_metrics.validation_windows >= 2 and ml_metrics.directional_accuracy < 0.50:
-                logger.warning(
-                    "ML model quality gate failed for %s (dir_acc=%.2f), falling back to stat",
-                    market_series.resolved_symbol,
-                    ml_metrics.directional_accuracy,
+                _log_prediction_event(
+                    logging.WARNING,
+                    "prediction.ml_quality_fallback",
+                    symbol=market_series.resolved_symbol,
+                    asset_type=payload.asset_type,
+                    engine_requested=payload.engine,
+                    engine_used="stat_fallback",
+                    degradation_code="model_quality_insufficient",
+                    directional_accuracy=round(ml_metrics.directional_accuracy, 4),
+                    validation_windows=ml_metrics.validation_windows,
                 )
                 engine_used = "stat_fallback"
                 model_name = "Statistical Fallback"
@@ -209,10 +237,15 @@ async def build_prediction_response(
                 source = PredictionSource(market_data=market_series.source, forecast="ml_analog")
 
         except Exception as exc:
-            logger.warning(
-                "ML forecast failed for symbol=%s, falling back to stat: %s",
-                market_series.resolved_symbol,
-                exc,
+            _log_prediction_event(
+                logging.WARNING,
+                "prediction.ml_runtime_fallback",
+                symbol=market_series.resolved_symbol,
+                asset_type=payload.asset_type,
+                engine_requested=payload.engine,
+                engine_used="stat_fallback",
+                degradation_code="ml_engine_unavailable",
+                error=str(exc),
             )
             engine_used = "stat_fallback"
             model_name = "Statistical Fallback"
@@ -248,10 +281,15 @@ async def build_prediction_response(
             engine_note = f"AI forecast via {ai_model['provider']} ({ai_model['model']})."
             source = PredictionSource(market_data=market_series.source, forecast=ai_model["source"])
         except ServiceError as exc:
-            logger.warning(
-                "AI forecast degraded to stat fallback for symbol=%s: %s",
-                market_series.resolved_symbol,
-                exc.message,
+            _log_prediction_event(
+                logging.WARNING,
+                "prediction.ai_fallback",
+                symbol=market_series.resolved_symbol,
+                asset_type=payload.asset_type,
+                engine_requested=payload.engine,
+                engine_used="stat_fallback",
+                degradation_code="ai_provider_unavailable",
+                error=exc.message,
             )
             engine_used = "stat_fallback"
             model_name = "Statistical Fallback"
@@ -270,7 +308,7 @@ async def build_prediction_response(
 
     summary = _build_summary(forecast, stats, evaluation)
 
-    return PredictResponse(
+    response = PredictResponse(
         symbol=market_series.resolved_symbol,
         requested_symbol=ticker,
         asset_type=payload.asset_type,
@@ -293,3 +331,17 @@ async def build_prediction_response(
         evaluation=evaluation,
         disclaimer="This is a statistical/AI estimate and not financial advice. Past performance does not guarantee future results.",
     )
+    _log_prediction_event(
+        logging.INFO,
+        "prediction.completed",
+        symbol=response.symbol,
+        asset_type=response.asset_type,
+        engine_requested=response.engine_requested,
+        engine_used=response.engine_used,
+        degraded=response.degraded,
+        degradation_code=response.degradation_code,
+        market_data_source=response.source.market_data,
+        forecast_source=response.source.forecast,
+        validation_windows=response.evaluation.validation_windows if response.evaluation else None,
+    )
+    return response

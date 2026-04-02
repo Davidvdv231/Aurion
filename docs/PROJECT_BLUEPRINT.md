@@ -1,5 +1,12 @@
 # AI Forecasting App Blueprint
 
+## Current Status
+
+- Phase 1 credibility fixes are complete.
+- P1 is complete: prediction orchestration is extracted from the FastAPI route, the web client has a small response-normalization boundary, and mobile rendering semantics align with the backend contract.
+- P1.5 is complete: prediction execution now emits structured start/completion/fallback logs, and service-level branching/fallback tests cover `stat`, `ml`, and compatibility `ai` paths.
+- Mobile is not installed in this workspace yet. The intended local readiness check is `npm install` followed by `npm run typecheck` inside `mobile/`.
+
 ## Solution Summary
 
 This project evolves the current stock and crypto predictor into a modular forecasting platform with:
