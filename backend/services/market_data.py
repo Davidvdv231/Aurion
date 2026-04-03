@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
 import json
 import logging
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 from urllib.error import HTTPError, URLError
-from urllib.request import Request as UrlRequest, urlopen
+from urllib.request import Request as UrlRequest
+from urllib.request import urlopen
 
-import numpy as np
 import pandas as pd
 import yfinance as yf
 
@@ -16,9 +16,9 @@ from backend.config import Settings
 from backend.errors import ServiceError
 from backend.services.cache import CacheBackend
 from backend.ticker_catalog import (
-    AssetType,
     CRYPTO_EXACT_ALIASES,
     STOCK_EXACT_ALIASES,
+    AssetType,
     get_ticker_metadata,
     top_catalog_tickers,
 )
@@ -182,23 +182,39 @@ def fetch_close_prices(
         resolved_symbol = cached_payload.get("resolved_symbol")
         currency = cached_payload.get("currency")
         provider = cached_payload.get("provider", "yfinance")
+        data_quality = cached_payload.get("data_quality", "clean")
+        data_warnings = cached_payload.get("data_warnings", [])
         if (
             isinstance(points, list)
             and points
             and isinstance(resolved_symbol, str)
             and isinstance(currency, str)
         ):
+<<<<<<< claude/zealous-kapitsa
             cached_quality = cached_payload.get("data_quality", "clean")
             cached_warnings = cached_payload.get("data_warnings", [])
             cached_stale = cached_payload.get("stale", False)
+=======
+            close = _deserialize_close_series(points)
+            stale = _check_staleness(close, asset_type)
+            warnings = list(data_warnings) if isinstance(data_warnings, list) else []
+            if stale and "Data may be stale (last point >3 trading days old)." not in warnings:
+                warnings.append("Data may be stale (last point >3 trading days old).")
+>>>>>>> main
             return MarketSeries(
-                close=_deserialize_close_series(points),
+                close=close,
                 resolved_symbol=resolved_symbol,
                 currency=currency,
                 source=f"cache:{provider}",
+<<<<<<< claude/zealous-kapitsa
                 data_quality=cached_quality if cached_quality in ("clean", "patched", "degraded") else "clean",
                 data_warnings=cached_warnings if isinstance(cached_warnings, list) else [],
                 stale=bool(cached_stale),
+=======
+                data_quality=data_quality if data_quality in {"clean", "patched", "degraded"} else "clean",
+                data_warnings=warnings,
+                stale=stale,
+>>>>>>> main
             )
 
     end = datetime.now(timezone.utc)
@@ -254,6 +270,8 @@ def fetch_close_prices(
             "provider": "yfinance",
             "resolved_symbol": candidate,
             "currency": currency,
+            "data_quality": data_quality,
+            "data_warnings": data_warnings,
             "points": _serialize_close_series(close),
             "data_quality": data_quality,
             "data_warnings": data_warnings,

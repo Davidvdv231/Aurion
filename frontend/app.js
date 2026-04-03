@@ -220,6 +220,7 @@ function formatSourceLabel(value) {
     stat: "Statistical baseline",
     stat_fallback: "Statistical fallback",
     ml_analog: "ML analog analysis",
+    ml_pattern_difference: "Pattern-difference analysis",
     ai: "AI forecast",
     unknown: "Unknown",
   };
@@ -674,7 +675,11 @@ function updateSignalCard(data) {
   const tierWidths = { low: "30%", medium: "60%", high: "90%" };
   const tierLabels = { low: "Low", medium: "Medium", high: "High" };
   confidenceFill.style.width = tierWidths[tier] || "30%";
+<<<<<<< claude/zealous-kapitsa
   confidenceValue.textContent = tierLabels[tier] || tier;
+=======
+  confidenceValue.textContent = `${tierLabels[tier] || tier} confidence`;
+>>>>>>> main
   confidenceFill.setAttribute("data-level", tier);
 
   // Evaluation metrics
@@ -713,13 +718,14 @@ function updateSignalCard(data) {
     explanationSource.textContent = `Forecast source: ${formatSourceLabel(data.source.forecast)}. Explanation source: ${formatSourceLabel(data.source.analysis)}.`;
     if (data.source.analysis && data.source.analysis !== data.source.forecast) {
       explanationNote.hidden = false;
-      explanationNote.textContent = "Final forecast uses the statistical fallback. This explanation summarizes the ML analog analysis that ran before the quality gate rejected it.";
+      explanationNote.textContent = "Final forecast uses the statistical fallback. This explanation summarizes how the current market pattern differed from the ML analog set before the quality gate rejected the forecast.";
     } else {
       explanationNote.hidden = true;
       explanationNote.textContent = "";
     }
     explanationNarrative.textContent = data.explanation.narrative || "";
 
+<<<<<<< claude/zealous-kapitsa
     // Render feature bars (DOM API — no innerHTML to avoid XSS)
     explanationFeatures.replaceChildren();
     const maxContrib = Math.max(...data.explanation.top_features.map((f) => f.contribution), 0.01);
@@ -748,6 +754,23 @@ function updateSignalCard(data) {
       row.appendChild(nameSpan);
       row.appendChild(barTrack);
       row.appendChild(dirSpan);
+=======
+    // Render feature bars
+    explanationFeatures.innerHTML = "";
+    const maxContrib = Math.max(...data.explanation.top_features.map((f) => f.difference_score), 0.01);
+    for (const feat of data.explanation.top_features) {
+      const barPct = Math.round((feat.difference_score / maxContrib) * 100);
+      const dirClass = feat.relation === "higher" ? "positive" : feat.relation === "lower" ? "negative" : "";
+      const row = document.createElement("div");
+      row.className = "explain-feature";
+      row.innerHTML = `
+        <span class="explain-feature-name">${feat.feature.replace(/_/g, " ")}</span>
+        <div class="explain-bar-track">
+          <div class="explain-bar-fill ${dirClass}" style="width: ${barPct}%"></div>
+        </div>
+        <span class="explain-feature-dir ${dirClass}">${feat.relation}</span>
+      `;
+>>>>>>> main
       explanationFeatures.appendChild(row);
     }
 
@@ -792,6 +815,22 @@ function normalizePredictResponse(payload) {
   const allowedTiers = new Set(["low", "medium", "high"]);
   const allowedTrends = new Set(["bullish", "bearish", "neutral"]);
   const allowedSignals = new Set(["bullish", "mildly_bullish", "neutral", "mildly_bearish", "bearish"]);
+  const allowedRelations = new Set(["higher", "lower", "similar"]);
+  const explanationPayload = payload?.explanation;
+  const normalizedExplanation = explanationPayload && typeof explanationPayload === "object"
+    ? {
+        ...explanationPayload,
+        top_features: Array.isArray(explanationPayload.top_features)
+          ? explanationPayload.top_features.map((feature) => ({
+              ...feature,
+              difference_score: isFiniteNumber(feature?.difference_score)
+                ? feature.difference_score
+                : 0,
+              relation: allowedRelations.has(feature?.relation) ? feature.relation : "similar",
+            }))
+          : [],
+      }
+    : null;
 
   return {
     ...payload,
@@ -814,7 +853,7 @@ function normalizePredictResponse(payload) {
     degradation_message: degradationMessage,
     degradation_reason: degradationMessage,
     evaluation: payload?.evaluation ?? null,
-    explanation: payload?.explanation ?? null,
+    explanation: normalizedExplanation,
     summary: {
       expected_price: expectedPrice,
       expected_return_pct: expectedReturnPct,

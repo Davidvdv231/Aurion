@@ -49,9 +49,9 @@ class PredictionEvaluation(ApiModel):
 
 class ExplanationFeature(ApiModel):
     feature: str
-    contribution: float
+    difference_score: float = Field(ge=0.0)
     value: float
-    direction: Literal["bullish", "bearish", "neutral"]
+    relation: Literal["higher", "lower", "similar"]
 
 
 class PredictionExplanation(ApiModel):

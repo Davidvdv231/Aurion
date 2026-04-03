@@ -52,7 +52,7 @@ def build_statistical_baseline(close: pd.Series, horizon: int, asset_type: str) 
             lower=float(round(low, 4)),
             upper=float(round(high, 4)),
         )
-        for dt, pred, low, high in zip(future_dates, predicted, lower, upper)
+        for dt, pred, low, high in zip(future_dates, predicted, lower, upper, strict=False)
     ]
 
     summary = {
