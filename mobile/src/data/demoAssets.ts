@@ -107,7 +107,6 @@ export function getDemoForecast(symbol: string, assetType: AssetType): PredictRe
   const expectedReturnPct = ((expectedPrice / base) - 1) * 100;
   const confidenceTier: ConfidenceTier =
     asset.confidence >= 0.67 ? "high" : asset.confidence >= 0.45 ? "medium" : "low";
-  const probabilityUp = asset.trend === "bullish" ? 0.68 : asset.trend === "bearish" ? 0.34 : 0.54;
 
   return {
     symbol: asset.symbol,
@@ -136,7 +135,6 @@ export function getDemoForecast(symbol: string, assetType: AssetType): PredictRe
       expected_return_pct: expectedReturnPct,
       trend: asset.trend,
       confidence_tier: confidenceTier,
-      probability_up: probabilityUp,
       signal: buildSignal(expectedReturnPct, asset.confidence),
     },
     evaluation: null,

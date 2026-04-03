@@ -51,7 +51,6 @@ export interface PredictionSummary {
   expected_return_pct: number;
   trend: PredictionTrend;
   confidence_tier: ConfidenceTier;
-  probability_up: number;
   signal: PredictionSignal;
 }
 

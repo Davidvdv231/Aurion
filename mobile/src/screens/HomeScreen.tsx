@@ -11,7 +11,6 @@ import {
 
 import type { AssetType, TickerItem } from "@/api/types";
 import { demoMarketCards, demoTickers } from "@/data/demoAssets";
-import { useAuth } from "@/context/AuthContext";
 import { MarketCard } from "@/components/MarketCard";
 import { SectionHeader } from "@/components/SectionHeader";
 import { theme } from "@/theme/theme";
@@ -22,7 +21,6 @@ interface HomeScreenProps {
 }
 
 export function HomeScreen({ navigation }: HomeScreenProps) {
-  const { email, signOut } = useAuth();
   const [query, setQuery] = useState("");
   const [assetType, setAssetType] = useState<AssetType>("stock");
   const [results, setResults] = useState<TickerItem[]>([]);
@@ -84,7 +82,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
       keyExtractor={(item) => item.symbol}
       ListHeaderComponent={
         <View style={styles.header}>
-          <Text style={styles.kicker}>Welcome{email ? `, ${email}` : ""}</Text>
+          <Text style={styles.kicker}>Guest mode</Text>
           <Text style={styles.title}>Forecast markets with a modern mobile workflow.</Text>
           <Text style={styles.subtitle}>
             Short-term forecasts, trend indication and confidence scores. No certainty claims.
@@ -102,9 +100,6 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
               style={[styles.toggle, assetType === "crypto" && styles.toggleActive]}
             >
               <Text style={styles.toggleText}>Crypto</Text>
-            </Pressable>
-            <Pressable onPress={signOut} style={[styles.toggle, styles.signOut]}>
-              <Text style={styles.toggleText}>Sign out</Text>
             </Pressable>
           </View>
 
@@ -217,9 +212,6 @@ const styles = StyleSheet.create({
   },
   toggleActive: {
     backgroundColor: theme.colors.accentSoft,
-  },
-  signOut: {
-    marginLeft: "auto",
   },
   toggleText: {
     color: theme.colors.textPrimary,

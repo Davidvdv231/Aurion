@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 import logging
-import math
 import time
 from functools import partial
 
@@ -63,7 +62,6 @@ def _build_summary(
             expected_return_pct=0.0,
             trend="neutral",
             confidence_tier="low",
-            probability_up=0.5,
             signal="neutral",
         )
 
@@ -77,12 +75,6 @@ def _build_summary(
         trend = "bearish"
     else:
         trend = "neutral"
-
-    final_upper = forecast[-1]["upper"]
-    final_lower = forecast[-1]["lower"]
-    band_std = (final_upper - final_lower) / (2 * 1.28) if final_upper > final_lower else 0.01
-    z = (final_predicted - last_close) / max(band_std, 0.01)
-    probability_up = 1.0 / (1.0 + math.exp(-1.7 * min(max(z, -10), 10)))
 
     widths = [(pt["upper"] - pt["lower"]) / max(pt["predicted"], 0.01) for pt in forecast]
     avg_band_width = sum(widths) / len(widths)
@@ -116,7 +108,6 @@ def _build_summary(
         expected_return_pct=round(expected_return, 2),
         trend=trend,
         confidence_tier=confidence_tier,
-        probability_up=round(probability_up, 2),
         signal=signal,
     )
 

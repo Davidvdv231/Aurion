@@ -669,13 +669,12 @@ function updateSignalCard(data) {
   metricTrend.textContent = summary.trend.charAt(0).toUpperCase() + summary.trend.slice(1);
   metricTrend.className = `metric-value ${summary.trend === "bullish" ? "positive" : summary.trend === "bearish" ? "negative" : ""}`;
 
-  // Confidence tier + probability readout
+  // Confidence tier readout
   const tier = summary.confidence_tier || "low";
   const tierWidths = { low: "30%", medium: "60%", high: "90%" };
   const tierLabels = { low: "Low", medium: "Medium", high: "High" };
   confidenceFill.style.width = tierWidths[tier] || "30%";
-  const probPct = (summary.probability_up * 100).toFixed(0);
-  confidenceValue.textContent = `${tierLabels[tier] || tier} (${probPct}%)`;
+  confidenceValue.textContent = tierLabels[tier] || tier;
   confidenceFill.setAttribute("data-level", tier);
 
   // Evaluation metrics
@@ -721,21 +720,34 @@ function updateSignalCard(data) {
     }
     explanationNarrative.textContent = data.explanation.narrative || "";
 
-    // Render feature bars
-    explanationFeatures.innerHTML = "";
+    // Render feature bars (DOM API — no innerHTML to avoid XSS)
+    explanationFeatures.replaceChildren();
     const maxContrib = Math.max(...data.explanation.top_features.map((f) => f.contribution), 0.01);
     for (const feat of data.explanation.top_features) {
       const barPct = Math.round((feat.contribution / maxContrib) * 100);
       const dirClass = feat.direction === "bullish" ? "positive" : feat.direction === "bearish" ? "negative" : "";
+
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "explain-feature-name";
+      nameSpan.textContent = feat.feature.replace(/_/g, " ");
+
+      const barFill = document.createElement("div");
+      barFill.className = `explain-bar-fill ${dirClass}`.trim();
+      barFill.style.width = `${barPct}%`;
+
+      const barTrack = document.createElement("div");
+      barTrack.className = "explain-bar-track";
+      barTrack.appendChild(barFill);
+
+      const dirSpan = document.createElement("span");
+      dirSpan.className = `explain-feature-dir ${dirClass}`.trim();
+      dirSpan.textContent = feat.direction;
+
       const row = document.createElement("div");
       row.className = "explain-feature";
-      row.innerHTML = `
-        <span class="explain-feature-name">${feat.feature.replace(/_/g, " ")}</span>
-        <div class="explain-bar-track">
-          <div class="explain-bar-fill ${dirClass}" style="width: ${barPct}%"></div>
-        </div>
-        <span class="explain-feature-dir ${dirClass}">${feat.direction}</span>
-      `;
+      row.appendChild(nameSpan);
+      row.appendChild(barTrack);
+      row.appendChild(dirSpan);
       explanationFeatures.appendChild(row);
     }
 
@@ -755,10 +767,6 @@ function updateSignalCard(data) {
 // =============================================
 function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
-}
-
-function clampProbability(value) {
-  return isFiniteNumber(value) ? Math.max(0, Math.min(1, value)) : 0.5;
 }
 
 function deriveSummaryTrend(expectedReturnPct) {
@@ -812,7 +820,6 @@ function normalizePredictResponse(payload) {
       expected_return_pct: expectedReturnPct,
       trend: allowedTrends.has(summary.trend) ? summary.trend : deriveSummaryTrend(expectedReturnPct),
       confidence_tier: allowedTiers.has(summary.confidence_tier) ? summary.confidence_tier : "low",
-      probability_up: clampProbability(summary.probability_up),
       signal: allowedSignals.has(summary.signal) ? summary.signal : "neutral",
     },
   };

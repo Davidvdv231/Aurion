@@ -53,7 +53,6 @@ SUCCESS_PREDICTION = {
         "expected_return_pct": 1.71,
         "trend": "neutral",
         "confidence_tier": "medium",
-        "probability_up": 0.61,
         "signal": "mildly_bullish",
     },
     "evaluation": {

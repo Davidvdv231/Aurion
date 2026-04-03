@@ -34,12 +34,11 @@ def _assert_predict_contract(payload: dict, *, evaluation_expected: bool) -> Non
         "expected_return_pct",
         "trend",
         "confidence_tier",
-        "probability_up",
         "signal",
     }
     assert payload["summary"]["trend"] in {"bullish", "bearish", "neutral"}
     assert payload["summary"]["confidence_tier"] in {"low", "medium", "high"}
-    assert 0.0 <= payload["summary"]["probability_up"] <= 1.0
+    assert "probability_up" not in payload["summary"]
     assert payload["summary"]["signal"] in {
         "bullish",
         "mildly_bullish",

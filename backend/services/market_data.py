@@ -188,11 +188,17 @@ def fetch_close_prices(
             and isinstance(resolved_symbol, str)
             and isinstance(currency, str)
         ):
+            cached_quality = cached_payload.get("data_quality", "clean")
+            cached_warnings = cached_payload.get("data_warnings", [])
+            cached_stale = cached_payload.get("stale", False)
             return MarketSeries(
                 close=_deserialize_close_series(points),
                 resolved_symbol=resolved_symbol,
                 currency=currency,
                 source=f"cache:{provider}",
+                data_quality=cached_quality if cached_quality in ("clean", "patched", "degraded") else "clean",
+                data_warnings=cached_warnings if isinstance(cached_warnings, list) else [],
+                stale=bool(cached_stale),
             )
 
     end = datetime.now(timezone.utc)
@@ -249,6 +255,9 @@ def fetch_close_prices(
             "resolved_symbol": candidate,
             "currency": currency,
             "points": _serialize_close_series(close),
+            "data_quality": data_quality,
+            "data_warnings": data_warnings,
+            "stale": stale,
         }
         cache_backend.set_json(cache_key, serialized, settings.history_cache_ttl_seconds)
 

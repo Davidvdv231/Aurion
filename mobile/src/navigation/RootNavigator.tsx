@@ -4,7 +4,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { useAuth } from "@/context/AuthContext";
 import { HomeScreen } from "@/screens/HomeScreen";
-import { LoginScreen } from "@/screens/LoginScreen";
+import { WelcomeScreen } from "@/screens/WelcomeScreen";
 import { AssetDetailScreen } from "@/screens/AssetDetailScreen";
 import { WatchlistScreen } from "@/screens/WatchlistScreen";
 import { SplashScreen } from "@/screens/SplashScreen";
@@ -42,8 +42,8 @@ export function RootNavigator() {
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      {status === "signedOut" ? (
-        <Stack.Screen name="Login" component={LoginScreen} />
+      {status === "onboarding" ? (
+        <Stack.Screen name="Welcome" component={WelcomeScreen} />
       ) : (
         <>
           <Stack.Screen name="Main" component={MainTabs} />
@@ -53,4 +53,3 @@ export function RootNavigator() {
     </Stack.Navigator>
   );
 }
-
