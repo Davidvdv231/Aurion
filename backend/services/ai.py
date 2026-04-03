@@ -86,7 +86,7 @@ def _build_external_ai_forecast(
         raise ServiceError(
             status_code=502,
             code="provider_unavailable",
-            message=f"Externe AI gaf HTTP {exc.code}: {detail or 'geen detail'}",
+            message=f"External AI returned HTTP {exc.code}: {detail or 'no detail'}",
             provider="external_ai",
             retryable=True,
         ) from exc

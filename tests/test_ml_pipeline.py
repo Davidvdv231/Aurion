@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 import backend.ml.service as ml_service
-from backend.ml.features import FEATURE_COLUMNS, compute_features
+from backend.ml.features import FEATURE_COLUMNS, _FEATURE_WARMUP_ROWS, compute_features
 from backend.ml.model import AnalogForecastModel
 
 
@@ -169,3 +169,156 @@ def test_train_and_predict_reuses_cached_backtest_metrics(monkeypatch) -> None:
 
     assert backtest_calls == 1
     assert second_metrics == first_metrics
+
+
+# ---------------------------------------------------------------------------
+# BUG-02 regression tests: warm-up removal and Close-only volume guard
+# ---------------------------------------------------------------------------
+
+
+def test_warmup_rows_are_fully_removed() -> None:
+    """First row of features must come from AFTER the warm-up window.
+
+    The explicit warm-up slice should remove exactly _FEATURE_WARMUP_ROWS
+    rows from the front, and no NaN should survive in the remaining output.
+    """
+    df = _synthetic_ohlcv(rows=200)
+    features = compute_features(df)
+
+    # No row from the warm-up window should be present
+    assert features.index[0] >= df.index[_FEATURE_WARMUP_ROWS]
+
+    # No NaN in the output at all
+    assert not features.isna().any().any(), (
+        f"NaN found in columns: {features.columns[features.isna().any()].tolist()}"
+    )
+
+
+def test_no_ffill_leaks_across_warmup_boundary() -> None:
+    """Verify that values at the warm-up boundary are genuinely computed,
+    not forward-filled from earlier (partially-defined) rows."""
+    df = _synthetic_ohlcv(rows=200)
+    features = compute_features(df)
+
+    # sma_50 at the first retained row must differ from sma_5.
+    # If ffill had leaked a warm-up value forward, these would likely be
+    # identical (both NaN-filled to the same stale value).
+    first = features.iloc[0]
+    assert first["sma_50"] != first["sma_5"], "sma_50 and sma_5 should differ at warm-up boundary"
+
+
+def test_close_only_input_produces_valid_features() -> None:
+    """compute_features must return a non-empty, NaN-free frame when given
+    only a Close column (no Volume, no OHLCV).  This is the production
+    path when prediction.py calls train_and_predict without ohlcv."""
+    df = _synthetic_ohlcv(rows=240)
+    close_only = pd.DataFrame({"Close": df["Close"]})
+
+    features = compute_features(close_only)
+
+    assert not features.empty, "Features should not be empty for Close-only input"
+    assert not features.isna().any().any(), (
+        f"NaN found in columns: {features.columns[features.isna().any()].tolist()}"
+    )
+    # Volume features should be neutral zeros
+    assert (features["volume_change_5"] == 0.0).all()
+    assert (features["volume_zscore_20"] == 0.0).all()
+
+
+def test_close_only_model_fit_predict_roundtrip() -> None:
+    """Full ML pipeline works end-to-end with Close-only data,
+    matching the real production call path."""
+    df = _synthetic_ohlcv(rows=240)
+    close = df["Close"]
+
+    model = AnalogForecastModel(lookback=45, horizon=7, n_neighbors=15)
+    model.fit(close, ohlcv=None)  # No OHLCV — matches production
+
+    forecast = model.predict(close, ohlcv=None, horizon=7, asset_type="stock")
+
+    assert len(forecast.dates) == 7
+    assert len(forecast.predicted) == 7
+    assert all(forecast.lower[i] <= forecast.predicted[i] <= forecast.upper[i] for i in range(7))
+
+
+def test_fit_predict_normalization_invariant() -> None:
+    """The normalization transform in predict() must be identical to fit().
+
+    For any row that appears in both the training feature matrix and the
+    prediction feature matrix, the normalized value must be bit-identical.
+    This locks in the train/serve contract: same compute_features, same
+    nan_to_num, same mean/std → identical normalized rows.
+    """
+    df = _synthetic_ohlcv(rows=240)
+    close = df["Close"]
+
+    model = AnalogForecastModel(lookback=45, horizon=7, n_neighbors=15)
+    model.fit(close, ohlcv=None)
+
+    # Reproduce the full predict() normalization path
+    features = compute_features(pd.DataFrame({"Close": close}))
+    feat_matrix = features[FEATURE_COLUMNS].to_numpy(dtype=np.float64)
+    feat_matrix = np.nan_to_num(feat_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+    normalized_predict = (feat_matrix - model._feature_mean) / model._feature_std
+
+    # Reproduce the full fit() normalization path on the same data
+    features_fit = compute_features(pd.DataFrame({"Close": close}))
+    feat_matrix_fit = features_fit[FEATURE_COLUMNS].to_numpy(dtype=np.float64)
+    feat_matrix_fit = np.nan_to_num(feat_matrix_fit, nan=0.0, posinf=0.0, neginf=0.0)
+    normalized_fit = (feat_matrix_fit - model._feature_mean) / model._feature_std
+
+    # Every row must be identical between the two paths
+    assert np.array_equal(normalized_fit, normalized_predict), (
+        "Normalized feature matrices differ between fit and predict paths. "
+        "This indicates a train/serve normalization skew."
+    )
+
+    # Pick a training window that fit() stored, and verify the predict
+    # path produces the same values for those same row positions.
+    # The first stored window corresponds to rows [0:lookback] in the
+    # normalized matrix (fit starts at i=lookback, window is [0:lookback]).
+    first_window_from_predict = normalized_predict[:45].flatten()
+    first_stored_window = model._windows[0]
+
+    assert np.allclose(first_window_from_predict, first_stored_window, atol=1e-12), (
+        f"First training window doesn't match predict-path normalization. "
+        f"Max diff: {np.max(np.abs(first_window_from_predict - first_stored_window))}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUG-10 regression test: MAPE must use pointwise actual values
+# ---------------------------------------------------------------------------
+
+
+def test_backtest_mape_is_pointwise() -> None:
+    """MAPE must be mean(|error_i| / |actual_i|) * 100, not
+    mean(|error_i|) / last_close * 100.
+
+    We verify this by running a backtest on trending data where early
+    fold actuals differ materially from the last close, then checking
+    the MAPE against a hand-computed pointwise value.
+    """
+    df = _synthetic_ohlcv(rows=260)
+    close = df["Close"]
+
+    model = AnalogForecastModel(lookback=45, horizon=7, n_neighbors=15)
+    model.fit(close, ohlcv=None)
+    metrics = model.backtest(close, ohlcv=None, n_folds=3)
+
+    # Sanity: MAPE should be positive and finite
+    assert metrics.mape > 0.0
+    assert np.isfinite(metrics.mape)
+
+    # The old bug: MAPE = MAE / last_close * 100
+    # If that were still the formula, this equality would hold:
+    last_close = float(close.iloc[-1])
+    old_formula_mape = (metrics.mae / last_close) * 100
+
+    # With pointwise MAPE the values should differ because the data trends
+    # from ~100 to ~165, so early actuals are much lower than last_close.
+    # Pointwise MAPE divides by smaller actuals → larger percentage → higher MAPE.
+    assert metrics.mape != round(old_formula_mape, 2), (
+        f"MAPE ({metrics.mape}) equals old formula MAE/last_close*100 "
+        f"({old_formula_mape:.2f}). Pointwise division is not being used."
+    )

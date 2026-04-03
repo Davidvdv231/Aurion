@@ -117,10 +117,12 @@ class AnalogForecastModel:
         aligned_close = df["Close"].astype(float).reindex(features.index)
         close_arr = aligned_close.to_numpy(dtype=np.float64)
 
-        # Replace NaN/inf with 0 for normalization
+        # Safety net: replace any residual NaN/inf (compute_features should
+        # already have removed them, but guard against upstream regressions).
         feat_matrix = np.nan_to_num(feat_matrix, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # Compute normalization statistics (excluding initial NaN rows)
+        # Compute normalization statistics only on rows that can serve as
+        # window centers (index >= lookback), matching the training loop below.
         valid_start = self.lookback
         valid_features = feat_matrix[valid_start:]
         self._feature_mean = np.nanmean(valid_features, axis=0)
@@ -177,6 +179,7 @@ class AnalogForecastModel:
 
         features = compute_features(df)
         feat_matrix = features[FEATURE_COLUMNS].to_numpy(dtype=np.float64)
+        # Safety net: same nan_to_num as fit() to guarantee identical transform.
         feat_matrix = np.nan_to_num(feat_matrix, nan=0.0, posinf=0.0, neginf=0.0)
 
         normalized = (feat_matrix - self._feature_mean) / self._feature_std
@@ -304,6 +307,7 @@ class AnalogForecastModel:
         fold_size = max(self.horizon, (n - min_train) // n_folds)
 
         all_errors = []
+        all_actuals = []
         all_directions = []
 
         for fold in range(n_folds):
@@ -336,6 +340,7 @@ class AnalogForecastModel:
 
             errors = np.abs(pred - act)
             all_errors.extend(errors.tolist())
+            all_actuals.extend(act.tolist())
 
             # Directional accuracy
             if actual_len > 1:
@@ -347,12 +352,13 @@ class AnalogForecastModel:
             return BacktestMetrics(mae=0, rmse=0, mape=0, directional_accuracy=0.5, validation_windows=0)
 
         errors_arr = np.array(all_errors)
+        actuals_arr = np.array(all_actuals)
         mae = float(np.mean(errors_arr))
         rmse = float(np.sqrt(np.mean(errors_arr ** 2)))
 
-        # MAPE (avoid division by zero)
-        base = float(close.iloc[-1])
-        mape = float(np.mean(errors_arr / max(base, 0.01))) * 100
+        # MAPE: pointwise |error| / |actual|, skipping zero actuals
+        nonzero = np.abs(actuals_arr) > 0.01
+        mape = float(np.mean(errors_arr[nonzero] / np.abs(actuals_arr[nonzero]))) * 100 if np.any(nonzero) else 0.0
 
         dir_acc = float(np.mean(all_directions)) if all_directions else 0.5
 
