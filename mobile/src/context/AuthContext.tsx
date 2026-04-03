@@ -2,41 +2,34 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 
 import { createAsyncStorageAdapter } from "@/storage/storage";
 
-type AuthStatus = "loading" | "signedOut" | "signedIn";
+type AuthStatus = "loading" | "guest" | "onboarding";
 
 interface AuthContextValue {
   status: AuthStatus;
-  email: string | null;
-  signIn: (email: string, password: string) => Promise<void>;
-  signOut: () => Promise<void>;
+  enterAsGuest: () => Promise<void>;
+  resetOnboarding: () => Promise<void>;
 }
 
-const authKey = "demo-auth-v1";
+const guestKey = "aurion-guest-v1";
 const storage = createAsyncStorageAdapter();
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
-  const [email, setEmail] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
     storage
-      .getItem(authKey)
+      .getItem(guestKey)
       .then((value) => {
         if (!mounted) {
           return;
         }
-        if (value) {
-          setEmail(value);
-          setStatus("signedIn");
-        } else {
-          setStatus("signedOut");
-        }
+        setStatus(value === "true" ? "guest" : "onboarding");
       })
       .catch(() => {
         if (mounted) {
-          setStatus("signedOut");
+          setStatus("onboarding");
         }
       });
 
@@ -47,16 +40,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const value: AuthContextValue = {
     status,
-    email,
-    signIn: async (nextEmail: string) => {
-      await storage.setItem(authKey, nextEmail);
-      setEmail(nextEmail);
-      setStatus("signedIn");
+    enterAsGuest: async () => {
+      await storage.setItem(guestKey, "true");
+      setStatus("guest");
     },
-    signOut: async () => {
-      await storage.removeItem(authKey);
-      setEmail(null);
-      setStatus("signedOut");
+    resetOnboarding: async () => {
+      await storage.removeItem(guestKey);
+      setStatus("onboarding");
     },
   };
 

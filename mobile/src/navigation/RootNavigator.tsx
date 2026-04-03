@@ -3,6 +3,10 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { HomeScreen } from "@/screens/HomeScreen";
+<<<<<<< claude/zealous-kapitsa
+import { WelcomeScreen } from "@/screens/WelcomeScreen";
+=======
+>>>>>>> main
 import { AssetDetailScreen } from "@/screens/AssetDetailScreen";
 import { WatchlistScreen } from "@/screens/WatchlistScreen";
 import type { MainTabParamList, RootStackParamList } from "@/navigation/types";
@@ -33,8 +37,19 @@ function MainTabs() {
 export function RootNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
+<<<<<<< claude/zealous-kapitsa
+      {status === "onboarding" ? (
+        <Stack.Screen name="Welcome" component={WelcomeScreen} />
+      ) : (
+        <>
+          <Stack.Screen name="Main" component={MainTabs} />
+          <Stack.Screen name="AssetDetail" component={AssetDetailScreen} />
+        </>
+      )}
+=======
       <Stack.Screen name="Main" component={MainTabs} />
       <Stack.Screen name="AssetDetail" component={AssetDetailScreen} />
+>>>>>>> main
     </Stack.Navigator>
   );
 }

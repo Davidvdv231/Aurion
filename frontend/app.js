@@ -675,7 +675,11 @@ function updateSignalCard(data) {
   const tierWidths = { low: "30%", medium: "60%", high: "90%" };
   const tierLabels = { low: "Low", medium: "Medium", high: "High" };
   confidenceFill.style.width = tierWidths[tier] || "30%";
+<<<<<<< claude/zealous-kapitsa
+  confidenceValue.textContent = tierLabels[tier] || tier;
+=======
   confidenceValue.textContent = `${tierLabels[tier] || tier} confidence`;
+>>>>>>> main
   confidenceFill.setAttribute("data-level", tier);
 
   // Evaluation metrics
@@ -721,6 +725,36 @@ function updateSignalCard(data) {
     }
     explanationNarrative.textContent = data.explanation.narrative || "";
 
+<<<<<<< claude/zealous-kapitsa
+    // Render feature bars (DOM API — no innerHTML to avoid XSS)
+    explanationFeatures.replaceChildren();
+    const maxContrib = Math.max(...data.explanation.top_features.map((f) => f.contribution), 0.01);
+    for (const feat of data.explanation.top_features) {
+      const barPct = Math.round((feat.contribution / maxContrib) * 100);
+      const dirClass = feat.direction === "bullish" ? "positive" : feat.direction === "bearish" ? "negative" : "";
+
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "explain-feature-name";
+      nameSpan.textContent = feat.feature.replace(/_/g, " ");
+
+      const barFill = document.createElement("div");
+      barFill.className = `explain-bar-fill ${dirClass}`.trim();
+      barFill.style.width = `${barPct}%`;
+
+      const barTrack = document.createElement("div");
+      barTrack.className = "explain-bar-track";
+      barTrack.appendChild(barFill);
+
+      const dirSpan = document.createElement("span");
+      dirSpan.className = `explain-feature-dir ${dirClass}`.trim();
+      dirSpan.textContent = feat.direction;
+
+      const row = document.createElement("div");
+      row.className = "explain-feature";
+      row.appendChild(nameSpan);
+      row.appendChild(barTrack);
+      row.appendChild(dirSpan);
+=======
     // Render feature bars
     explanationFeatures.innerHTML = "";
     const maxContrib = Math.max(...data.explanation.top_features.map((f) => f.difference_score), 0.01);
@@ -736,6 +770,7 @@ function updateSignalCard(data) {
         </div>
         <span class="explain-feature-dir ${dirClass}">${feat.relation}</span>
       `;
+>>>>>>> main
       explanationFeatures.appendChild(row);
     }
 
@@ -755,10 +790,6 @@ function updateSignalCard(data) {
 // =============================================
 function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
-}
-
-function clampProbability(value) {
-  return isFiniteNumber(value) ? Math.max(0, Math.min(1, value)) : 0.5;
 }
 
 function deriveSummaryTrend(expectedReturnPct) {

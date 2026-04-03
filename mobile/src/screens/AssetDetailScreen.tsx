@@ -114,7 +114,11 @@ export function AssetDetailScreen({ route, navigation }: Props) {
           Expected {data.currency} {data.summary.expected_price.toFixed(2)} ({data.summary.expected_return_pct.toFixed(2)}%)
         </Text>
         <Text style={styles.stat}>
+<<<<<<< claude/zealous-kapitsa
+          Signal {formatSignalLabel(data.summary.signal)}
+=======
           Outlook {formatSignalLabel(data.summary.signal)}
+>>>>>>> main
         </Text>
         <Text style={styles.note}>{data.engine_note}</Text>
         {data.evaluation?.validation_windows != null ? (

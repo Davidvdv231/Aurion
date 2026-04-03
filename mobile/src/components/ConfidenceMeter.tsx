@@ -22,10 +22,9 @@ const tierLabels: Record<ConfidenceTier, string> = {
 };
 
 export function ConfidenceMeter({ tier, degraded = false }: ConfidenceMeterProps) {
-  const captionParts: string[] = [];
-  if (degraded) {
-    captionParts.push("Fallback conditions applied.");
-  }
+  const caption = degraded
+    ? "Fallback conditions applied. Confidence tier reflects forecast band width and validation quality."
+    : "Confidence tier reflects forecast band width and validation quality.";
 
   return (
     <View style={styles.container}>
@@ -36,9 +35,7 @@ export function ConfidenceMeter({ tier, degraded = false }: ConfidenceMeterProps
       <View style={styles.track}>
         <View style={[styles.fill, { width: tierWidths[tier] }]} />
       </View>
-      <Text style={styles.caption}>
-        {captionParts.join(" ") || "Confidence tier reflects forecast band width and validation quality."}
-      </Text>
+      <Text style={styles.caption}>{caption}</Text>
     </View>
   );
 }

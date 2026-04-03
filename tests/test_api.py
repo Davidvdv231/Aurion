@@ -67,6 +67,7 @@ def _assert_predict_contract(payload: dict, *, evaluation_expected: bool) -> Non
     }
     assert payload["summary"]["trend"] in {"bullish", "bearish", "neutral"}
     assert payload["summary"]["confidence_tier"] in {"low", "medium", "high"}
+    assert "probability_up" not in payload["summary"]
     assert payload["summary"]["signal"] in {
         "bullish",
         "mildly_bullish",
