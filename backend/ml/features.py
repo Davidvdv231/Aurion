@@ -8,6 +8,11 @@ import pandas as pd
 
 logger = logging.getLogger("stock_predictor.features")
 
+# Largest rolling window across all features (sma_50 → rolling(50)).
+# Rows before this position lack fully-warmed indicators and must be
+# discarded before training.  Update this when adding longer windows.
+_FEATURE_WARMUP_ROWS = 50
+
 
 def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     """Compute 23 technical indicator features from OHLCV data.
@@ -71,28 +76,38 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     features["close_open_gap"] = (close - df.get("Open", close)) / close
 
     # --- Volume ---
-    vol_ma5 = volume.rolling(5).mean().replace(0, np.nan)
-    features["volume_change_5"] = volume / vol_ma5 - 1.0
-    vol_ma20 = volume.rolling(20).mean()
-    vol_std20 = volume.rolling(20).std().replace(0, np.nan)
-    features["volume_zscore_20"] = (volume - vol_ma20) / vol_std20
+    # When no real volume data exists (Close-only input), all values are 0.
+    # Avoid 0/NaN explosions by filling with neutral 0.0 instead.
+    has_real_volume = "Volume" in df and (volume != 0).any()
+    if has_real_volume:
+        vol_ma5 = volume.rolling(5).mean().replace(0, np.nan)
+        features["volume_change_5"] = volume / vol_ma5 - 1.0
+        vol_ma20 = volume.rolling(20).mean()
+        vol_std20 = volume.rolling(20).std().replace(0, np.nan)
+        features["volume_zscore_20"] = (volume - vol_ma20) / vol_std20
+    else:
+        features["volume_change_5"] = 0.0
+        features["volume_zscore_20"] = 0.0
 
-    # Drop the warm-up zone instead of propagating the first valid indicator backward.
-    warmup_rows = 50
+    # --- Warm-up removal ---
+    # Explicitly discard the first _FEATURE_WARMUP_ROWS rows where rolling
+    # indicators are not yet fully defined.  This replaces the old implicit
+    # ffill-then-dropna strategy that silently depended on sma_50 being the
+    # widest window.
+    features = features.iloc[_FEATURE_WARMUP_ROWS:]
+
+    # Safety net: drop any remaining NaN rows that slipped through
+    # (e.g. from division-by-zero in edge-case data).
     pre_count = len(features)
-    if pre_count > warmup_rows:
-        features = features.iloc[warmup_rows:].copy()
-    nan_cols = features.columns[features.isna().any()].tolist()
-    if nan_cols:
+    remaining_nan = features.isna().any(axis=1).sum()
+    if remaining_nan > 0:
+        nan_cols = features.columns[features.isna().any()].tolist()
         logger.warning(
-            "Feature NaN guard: %d columns still have NaN after warm-up trim (%s), dropping %d rows",
-            len(nan_cols),
+            "Feature NaN guard: %d rows still have NaN after warm-up removal (%s), dropping",
+            int(remaining_nan),
             ", ".join(nan_cols[:5]),
-            int(features.isna().any(axis=1).sum()),
         )
-    features = features.dropna()
-    if len(features) < pre_count:
-        logger.info("Feature NaN guard: dropped %d/%d rows", pre_count - len(features), pre_count)
+        features = features.dropna()
 
     return features
 

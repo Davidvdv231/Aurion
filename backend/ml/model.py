@@ -119,13 +119,16 @@ class AnalogForecastModel:
         close_arr = aligned_close.to_numpy(dtype=np.float64)
         return features, feat_matrix, close_arr
 
-    def fit(self, close: pd.Series, ohlcv: pd.DataFrame | None = None) -> None:
-        features, feat_matrix, close_arr = self._prepare_inputs(close, ohlcv)
-        if len(features) <= self.lookback + self.horizon:
-            raise ValueError("Insufficient data to fit model")
+        # Safety net: replace any residual NaN/inf (compute_features should
+        # already have removed them, but guard against upstream regressions).
+        feat_matrix = np.nan_to_num(feat_matrix, nan=0.0, posinf=0.0, neginf=0.0)
 
-        self._feature_mean = np.nanmean(feat_matrix, axis=0)
-        self._feature_std = np.nanstd(feat_matrix, axis=0)
+        # Compute normalization statistics only on rows that can serve as
+        # window centers (index >= lookback), matching the training loop below.
+        valid_start = self.lookback
+        valid_features = feat_matrix[valid_start:]
+        self._feature_mean = np.nanmean(valid_features, axis=0)
+        self._feature_std = np.nanstd(valid_features, axis=0)
         self._feature_std[self._feature_std < 1e-8] = 1.0
         self._feature_raw_std = np.nanstd(feat_matrix, axis=0)
         self._feature_raw_std[self._feature_raw_std < 1e-8] = 1.0
@@ -177,9 +180,15 @@ class AnalogForecastModel:
         if horizon != self.horizon:
             raise ValueError(f"Requested horizon {horizon} exceeds trained horizon {self.horizon}")
 
-        features, feat_matrix, _ = self._prepare_inputs(close, ohlcv)
-        if len(features) < self.lookback:
-            raise ValueError("Insufficient data to build prediction window")
+        if ohlcv is not None and "Close" in ohlcv.columns:
+            df = ohlcv
+        else:
+            df = pd.DataFrame({"Close": close})
+
+        features = compute_features(df)
+        feat_matrix = features[FEATURE_COLUMNS].to_numpy(dtype=np.float64)
+        # Safety net: same nan_to_num as fit() to guarantee identical transform.
+        feat_matrix = np.nan_to_num(feat_matrix, nan=0.0, posinf=0.0, neginf=0.0)
 
         normalized = (feat_matrix - self._feature_mean) / self._feature_std
         query = normalized[-self.lookback:].flatten()
@@ -284,9 +293,9 @@ class AnalogForecastModel:
         min_train = self.lookback + self.horizon + 50
         fold_size = max(self.horizon, (n - min_train) // max(n_folds, 1))
 
-        all_errors: list[float] = []
-        all_actuals: list[float] = []
-        fold_direction_scores: list[float] = []
+        all_errors = []
+        all_actuals = []
+        all_directions = []
 
         for fold in range(n_folds):
             test_end = n - (fold * fold_size)
@@ -318,7 +327,7 @@ class AnalogForecastModel:
             act = actual[:actual_len]
             errors = np.abs(pred - act)
             all_errors.extend(errors.tolist())
-            all_actuals.extend(np.abs(act).tolist())
+            all_actuals.extend(act.tolist())
 
             if actual_len > 1:
                 pred_steps = np.sign(np.diff(pred))
@@ -328,12 +337,16 @@ class AnalogForecastModel:
         if not all_errors:
             return BacktestMetrics(mae=0, rmse=0, mape=0, directional_accuracy=0.5, validation_windows=0)
 
-        errors_arr = np.array(all_errors, dtype=np.float64)
-        actual_arr = np.array(all_actuals, dtype=np.float64)
+        errors_arr = np.array(all_errors)
+        actuals_arr = np.array(all_actuals)
         mae = float(np.mean(errors_arr))
         rmse = float(np.sqrt(np.mean(errors_arr ** 2)))
-        mape = float(np.mean(errors_arr / np.maximum(actual_arr, 0.01))) * 100
-        dir_acc = float(np.mean(fold_direction_scores)) if fold_direction_scores else 0.5
+
+        # MAPE: pointwise |error| / |actual|, skipping zero actuals
+        nonzero = np.abs(actuals_arr) > 0.01
+        mape = float(np.mean(errors_arr[nonzero] / np.abs(actuals_arr[nonzero]))) * 100 if np.any(nonzero) else 0.0
+
+        dir_acc = float(np.mean(all_directions)) if all_directions else 0.5
 
         return BacktestMetrics(
             mae=round(mae, 4),
