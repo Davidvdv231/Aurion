@@ -36,7 +36,6 @@ class PredictionSummary(ApiModel):
     expected_return_pct: float
     trend: Literal["bullish", "bearish", "neutral"]
     confidence_tier: Literal["low", "medium", "high"]
-    probability_up: float = Field(ge=0.0, le=1.0)
     signal: Literal["bullish", "mildly_bullish", "neutral", "mildly_bearish", "bearish"]
 
 
@@ -50,9 +49,9 @@ class PredictionEvaluation(ApiModel):
 
 class ExplanationFeature(ApiModel):
     feature: str
-    contribution: float
+    difference_score: float = Field(ge=0.0)
     value: float
-    direction: Literal["bullish", "bearish", "neutral"]
+    relation: Literal["higher", "lower", "similar"]
 
 
 class PredictionExplanation(ApiModel):

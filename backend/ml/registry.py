@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import json
 from pathlib import Path
-import uuid
+from typing import Any
 
 import numpy as np
 
@@ -36,7 +37,8 @@ class ModelRegistry:
             for key, value in state.items()
             if key not in array_state
         }
-        np.savez_compressed(artifact_dir / "state.npz", **array_state)
+        array_state_kwargs: dict[str, Any] = dict(array_state)
+        np.savez_compressed(artifact_dir / "state.npz", **array_state_kwargs)
 
         meta = {
             "name": model.model_name,

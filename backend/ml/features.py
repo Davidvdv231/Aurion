@@ -10,7 +10,7 @@ logger = logging.getLogger("stock_predictor.features")
 
 
 def compute_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute 25 technical indicator features from OHLCV data.
+    """Compute 23 technical indicator features from OHLCV data.
 
     Expects a DataFrame with at least a 'Close' column (and optionally
     'High', 'Low', 'Volume').  Returns a new DataFrame with the same
@@ -77,13 +77,15 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     vol_std20 = volume.rolling(20).std().replace(0, np.nan)
     features["volume_zscore_20"] = (volume - vol_ma20) / vol_std20
 
-    # NaN guard: forward-fill then drop any remaining NaN rows
+    # Drop the warm-up zone instead of propagating the first valid indicator backward.
+    warmup_rows = 50
     pre_count = len(features)
-    features = features.ffill()
+    if pre_count > warmup_rows:
+        features = features.iloc[warmup_rows:].copy()
     nan_cols = features.columns[features.isna().any()].tolist()
     if nan_cols:
         logger.warning(
-            "Feature NaN guard: %d columns still have NaN after ffill (%s), dropping %d rows",
+            "Feature NaN guard: %d columns still have NaN after warm-up trim (%s), dropping %d rows",
             len(nan_cols),
             ", ".join(nan_cols[:5]),
             int(features.isna().any(axis=1).sum()),

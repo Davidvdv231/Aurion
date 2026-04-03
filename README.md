@@ -4,7 +4,7 @@ Een production-minded MVP voor een schaalbare forecasting app voor aandelen en c
 
 - een `FastAPI` backend met zoek-, top-assets- en predict-endpoints
 - een modulaire ML-pipeline op historische OHLCV-data
-- probabilistische forecasts met confidence bands, trendclassificatie en backtestmetrics
+- probabilistic forecasts with confidence bands, tiered confidence labels and backtest metrics
 - een bestaande web/PWA-shell
 - een nieuwe Expo/React Native mobiele MVP in `mobile/`
 - Docker- en artifact-structuur als basis voor verdere productie-uitrol
@@ -26,7 +26,8 @@ De applicatie claimt geen marktzekerheid. Elke forecast is probabilistisch, beva
 ### Data-opslag
 
 - MVP: lokale `artifacts/` voor modelversies en ruwe snapshots
-- cache/rate limits: Redis wanneer beschikbaar, anders in-memory fallback
+- cache: Redis when available, otherwise in-memory fallback
+- rate limiting: Redis-backed in production, in-memory fallback only in non-production
 - productierichting: PostgreSQL of TimescaleDB voor metadata, gebruikersdata en prediction snapshots
 
 ### ML-pipeline
@@ -47,7 +48,7 @@ De applicatie claimt geen marktzekerheid. Elke forecast is probabilistisch, beva
 ### Mobiele app
 
 - Expo + React Native TypeScript
-- splash/login flow
+- splash/guest flow
 - home/dashboard
 - asset detail met forecast cards en confidence indicator
 - watchlist met lokale opslag
@@ -143,8 +144,7 @@ tests/
   - expected price
   - expected return %
   - bullish / bearish / neutral
-  - confidence score
-  - probability up
+  - confidence tier
   - buy / hold / sell als model-output, niet als advies
 - `evaluation`:
   - MAE
@@ -191,6 +191,9 @@ Belangrijke `.env` keys:
 - `RATE_LIMIT_WINDOW_SECONDS`
 - `RATE_LIMIT_MAX_REQUESTS_STAT`
 - `RATE_LIMIT_MAX_REQUESTS_AI`
+- `RATE_LIMIT_MAX_REQUESTS_SEARCH`
+- `RATE_LIMIT_FAIL_OPEN` (`true` by default in development for local fallback; production stays fail-closed when Redis is unavailable)
+- `APP_ENV`
 
 ## Beperkingen van de MVP
 

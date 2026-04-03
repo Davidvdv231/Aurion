@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import json
 import logging
+from collections import OrderedDict
+from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any
 
@@ -10,14 +11,27 @@ from redis import Redis
 from redis.exceptions import RedisError
 
 from backend.config import Settings
+from backend.services.redis_health import RedisFailureTracker
 
 logger = logging.getLogger("stock_predictor.cache")
 
 
 class InMemoryTTLCache:
-    def __init__(self) -> None:
-        self._items: dict[str, tuple[datetime, Any]] = {}
+    def __init__(self, *, max_items: int, sweep_every_sets: int) -> None:
+        self._items: OrderedDict[str, tuple[datetime, Any]] = OrderedDict()
         self._lock = Lock()
+        self._max_items = max_items
+        self._sweep_every_sets = max(1, sweep_every_sets)
+        self._set_operations = 0
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._items)
+
+    def _sweep_expired_locked(self, now: datetime) -> None:
+        expired = [key for key, (expires_at, _) in self._items.items() if expires_at <= now]
+        for key in expired:
+            self._items.pop(key, None)
 
     def get(self, key: str) -> Any | None:
         now = datetime.now(timezone.utc)
@@ -31,20 +45,34 @@ class InMemoryTTLCache:
                 self._items.pop(key, None)
                 return None
 
+            self._items.move_to_end(key)
             return value
 
     def set(self, key: str, value: Any, ttl_seconds: int) -> None:
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
         with self._lock:
             self._items[key] = (expires_at, value)
+            self._items.move_to_end(key)
+            self._set_operations += 1
+            if self._set_operations >= self._sweep_every_sets:
+                self._sweep_expired_locked(datetime.now(timezone.utc))
+                self._set_operations = 0
+            elif len(self._items) > self._max_items:
+                # Drop expired entries before evicting live keys to enforce the bound.
+                self._sweep_expired_locked(datetime.now(timezone.utc))
+            while len(self._items) > self._max_items:
+                self._items.popitem(last=False)
 
 
 class CacheBackend:
     def __init__(self, settings: Settings) -> None:
-        self._memory = InMemoryTTLCache()
+        self._memory = InMemoryTTLCache(
+            max_items=settings.memory_cache_max_items,
+            sweep_every_sets=settings.memory_cache_sweep_batch_size,
+        )
         self._prefix = settings.redis_prefix
         self._redis: Redis | None = None
-        self._redis_warning_emitted = False
+        self._redis_tracker = RedisFailureTracker("cache")
 
         if settings.redis_url:
             self._redis = Redis.from_url(
@@ -54,23 +82,24 @@ class CacheBackend:
                 socket_connect_timeout=settings.redis_socket_timeout_seconds,
             )
 
+    @property
+    def memory_size(self) -> int:
+        return len(self._memory)
+
     def _namespaced(self, key: str) -> str:
         return f"{self._prefix}:cache:{key}"
-
-    def _warn_redis(self, exc: Exception) -> None:
-        if self._redis_warning_emitted:
-            return
-        self._redis_warning_emitted = True
-        logger.warning("Redis cache unavailable; falling back to in-memory cache: %s", exc)
 
     def get_json(self, key: str) -> Any | None:
         if self._redis is not None:
             try:
                 raw = self._redis.get(self._namespaced(key))
+                self._redis_tracker.record_success(logger)
             except RedisError as exc:
-                self._warn_redis(exc)
+                self._redis_tracker.record_failure(logger, exc)
             else:
-                if raw:
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8")
+                if isinstance(raw, str) and raw:
                     try:
                         return json.loads(raw)
                     except json.JSONDecodeError:
@@ -87,5 +116,6 @@ class CacheBackend:
         try:
             serialized = json.dumps(value)
             self._redis.setex(self._namespaced(key), ttl_seconds, serialized)
+            self._redis_tracker.record_success(logger)
         except (TypeError, RedisError) as exc:
-            self._warn_redis(exc)
+            self._redis_tracker.record_failure(logger, exc)

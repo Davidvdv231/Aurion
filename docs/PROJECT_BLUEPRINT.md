@@ -7,7 +7,7 @@
 - P1.5 is complete: prediction execution now emits structured start/completion/fallback logs, and service-level branching/fallback tests cover `stat`, `ml`, and compatibility `ai` paths.
 - P2 Sprint 1 is complete:
   - OHLCV integrity checks: NaN ratio, gap detection, extreme outlier detection. Series is forward-filled and quality is flagged as `clean`, `patched`, or `degraded` in `PredictionSource`.
-  - Feature NaN guard: `compute_features()` now forward-fills and drops any remaining NaN rows with logging.
+  - Feature NaN guard: `compute_features()` now drops the 50-row warm-up window instead of forward-filling undefined indicators, then trims any remaining NaN rows with logging.
   - Staleness detection: if the latest data point is >3 trading days old, `MarketSeries.stale=True` and a warning is included in the response.
   - Timing instrumentation: `market_data_ms`, `model_ms`, and `total_ms` are logged in `prediction.completed`.
   - JSON structured logging: all logs are now emitted as single-line JSON objects for aggregation.
@@ -15,11 +15,11 @@
   - Mobile stabilized: dependencies installed, `@types/react-native` removed (RN 0.74 ships own types), `ConfidenceMeter` `DimensionValue` type fixed. `npm run typecheck` passes clean.
   - Full Python test suite passes: 25/25.
 - P2 Sprint 2 is complete:
-  - Explainability: analog forecaster now computes top-5 feature contributions (weighted feature deltas from nearest neighbors), average neighbor distance, and nearest analog date.
-  - `PredictionExplanation` model added to response: `top_features`, `neighbors_used`, `avg_neighbor_distance`, `nearest_analog_date`, `narrative`.
-  - Plain-English narrative generator: template-driven, covers RSI levels, momentum direction, volatility, analog context, confidence reasoning, and nearest analog date.
-  - Web: collapsible "Why this prediction?" card with colored horizontal feature bars, narrative text, and nearest analog date. `data-testid="explanation-card"`.
-  - Web: Chart.js tooltips enhanced with confidence band range display. Probability readout added next to confidence meter (e.g., "High (72%)").
+  - Pattern-difference analysis: analog forecaster now computes top-5 feature differences versus the nearest analog set, plus average neighbor distance and nearest analog date.
+  - `PredictionExplanation` model added to response: `top_features`, `neighbors_used`, `avg_neighbor_distance`, `nearest_analog_date`, `narrative`, where each feature exposes `difference_score` and `relation`.
+  - Plain-English narrative generator is framed as historical-pattern context, not causal forecast drivers.
+  - Web: collapsible "Pattern differences" card with colored horizontal feature bars, narrative text, and nearest analog date. `data-testid="explanation-card"`.
+  - Web: Chart.js tooltips enhanced with confidence band range display. Confidence meter now shows only the confidence tier, not a pseudo-probability.
   - Web: skeleton shimmer loader on signal card while prediction is in-flight.
   - Web: `normalizePredictResponse` updated to pass through `source.data_quality`, `source.data_warnings`, `source.stale`, and `explanation`.
   - `/api/metrics` endpoint: returns `predictions_total`, `predictions_by_engine`, `fallbacks_total`, `fallbacks_by_code`, `rate_limit_429_total`, `avg_prediction_ms`, `p95_prediction_ms`.
@@ -32,12 +32,12 @@ This project evolves the current stock and crypto predictor into a modular forec
 
 - historical OHLCV ingestion
 - technical indicator feature engineering
-- probabilistic ML forecasting with backtesting
+- ML forecasting with backtesting and honest confidence tiers
 - FastAPI prediction serving
 - an Expo-based mobile MVP
 - Docker-first deployment preparation
 
-The MVP focuses on realistic probabilistic forecasts and trend detection. It does not claim certainty and keeps benchmark and production paths explicitly separated.
+The MVP focuses on realistic uncertainty-aware forecasts and trend detection. It does not claim certainty and keeps benchmark and production paths explicitly separated.
 
 ## Recommended Architecture
 
@@ -67,7 +67,7 @@ The MVP focuses on realistic probabilistic forecasts and trend detection. It doe
 ### Mobile App
 
 - Expo + React Native TypeScript MVP
-- splash and login shell
+- splash and guest entry shell
 - home dashboard with search and featured assets
 - asset detail page with chart and forecast cards
 - watchlist with local persistence

@@ -10,11 +10,11 @@ from backend.ml.features import FEATURE_COLUMNS, compute_features
 
 
 @dataclass(slots=True)
-class FeatureContribution:
+class FeatureDifference:
     feature: str
-    contribution: float
+    difference_score: float
     value: float
-    direction: str  # "bullish" | "bearish" | "neutral"
+    relation: str  # "higher" | "lower" | "similar"
 
 
 @dataclass(slots=True)
@@ -24,7 +24,7 @@ class ForecastResult:
     lower: np.ndarray
     upper: np.ndarray
     neighbors_used: int
-    top_features: list[FeatureContribution] = field(default_factory=list)
+    top_features: list[FeatureDifference] = field(default_factory=list)
     avg_neighbor_distance: float = 0.0
     nearest_analog_date: str = ""
 
@@ -40,22 +40,18 @@ class BacktestMetrics:
 
 @dataclass
 class AnalogForecastModel:
-    """K-nearest-neighbor analog forecaster on normalized technical features.
-
-    For each prediction, the model:
-    1. Computes a feature vector for the current lookback window
-    2. Finds the K most similar historical windows (weighted Euclidean distance)
-    3. Generates a weighted forecast from those analogs' actual future returns
-    4. Produces confidence bands from weighted quantiles
-    """
+    """K-nearest-neighbor analog forecaster on normalized technical features."""
 
     lookback: int = 60
     horizon: int = 30
     n_neighbors: int = 24
     _feature_mean: np.ndarray = field(default_factory=lambda: np.array([]))
     _feature_std: np.ndarray = field(default_factory=lambda: np.array([]))
+    _feature_raw_std: np.ndarray = field(default_factory=lambda: np.array([]))
     _windows: np.ndarray = field(default_factory=lambda: np.array([]))
     _future_returns: np.ndarray = field(default_factory=lambda: np.array([]))
+    _window_end_features_raw: np.ndarray = field(default_factory=lambda: np.array([]))
+    _window_end_positions: np.ndarray = field(default_factory=lambda: np.array([]))
     _fitted: bool = False
 
     @property
@@ -75,21 +71,22 @@ class AnalogForecastModel:
         return "generic"
 
     def to_state(self) -> dict:
-        """Serialize model state for persistence."""
         return {
             "lookback": self.lookback,
             "horizon": self.horizon,
             "n_neighbors": self.n_neighbors,
             "feature_mean": self._feature_mean,
             "feature_std": self._feature_std,
+            "feature_raw_std": self._feature_raw_std,
             "windows": self._windows,
             "future_returns": self._future_returns,
+            "window_end_features_raw": self._window_end_features_raw,
+            "window_end_positions": self._window_end_positions,
             "fitted": self._fitted,
         }
 
     @classmethod
     def from_state(cls, state: dict) -> "AnalogForecastModel":
-        """Restore a model from serialized state."""
         model = cls(
             lookback=int(state["lookback"]),
             horizon=int(state["horizon"]),
@@ -97,46 +94,52 @@ class AnalogForecastModel:
         )
         model._feature_mean = np.asarray(state["feature_mean"])
         model._feature_std = np.asarray(state["feature_std"])
+        model._feature_raw_std = np.asarray(state.get("feature_raw_std", np.array([])))
         model._windows = np.asarray(state["windows"])
         model._future_returns = np.asarray(state["future_returns"])
+        model._window_end_features_raw = np.asarray(state.get("window_end_features_raw", np.array([])))
+        model._window_end_positions = np.asarray(state.get("window_end_positions", np.array([])))
         model._fitted = bool(state.get("fitted", True))
         return model
 
-    def fit(self, close: pd.Series, ohlcv: pd.DataFrame | None = None) -> None:
-        """Fit the model on historical data."""
+    def _prepare_inputs(
+        self,
+        close: pd.Series,
+        ohlcv: pd.DataFrame | None,
+    ) -> tuple[pd.DataFrame, np.ndarray, np.ndarray]:
         if ohlcv is not None and "Close" in ohlcv.columns:
             df = ohlcv
         else:
             df = pd.DataFrame({"Close": close})
 
         features = compute_features(df)
+        feat_matrix = features[FEATURE_COLUMNS].to_numpy(dtype=np.float64)
+        feat_matrix = np.nan_to_num(feat_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+        aligned_close = df["Close"].astype(float).reindex(features.index)
+        close_arr = aligned_close.to_numpy(dtype=np.float64)
+        return features, feat_matrix, close_arr
+
+    def fit(self, close: pd.Series, ohlcv: pd.DataFrame | None = None) -> None:
+        features, feat_matrix, close_arr = self._prepare_inputs(close, ohlcv)
         if len(features) <= self.lookback + self.horizon:
             raise ValueError("Insufficient data to fit model")
 
-        feat_matrix = features[FEATURE_COLUMNS].to_numpy(dtype=np.float64)
-        aligned_close = df["Close"].astype(float).reindex(features.index)
-        close_arr = aligned_close.to_numpy(dtype=np.float64)
-
-        # Replace NaN/inf with 0 for normalization
-        feat_matrix = np.nan_to_num(feat_matrix, nan=0.0, posinf=0.0, neginf=0.0)
-
-        # Compute normalization statistics (excluding initial NaN rows)
-        valid_start = self.lookback
-        valid_features = feat_matrix[valid_start:]
-        self._feature_mean = np.nanmean(valid_features, axis=0)
-        self._feature_std = np.nanstd(valid_features, axis=0)
+        self._feature_mean = np.nanmean(feat_matrix, axis=0)
+        self._feature_std = np.nanstd(feat_matrix, axis=0)
         self._feature_std[self._feature_std < 1e-8] = 1.0
+        self._feature_raw_std = np.nanstd(feat_matrix, axis=0)
+        self._feature_raw_std[self._feature_raw_std < 1e-8] = 1.0
 
-        # Normalize
         normalized = (feat_matrix - self._feature_mean) / self._feature_std
 
-        # Build windows and future returns
-        windows = []
-        future_returns = []
+        windows: list[np.ndarray] = []
+        future_returns: list[np.ndarray] = []
+        window_end_features_raw: list[np.ndarray] = []
+        window_end_positions: list[int] = []
         n = len(normalized)
 
         for i in range(self.lookback, n - self.horizon):
-            window = normalized[i - self.lookback: i]
+            window = normalized[i - self.lookback:i]
             if np.any(np.isnan(window)):
                 continue
 
@@ -144,19 +147,22 @@ class AnalogForecastModel:
             if base_price <= 0:
                 continue
 
-            future_prices = close_arr[i: i + self.horizon]
+            future_prices = close_arr[i:i + self.horizon]
             if len(future_prices) < self.horizon:
                 continue
 
-            returns = future_prices / base_price - 1.0
             windows.append(window.flatten())
-            future_returns.append(returns)
+            future_returns.append(future_prices / base_price - 1.0)
+            window_end_features_raw.append(feat_matrix[i - 1].copy())
+            window_end_positions.append(i - 1)
 
         if not windows:
             raise ValueError("Insufficient data to fit model")
 
         self._windows = np.array(windows)
         self._future_returns = np.array(future_returns)
+        self._window_end_features_raw = np.array(window_end_features_raw)
+        self._window_end_positions = np.array(window_end_positions, dtype=np.int64)
         self._fitted = True
 
     def predict(
@@ -166,105 +172,84 @@ class AnalogForecastModel:
         horizon: int,
         asset_type: str = "stock",
     ) -> ForecastResult:
-        """Generate a forecast from the current market state."""
         if not self._fitted:
             raise RuntimeError("Model not fitted")
+        if horizon != self.horizon:
+            raise ValueError(f"Requested horizon {horizon} exceeds trained horizon {self.horizon}")
 
-        if ohlcv is not None and "Close" in ohlcv.columns:
-            df = ohlcv
-        else:
-            df = pd.DataFrame({"Close": close})
-
-        features = compute_features(df)
-        feat_matrix = features[FEATURE_COLUMNS].to_numpy(dtype=np.float64)
-        feat_matrix = np.nan_to_num(feat_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+        features, feat_matrix, _ = self._prepare_inputs(close, ohlcv)
+        if len(features) < self.lookback:
+            raise ValueError("Insufficient data to build prediction window")
 
         normalized = (feat_matrix - self._feature_mean) / self._feature_std
         query = normalized[-self.lookback:].flatten()
 
-        # Compute weighted distances to all stored windows
         diffs = self._windows - query
         distances = np.sqrt(np.sum(diffs ** 2, axis=1))
-
-        # Select K nearest neighbors
         k = min(self.n_neighbors, len(distances))
-        nearest_idx = np.argpartition(distances, k)[:k]
+        nearest_idx = np.argpartition(distances, k - 1)[:k]
         nearest_distances = distances[nearest_idx]
         nearest_returns = self._future_returns[nearest_idx]
 
-        # Inverse-distance weighting (avoid division by zero)
         min_dist = np.min(nearest_distances)
         epsilon = max(min_dist * 0.01, 1e-6)
         weights = 1.0 / (nearest_distances + epsilon)
         weights /= weights.sum()
 
-        # Compute top feature contributions
-        # For each feature dimension, the contribution is how much the query
-        # differs from the weighted-average neighbor value, scaled by that
-        # feature's importance (inverse-distance weight of neighbors whose
-        # future return matched the forecast direction).
-        n_features = len(FEATURE_COLUMNS)
-        query_features = normalized[-1]  # last row = current feature vector
-        weighted_neighbor_features = np.zeros(n_features)
-        for idx_i, w in zip(nearest_idx, weights):
-            # Each stored window is (lookback * n_features) flattened;
-            # take the last row (most recent features of that window).
-            window_features = self._windows[idx_i].reshape(self.lookback, n_features)[-1]
-            weighted_neighbor_features += w * window_features
-
-        feature_deltas = query_features - weighted_neighbor_features
-        # Contribution magnitude = |delta| (how different current state is from analogs)
-        abs_deltas = np.abs(feature_deltas)
+        query_features_raw = feat_matrix[-1]
+        weighted_neighbor_features = np.average(
+            self._window_end_features_raw[nearest_idx],
+            axis=0,
+            weights=weights,
+        )
+        feature_deltas = query_features_raw - weighted_neighbor_features
+        standardized_deltas = feature_deltas / self._feature_raw_std
+        abs_deltas = np.abs(standardized_deltas)
         top_5_idx = np.argsort(abs_deltas)[::-1][:5]
-
-        # Determine forecast direction for labeling
         avg_neighbor_distance = float(np.average(nearest_distances, weights=weights))
 
-        top_features: list[FeatureContribution] = []
+        top_features: list[FeatureDifference] = []
         for fi in top_5_idx:
             delta = float(feature_deltas[fi])
-            raw_value = float(feat_matrix[-1, fi])  # un-normalized current value
-            if abs(delta) < 0.05:
-                direction = "neutral"
+            raw_value = float(query_features_raw[fi])
+            similar_threshold = max(float(self._feature_raw_std[fi]) * 0.25, 1e-6)
+            if abs(delta) < similar_threshold:
+                relation = "similar"
             elif delta > 0:
-                direction = "bullish"
+                relation = "higher"
             else:
-                direction = "bearish"
-            top_features.append(FeatureContribution(
-                feature=FEATURE_COLUMNS[fi],
-                contribution=round(float(abs_deltas[fi]), 4),
-                value=round(raw_value, 4),
-                direction=direction,
-            ))
+                relation = "lower"
+            top_features.append(
+                FeatureDifference(
+                    feature=FEATURE_COLUMNS[fi],
+                    difference_score=round(float(abs_deltas[fi]), 4),
+                    value=round(raw_value, 4),
+                    relation=relation,
+                )
+            )
 
-        # Find nearest analog date for context
         best_neighbor_idx = nearest_idx[np.argmin(nearest_distances)]
-        # The window at position i in _windows was built from data starting at
-        # index (lookback + i) in the original feature matrix. The "date" of
-        # that analog is approximately features.index[lookback + best_neighbor_idx].
         nearest_analog_date = ""
         try:
-            analog_position = self.lookback + int(best_neighbor_idx)
+            analog_position = int(self._window_end_positions[best_neighbor_idx])
             if analog_position < len(features.index):
                 nearest_analog_date = str(features.index[analog_position].date())
         except Exception:
             pass
 
-        # Trim or extend returns to match requested horizon
-        actual_horizon = min(horizon, nearest_returns.shape[1])
-        trimmed_returns = nearest_returns[:, :actual_horizon]
+        if nearest_returns.shape[1] != horizon:
+            raise ValueError(
+                f"Requested horizon {horizon} exceeds trained horizon {nearest_returns.shape[1]}"
+            )
 
-        # Weighted forecast
-        weighted_returns = np.average(trimmed_returns, axis=0, weights=weights)
-
-        # Confidence bands via weighted quantiles
+        weighted_returns = np.average(nearest_returns, axis=0, weights=weights)
         lower_returns = np.array([
-            _weighted_quantile(trimmed_returns[:, t], weights, 0.10)
-            for t in range(actual_horizon)
+            _weighted_quantile(nearest_returns[:, t], weights, 0.10)
+            for t in range(horizon)
         ])
         upper_returns = np.array([
-            _weighted_quantile(trimmed_returns[:, t], weights, 0.90)
-            for t in range(actual_horizon)
+            _weighted_quantile(nearest_returns[:, t], weights, 0.90)
+            for t in range(horizon)
         ])
 
         base_price = float(close.iloc[-1])
@@ -272,17 +257,14 @@ class AnalogForecastModel:
         lower = base_price * (1.0 + lower_returns)
         upper = base_price * (1.0 + upper_returns)
 
-        # Generate future dates
         last_date = close.index[-1]
         if asset_type == "crypto":
-            dates = pd.date_range(last_date + pd.Timedelta(days=1), periods=actual_horizon, freq="D")
+            dates = pd.date_range(last_date + pd.Timedelta(days=1), periods=horizon, freq="D")
         else:
-            dates = pd.bdate_range(last_date + pd.Timedelta(days=1), periods=actual_horizon)
-
-        date_strings = [d.date().isoformat() for d in dates]
+            dates = pd.bdate_range(last_date + pd.Timedelta(days=1), periods=horizon)
 
         return ForecastResult(
-            dates=date_strings,
+            dates=[d.date().isoformat() for d in dates],
             predicted=predicted,
             lower=lower,
             upper=upper,
@@ -293,7 +275,6 @@ class AnalogForecastModel:
         )
 
     def backtest(self, close: pd.Series, ohlcv: pd.DataFrame | None, n_folds: int = 5) -> BacktestMetrics:
-        """Walk-forward cross-validation."""
         if ohlcv is not None and "Close" in ohlcv.columns:
             df = ohlcv
         else:
@@ -301,22 +282,21 @@ class AnalogForecastModel:
 
         n = len(close)
         min_train = self.lookback + self.horizon + 50
-        fold_size = max(self.horizon, (n - min_train) // n_folds)
+        fold_size = max(self.horizon, (n - min_train) // max(n_folds, 1))
 
-        all_errors = []
-        all_directions = []
+        all_errors: list[float] = []
+        all_actuals: list[float] = []
+        fold_direction_scores: list[float] = []
 
         for fold in range(n_folds):
-            test_end = n - fold * fold_size
+            test_end = n - (fold * fold_size)
             test_start = test_end - self.horizon
             train_end = test_start
-
             if train_end < min_train:
                 break
 
             train_close = close.iloc[:train_end]
             train_ohlcv = df.iloc[:train_end] if ohlcv is not None else None
-
             fold_model = AnalogForecastModel(
                 lookback=self.lookback,
                 horizon=self.horizon,
@@ -329,44 +309,42 @@ class AnalogForecastModel:
             except (ValueError, RuntimeError):
                 continue
 
-            actual = close.iloc[test_start:test_end].to_numpy()
+            actual = close.iloc[test_start:test_end].to_numpy(dtype=np.float64)
             actual_len = min(len(actual), len(result.predicted))
+            if actual_len == 0:
+                continue
+
             pred = result.predicted[:actual_len]
             act = actual[:actual_len]
-
             errors = np.abs(pred - act)
             all_errors.extend(errors.tolist())
+            all_actuals.extend(np.abs(act).tolist())
 
-            # Directional accuracy
             if actual_len > 1:
-                pred_direction = pred[-1] > pred[0]
-                actual_direction = act[-1] > act[0]
-                all_directions.append(1.0 if pred_direction == actual_direction else 0.0)
+                pred_steps = np.sign(np.diff(pred))
+                actual_steps = np.sign(np.diff(act))
+                fold_direction_scores.append(float(np.mean(pred_steps == actual_steps)))
 
         if not all_errors:
             return BacktestMetrics(mae=0, rmse=0, mape=0, directional_accuracy=0.5, validation_windows=0)
 
-        errors_arr = np.array(all_errors)
+        errors_arr = np.array(all_errors, dtype=np.float64)
+        actual_arr = np.array(all_actuals, dtype=np.float64)
         mae = float(np.mean(errors_arr))
         rmse = float(np.sqrt(np.mean(errors_arr ** 2)))
-
-        # MAPE (avoid division by zero)
-        base = float(close.iloc[-1])
-        mape = float(np.mean(errors_arr / max(base, 0.01))) * 100
-
-        dir_acc = float(np.mean(all_directions)) if all_directions else 0.5
+        mape = float(np.mean(errors_arr / np.maximum(actual_arr, 0.01))) * 100
+        dir_acc = float(np.mean(fold_direction_scores)) if fold_direction_scores else 0.5
 
         return BacktestMetrics(
             mae=round(mae, 4),
             rmse=round(rmse, 4),
             mape=round(mape, 2),
             directional_accuracy=round(dir_acc, 4),
-            validation_windows=len(all_directions),
+            validation_windows=len(fold_direction_scores),
         )
 
 
 def _weighted_quantile(values: np.ndarray, weights: np.ndarray, quantile: float) -> float:
-    """Compute a weighted quantile."""
     sorted_idx = np.argsort(values)
     sorted_vals = values[sorted_idx]
     sorted_weights = weights[sorted_idx]

@@ -114,7 +114,7 @@ export function AssetDetailScreen({ route, navigation }: Props) {
           Expected {data.currency} {data.summary.expected_price.toFixed(2)} ({data.summary.expected_return_pct.toFixed(2)}%)
         </Text>
         <Text style={styles.stat}>
-          Signal {formatSignalLabel(data.summary.signal)} | Probability up {Math.round(data.summary.probability_up * 100)}%
+          Outlook {formatSignalLabel(data.summary.signal)}
         </Text>
         <Text style={styles.note}>{data.engine_note}</Text>
         {data.evaluation?.validation_windows != null ? (
@@ -136,7 +136,6 @@ export function AssetDetailScreen({ route, navigation }: Props) {
       <View style={styles.card}>
         <ConfidenceMeter
           tier={data.summary.confidence_tier}
-          probabilityUp={data.summary.probability_up}
           degraded={data.degraded}
         />
       </View>

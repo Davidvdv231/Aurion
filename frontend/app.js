@@ -220,6 +220,7 @@ function formatSourceLabel(value) {
     stat: "Statistical baseline",
     stat_fallback: "Statistical fallback",
     ml_analog: "ML analog analysis",
+    ml_pattern_difference: "Pattern-difference analysis",
     ai: "AI forecast",
     unknown: "Unknown",
   };
@@ -669,13 +670,12 @@ function updateSignalCard(data) {
   metricTrend.textContent = summary.trend.charAt(0).toUpperCase() + summary.trend.slice(1);
   metricTrend.className = `metric-value ${summary.trend === "bullish" ? "positive" : summary.trend === "bearish" ? "negative" : ""}`;
 
-  // Confidence tier + probability readout
+  // Confidence tier readout
   const tier = summary.confidence_tier || "low";
   const tierWidths = { low: "30%", medium: "60%", high: "90%" };
   const tierLabels = { low: "Low", medium: "Medium", high: "High" };
   confidenceFill.style.width = tierWidths[tier] || "30%";
-  const probPct = (summary.probability_up * 100).toFixed(0);
-  confidenceValue.textContent = `${tierLabels[tier] || tier} (${probPct}%)`;
+  confidenceValue.textContent = `${tierLabels[tier] || tier} confidence`;
   confidenceFill.setAttribute("data-level", tier);
 
   // Evaluation metrics
@@ -714,7 +714,7 @@ function updateSignalCard(data) {
     explanationSource.textContent = `Forecast source: ${formatSourceLabel(data.source.forecast)}. Explanation source: ${formatSourceLabel(data.source.analysis)}.`;
     if (data.source.analysis && data.source.analysis !== data.source.forecast) {
       explanationNote.hidden = false;
-      explanationNote.textContent = "Final forecast uses the statistical fallback. This explanation summarizes the ML analog analysis that ran before the quality gate rejected it.";
+      explanationNote.textContent = "Final forecast uses the statistical fallback. This explanation summarizes how the current market pattern differed from the ML analog set before the quality gate rejected the forecast.";
     } else {
       explanationNote.hidden = true;
       explanationNote.textContent = "";
@@ -723,10 +723,10 @@ function updateSignalCard(data) {
 
     // Render feature bars
     explanationFeatures.innerHTML = "";
-    const maxContrib = Math.max(...data.explanation.top_features.map((f) => f.contribution), 0.01);
+    const maxContrib = Math.max(...data.explanation.top_features.map((f) => f.difference_score), 0.01);
     for (const feat of data.explanation.top_features) {
-      const barPct = Math.round((feat.contribution / maxContrib) * 100);
-      const dirClass = feat.direction === "bullish" ? "positive" : feat.direction === "bearish" ? "negative" : "";
+      const barPct = Math.round((feat.difference_score / maxContrib) * 100);
+      const dirClass = feat.relation === "higher" ? "positive" : feat.relation === "lower" ? "negative" : "";
       const row = document.createElement("div");
       row.className = "explain-feature";
       row.innerHTML = `
@@ -734,7 +734,7 @@ function updateSignalCard(data) {
         <div class="explain-bar-track">
           <div class="explain-bar-fill ${dirClass}" style="width: ${barPct}%"></div>
         </div>
-        <span class="explain-feature-dir ${dirClass}">${feat.direction}</span>
+        <span class="explain-feature-dir ${dirClass}">${feat.relation}</span>
       `;
       explanationFeatures.appendChild(row);
     }
@@ -784,6 +784,22 @@ function normalizePredictResponse(payload) {
   const allowedTiers = new Set(["low", "medium", "high"]);
   const allowedTrends = new Set(["bullish", "bearish", "neutral"]);
   const allowedSignals = new Set(["bullish", "mildly_bullish", "neutral", "mildly_bearish", "bearish"]);
+  const allowedRelations = new Set(["higher", "lower", "similar"]);
+  const explanationPayload = payload?.explanation;
+  const normalizedExplanation = explanationPayload && typeof explanationPayload === "object"
+    ? {
+        ...explanationPayload,
+        top_features: Array.isArray(explanationPayload.top_features)
+          ? explanationPayload.top_features.map((feature) => ({
+              ...feature,
+              difference_score: isFiniteNumber(feature?.difference_score)
+                ? feature.difference_score
+                : 0,
+              relation: allowedRelations.has(feature?.relation) ? feature.relation : "similar",
+            }))
+          : [],
+      }
+    : null;
 
   return {
     ...payload,
@@ -806,13 +822,12 @@ function normalizePredictResponse(payload) {
     degradation_message: degradationMessage,
     degradation_reason: degradationMessage,
     evaluation: payload?.evaluation ?? null,
-    explanation: payload?.explanation ?? null,
+    explanation: normalizedExplanation,
     summary: {
       expected_price: expectedPrice,
       expected_return_pct: expectedReturnPct,
       trend: allowedTrends.has(summary.trend) ? summary.trend : deriveSummaryTrend(expectedReturnPct),
       confidence_tier: allowedTiers.has(summary.confidence_tier) ? summary.confidence_tier : "low",
-      probability_up: clampProbability(summary.probability_up),
       signal: allowedSignals.has(summary.signal) ? summary.signal : "neutral",
     },
   };

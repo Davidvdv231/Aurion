@@ -1,24 +1,27 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime, timezone
 from functools import partial
 
-from fastapi import APIRouter, Query, Request as FastAPIRequest
+from fastapi import APIRouter, Query
+from fastapi import Request as FastAPIRequest
 
 from backend.config import Settings
+from backend.errors import ServiceError
 from backend.models import (
     EngineType,
     HealthResponse,
     PredictRequest,
     PredictResponse,
+    TickerItem,
     TickerSearchResponse,
     TopAssetsResponse,
 )
+from backend.runtime import BlockingTaskRunner
 from backend.services.cache import CacheBackend
-from backend.services.market_data import (
-    resolve_top_assets,
-)
+from backend.services.market_data import resolve_top_assets
 from backend.services.metrics import PredictionMetrics
 from backend.services.prediction import build_prediction_response
 from backend.services.rate_limit import RateLimiter
@@ -43,6 +46,10 @@ def _metrics(request: FastAPIRequest) -> PredictionMetrics:
     return request.app.state.metrics
 
 
+def _blocking_runner(request: FastAPIRequest) -> BlockingTaskRunner:
+    return request.app.state.blocking_runner
+
+
 async def _predict_impl(request: FastAPIRequest, payload: PredictRequest) -> PredictResponse:
     _rate_limiter(request).enforce_predict_limit(request=request, engine=payload.engine)
     return await build_prediction_response(
@@ -50,16 +57,14 @@ async def _predict_impl(request: FastAPIRequest, payload: PredictRequest) -> Pre
         settings=_settings(request),
         cache_backend=_cache_backend(request),
         metrics=_metrics(request),
+        blocking_runner=_blocking_runner(request),
     )
 
 
 @router.get("/api/health", response_model=HealthResponse)
 def health(request: FastAPIRequest) -> HealthResponse:
-    import time as _time
-    from backend.app import _BOOT_TIME
-
     cache = _cache_backend(request)
-    uptime = int(_time.monotonic() - _BOOT_TIME)
+    uptime = int(time.monotonic() - request.app.state.boot_time)
 
     # Check Redis connectivity
     redis_status = "not_configured"
@@ -74,7 +79,7 @@ def health(request: FastAPIRequest) -> HealthResponse:
         status="ok",
         timestamp=datetime.now(timezone.utc).isoformat(),
         redis=redis_status,
-        cache_size=len(cache._memory._items),
+        cache_size=cache.memory_size,
         uptime_seconds=uptime,
     )
 
@@ -92,10 +97,14 @@ def ticker_search(
     asset_type: AssetType = Query("stock", description="stock or crypto"),
 ) -> TickerSearchResponse:
     _rate_limiter(request).enforce_search_limit(request=request)
+    tickers = [
+        TickerItem.model_validate(item)
+        for item in search_tickers(query=query, limit=limit, asset_type=asset_type)
+    ]
     return TickerSearchResponse(
         query=query,
         asset_type=asset_type,
-        tickers=search_tickers(query=query, limit=limit, asset_type=asset_type),
+        tickers=tickers,
     )
 
 
@@ -106,22 +115,30 @@ async def top_assets(
     limit: int = Query(10, ge=5, le=25),
     asset_type: AssetType = Query("stock", description="stock or crypto"),
 ) -> TopAssetsResponse:
-    loop = asyncio.get_running_loop()
-    items, source = await loop.run_in_executor(
-        None,
-        partial(
-            resolve_top_assets,
-            limit=limit,
-            asset_type=asset_type,
-            cache_backend=_cache_backend(request),
-            settings=_settings(request),
-        ),
-    )
+    try:
+        items, source = await _blocking_runner(request).run(
+            partial(
+                resolve_top_assets,
+                limit=limit,
+                asset_type=asset_type,
+                cache_backend=_cache_backend(request),
+                settings=_settings(request),
+            ),
+            timeout_seconds=_settings(request).top_assets_timeout_seconds,
+        )
+    except asyncio.TimeoutError as exc:
+        raise ServiceError(
+            status_code=504,
+            code="top_assets_timeout",
+            message="Top assets lookup timed out.",
+            retryable=True,
+        ) from exc
+    typed_items = [TickerItem.model_validate(item) for item in items]
     return TopAssetsResponse(
         generated_at=datetime.now(timezone.utc).isoformat(),
         asset_type=asset_type,
         source=source,
-        items=items,
+        items=typed_items,
     )
 
 
