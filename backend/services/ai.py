@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import logging
 from urllib.error import HTTPError, URLError
-from urllib.request import Request as UrlRequest, urlopen
+from urllib.request import Request as UrlRequest
+from urllib.request import urlopen
 
 import pandas as pd
 
@@ -184,7 +185,7 @@ def _build_openai_forecast(
         raise ServiceError(
             status_code=502,
             code="provider_unavailable",
-            message=f"OpenAI gaf HTTP {exc.code}: {detail or 'geen detail'}",
+            message=f"OpenAI returned HTTP {exc.code}: {detail or 'no detail'}",
             provider="openai",
             retryable=True,
         ) from exc

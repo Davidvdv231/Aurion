@@ -1,26 +1,31 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 import logging
-import math
 import time
+from datetime import datetime, timezone
 from functools import partial
+from typing import Literal
 
 from backend.config import Settings
 from backend.errors import ServiceError
 from backend.models import (
+    EngineUsed,
     ExplanationFeature,
-    PredictRequest,
-    PredictResponse,
+    ForecastPoint,
+    HistoryPoint,
     PredictionEvaluation,
     PredictionExplanation,
     PredictionSource,
     PredictionSummary,
+    PredictRequest,
+    PredictResponse,
+    PredictStats,
 )
+from backend.runtime import BlockingTaskRunner
 from backend.services.ai import build_ai_forecast
 from backend.services.cache import CacheBackend
-from backend.services.forecast import build_stat_forecast
+from backend.services.forecast import backtest_stat_forecast, build_stat_forecast
 from backend.services.market_data import fetch_close_prices, normalize_symbol_input
 from backend.services.metrics import PredictionMetrics
 
@@ -63,7 +68,6 @@ def _build_summary(
             expected_return_pct=0.0,
             trend="neutral",
             confidence_tier="low",
-            probability_up=0.5,
             signal="neutral",
         )
 
@@ -71,6 +75,7 @@ def _build_summary(
     final_predicted = forecast[-1]["predicted"]
     expected_return = ((final_predicted / last_close) - 1.0) * 100 if last_close > 0 else 0.0
 
+    trend: Literal["bullish", "bearish", "neutral"]
     if expected_return > 2.0:
         trend = "bullish"
     elif expected_return < -2.0:
@@ -78,28 +83,24 @@ def _build_summary(
     else:
         trend = "neutral"
 
-    final_upper = forecast[-1]["upper"]
-    final_lower = forecast[-1]["lower"]
-    band_std = (final_upper - final_lower) / (2 * 1.28) if final_upper > final_lower else 0.01
-    z = (final_predicted - last_close) / max(band_std, 0.01)
-    probability_up = 1.0 / (1.0 + math.exp(-1.7 * min(max(z, -10), 10)))
-
     widths = [(pt["upper"] - pt["lower"]) / max(pt["predicted"], 0.01) for pt in forecast]
     avg_band_width = sum(widths) / len(widths)
     band_confidence = max(0.0, min(1.0, 1.0 - avg_band_width * 2))
 
     if evaluation and evaluation.directional_accuracy is not None:
-        raw_confidence = 0.6 * band_confidence + 0.4 * evaluation.directional_accuracy
+        raw_confidence = (band_confidence + evaluation.directional_accuracy) / 2.0
     else:
         raw_confidence = band_confidence * 0.85
 
-    if raw_confidence >= 0.65:
+    confidence_tier: Literal["low", "medium", "high"]
+    if raw_confidence >= 0.70:
         confidence_tier = "high"
-    elif raw_confidence >= 0.40:
+    elif raw_confidence >= 0.45:
         confidence_tier = "medium"
     else:
         confidence_tier = "low"
 
+    signal: Literal["bullish", "mildly_bullish", "neutral", "mildly_bearish", "bearish"]
     if expected_return > 5.0 and confidence_tier == "high":
         signal = "bullish"
     elif expected_return > 1.5 and confidence_tier != "low":
@@ -116,7 +117,6 @@ def _build_summary(
         expected_return_pct=round(expected_return, 2),
         trend=trend,
         confidence_tier=confidence_tier,
-        probability_up=round(probability_up, 2),
         signal=signal,
     )
 
@@ -154,43 +154,29 @@ def _build_narrative(
     neighbors_used: int,
     nearest_analog_date: str,
 ) -> str:
-    """Generate a plain-English explanation of the prediction."""
     parts: list[str] = []
 
-    # Lead with the most influential feature
     if top_features:
-        f = top_features[0]
-        label = _FEATURE_LABELS.get(f.feature, f.feature)
-        if f.feature == "rsi_14":
-            rsi_val = f.value
-            if rsi_val > 70:
-                parts.append(f"{label} at {rsi_val:.0f} suggests overbought conditions.")
-            elif rsi_val < 30:
-                parts.append(f"{label} at {rsi_val:.0f} suggests oversold conditions.")
-            else:
-                parts.append(f"{label} at {rsi_val:.0f} is in a neutral zone.")
-        elif "volatility" in f.feature:
-            parts.append(f"{label} is elevated, widening the uncertainty range.")
-        elif "momentum" in f.feature or "return" in f.feature:
-            direction = "positive" if f.value > 0 else "negative"
-            parts.append(f"{label} is {direction} ({f.value:+.2%}), driving the signal.")
+        feature = top_features[0]
+        label = _FEATURE_LABELS.get(feature.feature, feature.feature)
+        if feature.relation == "similar":
+            parts.append(f"{label} is close to the historical analog set.")
+        elif feature.relation == "higher":
+            parts.append(f"{label} is currently higher than the nearest analog set.")
         else:
-            parts.append(f"{label} is the strongest differentiator from historical analogs.")
+            parts.append(f"{label} is currently lower than the nearest analog set.")
 
-    # Analog context
     parts.append(
         f"The {neighbors_used} closest historical patterns averaged a "
         f"{summary.expected_return_pct:+.1f}% move over the forecast horizon."
     )
 
-    # Confidence reasoning
-    tier = summary.confidence_tier
-    if tier == "high":
-        parts.append("Confidence is high because forecast bands are tight relative to expected return.")
-    elif tier == "low":
-        parts.append("Confidence is low because bands are wide — the outcome is uncertain.")
+    if summary.confidence_tier == "high":
+        parts.append("The analog forecast bands are relatively tight, so the pattern match is more stable.")
+    elif summary.confidence_tier == "low":
+        parts.append("The analog forecast bands are wide, so this pattern comparison is less stable.")
     else:
-        parts.append("Confidence is medium — bands are moderate relative to expected return.")
+        parts.append("The analog forecast bands are moderate, so the pattern comparison is mixed.")
 
     if nearest_analog_date:
         parts.append(f"Nearest analog period: {nearest_analog_date}.")
@@ -199,19 +185,54 @@ def _build_narrative(
 
 
 def _build_explanation(meta: dict, summary: PredictionSummary) -> PredictionExplanation:
-    narrative = _build_narrative(
-        meta["features"],
-        summary,
-        meta["neighbors_used"],
-        meta["nearest_analog_date"],
-    )
     return PredictionExplanation(
         top_features=meta["features"],
         neighbors_used=meta["neighbors_used"],
         avg_neighbor_distance=meta["avg_neighbor_distance"],
         nearest_analog_date=meta["nearest_analog_date"],
-        narrative=narrative,
+        narrative=_build_narrative(
+            meta["features"],
+            summary,
+            meta["neighbors_used"],
+            meta["nearest_analog_date"],
+        ),
     )
+
+
+async def _run_blocking(
+    blocking_runner: BlockingTaskRunner,
+    timeout_seconds: float,
+    func,
+):
+    return await blocking_runner.run(func, timeout_seconds=timeout_seconds)
+
+
+def _ml_quality_failure(
+    evaluation: PredictionEvaluation,
+    stat_baseline: dict[str, float | int],
+) -> tuple[str, str] | None:
+    validation_windows = evaluation.validation_windows or 0
+    directional_accuracy = evaluation.directional_accuracy or 0.0
+    mape = evaluation.mape
+
+    if validation_windows < 5:
+        return (
+            "model_validation_insufficient",
+            "ML validation coverage was insufficient for production use. Returned the statistical fallback forecast instead.",
+        )
+    if directional_accuracy < 0.55:
+        return (
+            "model_quality_insufficient",
+            "ML directional accuracy was insufficient for production use. Returned the statistical fallback forecast instead.",
+        )
+    baseline_windows = int(stat_baseline.get("validation_windows", 0))
+    baseline_mape = float(stat_baseline.get("mape", 0.0))
+    if baseline_windows > 0 and mape is not None and mape > baseline_mape:
+        return (
+            "model_baseline_underperforming",
+            "ML error quality did not beat the statistical baseline. Returned the statistical fallback forecast instead.",
+        )
+    return None
 
 
 async def build_prediction_response(
@@ -220,6 +241,7 @@ async def build_prediction_response(
     settings: Settings,
     cache_backend: CacheBackend,
     metrics: PredictionMetrics | None = None,
+    blocking_runner: BlockingTaskRunner,
 ) -> PredictResponse:
     ticker = normalize_symbol_input(payload.symbol)
     t_start = time.perf_counter()
@@ -232,18 +254,26 @@ async def build_prediction_response(
         horizon_days=payload.horizon,
     )
 
-    loop = asyncio.get_running_loop()
     t_market = time.perf_counter()
-    market_series = await loop.run_in_executor(
-        None,
-        partial(
-            fetch_close_prices,
-            symbol=ticker,
-            asset_type=payload.asset_type,
-            cache_backend=cache_backend,
-            settings=settings,
-        ),
-    )
+    try:
+        market_series = await _run_blocking(
+            blocking_runner,
+            settings.blocking_task_timeout_seconds,
+            partial(
+                fetch_close_prices,
+                symbol=ticker,
+                asset_type=payload.asset_type,
+                cache_backend=cache_backend,
+                settings=settings,
+            ),
+        )
+    except asyncio.TimeoutError as exc:
+        raise ServiceError(
+            status_code=504,
+            code="market_data_timeout",
+            message="Market data lookup timed out.",
+            retryable=True,
+        ) from exc
 
     market_data_ms = round((time.perf_counter() - t_market) * 1000, 1)
 
@@ -253,7 +283,7 @@ async def build_prediction_response(
         asset_type=payload.asset_type,
     )
 
-    engine_used = "stat"
+    engine_used: EngineUsed = "stat"
     model_name = "Statistical Trend"
     engine_note = "Log-linear statistical trend model on historical prices."
     forecast = stat_forecast
@@ -270,16 +300,24 @@ async def build_prediction_response(
     )
     evaluation = None
     explanation = None
-    _ml_explain_meta: dict | None = None
+    ml_explanation_meta: dict | None = None
+    ml_analysis_summary: PredictionSummary | None = None
     model_ms: float | None = None
 
     if payload.engine == "ml":
+        stat_baseline = backtest_stat_forecast(
+            market_series.close,
+            payload.horizon,
+            payload.asset_type,
+            n_folds=5,
+        )
         try:
             from backend.ml.service import train_and_predict
 
             t_model = time.perf_counter()
-            ml_result, ml_metrics = await loop.run_in_executor(
-                None,
+            ml_result, ml_metrics = await _run_blocking(
+                blocking_runner,
+                settings.blocking_task_timeout_seconds,
                 partial(
                     train_and_predict,
                     symbol=market_series.resolved_symbol,
@@ -288,9 +326,8 @@ async def build_prediction_response(
                     asset_type=payload.asset_type,
                 ),
             )
-
             model_ms = round((time.perf_counter() - t_model) * 1000, 1)
-            forecast = [
+            ml_forecast = [
                 {
                     "date": ml_result.dates[i],
                     "predicted": round(float(ml_result.predicted[i]), 2),
@@ -299,6 +336,11 @@ async def build_prediction_response(
                 }
                 for i in range(len(ml_result.dates))
             ]
+            if len(ml_forecast) != payload.horizon:
+                raise ValueError(
+                    f"ML forecast horizon mismatch: expected {payload.horizon}, got {len(ml_forecast)}"
+                )
+
             evaluation = PredictionEvaluation(
                 mae=ml_metrics.mae,
                 rmse=ml_metrics.rmse,
@@ -306,24 +348,25 @@ async def build_prediction_response(
                 directional_accuracy=ml_metrics.directional_accuracy,
                 validation_windows=ml_metrics.validation_windows,
             )
-            ml_summary = _build_summary(forecast, stats, evaluation)
-            _ml_explain_meta = {
+            ml_analysis_summary = _build_summary(ml_forecast, stats, evaluation)
+            ml_explanation_meta = {
                 "neighbors_used": ml_result.neighbors_used,
                 "avg_neighbor_distance": ml_result.avg_neighbor_distance,
                 "nearest_analog_date": ml_result.nearest_analog_date,
                 "features": [
                     ExplanationFeature(
                         feature=fc.feature,
-                        contribution=fc.contribution,
+                        difference_score=fc.difference_score,
                         value=fc.value,
-                        direction=fc.direction,
+                        relation=fc.relation,
                     )
                     for fc in ml_result.top_features
                 ],
-                "summary": ml_summary,
             }
 
-            if ml_metrics.validation_windows >= 2 and ml_metrics.directional_accuracy < 0.50:
+            quality_failure = _ml_quality_failure(evaluation, stat_baseline)
+            if quality_failure is not None:
+                degradation_code, degradation_message = quality_failure
                 _log_prediction_event(
                     logging.WARNING,
                     "prediction.ml_quality_fallback",
@@ -331,17 +374,14 @@ async def build_prediction_response(
                     asset_type=payload.asset_type,
                     engine_requested=payload.engine,
                     engine_used="stat_fallback",
-                    degradation_code="model_quality_insufficient",
+                    degradation_code=degradation_code,
                     directional_accuracy=round(ml_metrics.directional_accuracy, 4),
                     validation_windows=ml_metrics.validation_windows,
+                    baseline_mape=stat_baseline.get("mape"),
                 )
                 engine_used = "stat_fallback"
                 model_name = "Statistical Fallback"
-                engine_note = (
-                    f"ML model did not pass quality check "
-                    f"(directional accuracy {ml_metrics.directional_accuracy:.0%}). "
-                    f"Fell back to statistical forecast."
-                )
+                engine_note = degradation_message
                 forecast = stat_forecast
                 (
                     degraded,
@@ -350,16 +390,13 @@ async def build_prediction_response(
                     degradation_reason,
                 ) = _degradation_fields(
                     degraded=True,
-                    code="model_quality_insufficient",
-                    message=(
-                        "ML model quality was insufficient for production use. "
-                        "Returned the statistical fallback forecast instead."
-                    ),
+                    code=degradation_code,
+                    message=degradation_message,
                 )
                 source = PredictionSource(
                     market_data=market_series.source,
                     forecast="stat_fallback",
-                    analysis="ml_analog",
+                    analysis="ml_pattern_difference",
                     data_quality=market_series.data_quality,
                     data_warnings=market_series.data_warnings,
                     stale=market_series.stale,
@@ -371,15 +408,46 @@ async def build_prediction_response(
                     f"Pattern-matching ML model using {ml_result.neighbors_used} nearest historical analogs "
                     f"with {len(market_series.close)} data points."
                 )
+                forecast = ml_forecast
                 source = PredictionSource(
                     market_data=market_series.source,
                     forecast="ml_analog",
-                    analysis="ml_analog",
+                    analysis="ml_pattern_difference",
                     data_quality=market_series.data_quality,
                     data_warnings=market_series.data_warnings,
                     stale=market_series.stale,
                 )
-
+        except asyncio.TimeoutError:
+            _log_prediction_event(
+                logging.WARNING,
+                "prediction.ml_runtime_fallback",
+                symbol=market_series.resolved_symbol,
+                asset_type=payload.asset_type,
+                engine_requested=payload.engine,
+                engine_used="stat_fallback",
+                degradation_code="ml_engine_timeout",
+            )
+            engine_used = "stat_fallback"
+            model_name = "Statistical Fallback"
+            engine_note = "ML engine timed out. Fell back to statistical forecast."
+            (
+                degraded,
+                degradation_code,
+                degradation_message,
+                degradation_reason,
+            ) = _degradation_fields(
+                degraded=True,
+                code="ml_engine_timeout",
+                message="ML engine timed out. Fell back to statistical forecast.",
+            )
+            source = PredictionSource(
+                market_data=market_series.source,
+                forecast="stat_fallback",
+                analysis=None,
+                data_quality=market_series.data_quality,
+                data_warnings=market_series.data_warnings,
+                stale=market_series.stale,
+            )
         except Exception as exc:
             _log_prediction_event(
                 logging.WARNING,
@@ -416,8 +484,9 @@ async def build_prediction_response(
     elif payload.engine == "ai":
         try:
             t_model = time.perf_counter()
-            ai_forecast, ai_model = await loop.run_in_executor(
-                None,
+            ai_forecast, ai_model = await _run_blocking(
+                blocking_runner,
+                settings.blocking_task_timeout_seconds,
                 partial(
                     build_ai_forecast,
                     symbol=market_series.resolved_symbol,
@@ -428,6 +497,13 @@ async def build_prediction_response(
                 ),
             )
             model_ms = round((time.perf_counter() - t_model) * 1000, 1)
+            if len(ai_forecast) != payload.horizon:
+                raise ServiceError(
+                    status_code=502,
+                    code="provider_invalid_response",
+                    message="AI engine returned an unexpected forecast horizon.",
+                    retryable=True,
+                )
             forecast = ai_forecast
             engine_used = "ai"
             model_name = ai_model["model"]
@@ -435,6 +511,37 @@ async def build_prediction_response(
             source = PredictionSource(
                 market_data=market_series.source,
                 forecast=ai_model["source"],
+                analysis=None,
+                data_quality=market_series.data_quality,
+                data_warnings=market_series.data_warnings,
+                stale=market_series.stale,
+            )
+        except asyncio.TimeoutError:
+            _log_prediction_event(
+                logging.WARNING,
+                "prediction.ai_fallback",
+                symbol=market_series.resolved_symbol,
+                asset_type=payload.asset_type,
+                engine_requested=payload.engine,
+                engine_used="stat_fallback",
+                degradation_code="ai_provider_timeout",
+            )
+            engine_used = "stat_fallback"
+            model_name = "Statistical Fallback"
+            engine_note = "AI provider timed out. Fell back to statistical forecast."
+            (
+                degraded,
+                degradation_code,
+                degradation_message,
+                degradation_reason,
+            ) = _degradation_fields(
+                degraded=True,
+                code="ai_provider_timeout",
+                message="AI provider timed out. Fell back to statistical forecast.",
+            )
+            source = PredictionSource(
+                market_data=market_series.source,
+                forecast="stat_fallback",
                 analysis=None,
                 data_quality=market_series.data_quality,
                 data_warnings=market_series.data_warnings,
@@ -473,10 +580,20 @@ async def build_prediction_response(
                 stale=market_series.stale,
             )
 
-    summary = _build_summary(forecast, stats, evaluation)
+    if len(forecast) != payload.horizon:
+        raise ServiceError(
+            status_code=500,
+            code="forecast_horizon_mismatch",
+            message="Forecast horizon mismatch.",
+        )
 
-    if _ml_explain_meta is not None:
-        explanation = _build_explanation(_ml_explain_meta, _ml_explain_meta["summary"])
+    summary = _build_summary(forecast, stats, evaluation)
+    if ml_explanation_meta is not None and ml_analysis_summary is not None:
+        explanation = _build_explanation(ml_explanation_meta, ml_analysis_summary)
+
+    history_points = [HistoryPoint.model_validate(point) for point in history]
+    forecast_points = [ForecastPoint.model_validate(point) for point in forecast]
+    stats_model = PredictStats.model_validate(stats)
 
     response = PredictResponse(
         symbol=market_series.resolved_symbol,
@@ -494,13 +611,13 @@ async def build_prediction_response(
         degradation_code=degradation_code,
         degradation_message=degradation_message,
         degradation_reason=degradation_reason,
-        history=history,
-        forecast=forecast,
-        stats=stats,
+        history=history_points,
+        forecast=forecast_points,
+        stats=stats_model,
         summary=summary,
         evaluation=evaluation,
         explanation=explanation,
-        disclaimer="This is a statistical/AI estimate and not financial advice. Past performance does not guarantee future results.",
+        disclaimer="This is an estimate and not financial advice. Past performance does not guarantee future results.",
     )
     total_ms = round((time.perf_counter() - t_start) * 1000, 1)
     _log_prediction_event(

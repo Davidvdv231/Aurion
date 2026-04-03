@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import shutil
 import uuid
+from pathlib import Path
 
 from backend.config import get_settings
 
@@ -46,3 +46,21 @@ def test_real_environment_overrides_dotenv(monkeypatch) -> None:
         assert settings.openai_api_key == "shell-value"
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_rate_limit_fail_open_defaults_to_environment_mode(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    assert get_settings().rate_limit_fail_open is True
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("APP_ENV", "production")
+    assert get_settings().rate_limit_fail_open is False
+
+
+def test_rate_limit_fail_open_can_be_disabled_explicitly(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("RATE_LIMIT_FAIL_OPEN", "false")
+
+    settings = get_settings()
+
+    assert settings.rate_limit_fail_open is False

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import subprocess
 import time
+from pathlib import Path
 from urllib.request import urlopen
 
 import pytest
@@ -12,7 +12,6 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_EXE = ROOT / ".venv" / "Scripts" / "python.exe"
-EDGE_EXE = Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
 BASE_URL = "http://127.0.0.1:8765"
 
 SUCCESS_PREDICTION = {
@@ -25,7 +24,7 @@ SUCCESS_PREDICTION = {
     "engine_requested": "stat",
     "engine_used": "stat",
     "model_name": "Statistical trend",
-    "engine_note": "Statistische trend op historische koersdata.",
+    "engine_note": "Log-linear statistical trend model on historical prices.",
     "source": {
         "market_data": "yfinance",
         "forecast": "stat",
@@ -53,7 +52,6 @@ SUCCESS_PREDICTION = {
         "expected_return_pct": 1.71,
         "trend": "neutral",
         "confidence_tier": "medium",
-        "probability_up": 0.61,
         "signal": "mildly_bullish",
     },
     "evaluation": {
@@ -61,42 +59,42 @@ SUCCESS_PREDICTION = {
         "rmse": 1.78,
         "mape": 0.95,
         "directional_accuracy": 0.67,
-        "validation_windows": 3,
+        "validation_windows": 5,
     },
     "explanation": None,
-    "disclaimer": "Dit is een statistische/AI schatting en geen financieel advies.",
+    "disclaimer": "This is an estimate and not financial advice.",
 }
 FALLBACK_EXPLANATION_PREDICTION = {
     **SUCCESS_PREDICTION,
     "engine_requested": "ml",
     "engine_used": "stat_fallback",
     "model_name": "Statistical Fallback",
-    "engine_note": "ML model did not pass quality check and fell back to the statistical forecast.",
+    "engine_note": "ML directional accuracy was insufficient for production use. Returned the statistical fallback forecast instead.",
     "source": {
         "market_data": "yfinance",
         "forecast": "stat_fallback",
-        "analysis": "ml_analog",
+        "analysis": "ml_pattern_difference",
         "data_quality": "clean",
         "data_warnings": [],
         "stale": False,
     },
     "degraded": True,
     "degradation_code": "model_quality_insufficient",
-    "degradation_message": "ML model quality was insufficient for production use. Returned the statistical fallback forecast instead.",
-    "degradation_reason": "ML model quality was insufficient for production use. Returned the statistical fallback forecast instead.",
+    "degradation_message": "ML directional accuracy was insufficient for production use. Returned the statistical fallback forecast instead.",
+    "degradation_reason": "ML directional accuracy was insufficient for production use. Returned the statistical fallback forecast instead.",
     "explanation": {
         "top_features": [
             {
                 "feature": "rsi_14",
-                "contribution": 0.8,
+                "difference_score": 0.8,
                 "value": 68.0,
-                "direction": "bullish",
+                "relation": "higher",
             }
         ],
         "neighbors_used": 12,
         "avg_neighbor_distance": 0.17,
         "nearest_analog_date": "2024-09-18",
-        "narrative": "RSI (14) at 68 is in a neutral zone. The 12 closest historical patterns averaged a +1.7% move over the forecast horizon.",
+        "narrative": "RSI (14) is currently higher than the nearest analog set. The 12 closest historical patterns averaged a +1.7% move over the forecast horizon.",
     },
 }
 TOP_ASSETS = {
@@ -121,6 +119,7 @@ TOP_ASSETS = {
 def live_server() -> str:
     env = os.environ.copy()
     env["REDIS_URL"] = ""
+    env["APP_ENV"] = "development"
     process = subprocess.Popen(
         [str(PYTHON_EXE), "-m", "uvicorn", "backend.app:app", "--host", "127.0.0.1", "--port", "8765"],
         cwd=ROOT,
@@ -152,7 +151,7 @@ def live_server() -> str:
 @pytest.fixture
 def browser() -> object:
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=str(EDGE_EXE), headless=True)
+        browser = playwright.chromium.launch(headless=True)
         try:
             yield browser
         finally:
@@ -193,6 +192,7 @@ def test_submit_success_flow(page) -> None:
     assert "Medium" in current_page.locator("[data-testid='confidence-value']").text_content()
     assert current_page.locator("[data-testid='evaluation-row']").is_visible()
     assert current_page.locator("[data-testid='metric-expected']").text_content().strip() != ""
+    assert "Probability" not in current_page.locator("[data-testid='confidence-value']").text_content()
 
 
 def test_submit_failure_clears_stale_results(page) -> None:
@@ -209,7 +209,7 @@ def test_submit_failure_clears_stale_results(page) -> None:
         route.fulfill(
             status=502,
             content_type="application/json",
-            body=json.dumps({"error": {"code": "provider_unavailable", "message": "Marktdataprovider tijdelijk niet bereikbaar."}}),
+            body=json.dumps({"error": {"code": "provider_unavailable", "message": "Market data provider temporarily unavailable."}}),
         )
 
     current_page.route("**/api/predict", fulfill_predict)
@@ -223,7 +223,7 @@ def test_submit_failure_clears_stale_results(page) -> None:
     current_page.wait_for_function("() => document.getElementById('signal-card').hidden === true")
 
     assert current_page.locator("[data-testid='signal-card']").is_hidden()
-    assert "Marktdataprovider tijdelijk niet bereikbaar." in current_page.locator("#status").text_content()
+    assert "Market data provider temporarily unavailable." in current_page.locator("#status").text_content()
 
 
 def test_missing_chart_library_shows_friendly_error(page) -> None:
@@ -260,8 +260,8 @@ def test_fallback_explanation_is_visible_and_honestly_labeled(page) -> None:
 
     current_page.wait_for_selector("[data-testid='explanation-card']:not([hidden])")
     assert "Forecast source: Statistical fallback." in current_page.locator("[data-testid='explanation-source']").text_content()
-    assert "Explanation source: ML analog analysis." in current_page.locator("[data-testid='explanation-source']").text_content()
-    assert "Final forecast uses the statistical fallback." in current_page.locator("[data-testid='explanation-note']").text_content()
+    assert "Explanation source: Pattern-difference analysis." in current_page.locator("[data-testid='explanation-source']").text_content()
+    assert "current market pattern differed" in current_page.locator("[data-testid='explanation-note']").text_content()
 
 
 def test_offline_shell_is_served_from_service_worker(page) -> None:

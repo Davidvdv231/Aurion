@@ -66,6 +66,19 @@ def _float_env(name: str, default: float, minimum: float = 0.0) -> float:
     return max(minimum, value)
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 def _csv_env(name: str) -> tuple[str, ...]:
     raw = os.getenv(name, "").strip()
     if not raw:
@@ -75,14 +88,22 @@ def _csv_env(name: str) -> tuple[str, ...]:
 
 @dataclass(frozen=True, slots=True)
 class Settings:
+    app_env: str
     app_title: str
     version: str
     cors_allow_origins: tuple[str, ...]
     top_cache_ttl_seconds: int
     history_cache_ttl_seconds: int
+    blocking_task_timeout_seconds: float
+    top_assets_timeout_seconds: float
+    executor_max_workers: int
+    memory_cache_max_items: int
+    memory_cache_sweep_batch_size: int
     rate_limit_window_seconds: int
     rate_limit_max_requests_stat: int
     rate_limit_max_requests_ai: int
+    rate_limit_max_requests_search: int
+    rate_limit_fail_open: bool
     openai_chat_completions_url: str
     openai_model: str
     openai_api_key: str
@@ -97,10 +118,15 @@ class Settings:
     def use_trusted_proxy_headers(self) -> bool:
         return bool(self.trusted_proxy_ips)
 
+    @property
+    def is_production(self) -> bool:
+        return self.app_env.lower() in {"prod", "production"}
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     _load_local_env()
+    app_env = os.getenv("APP_ENV", "development").strip() or "development"
 
     cors_origins = _csv_env("CORS_ALLOW_ORIGINS")
     if not cors_origins:
@@ -110,14 +136,25 @@ def get_settings() -> Settings:
         )
 
     return Settings(
+        app_env=app_env,
         app_title="Aurion - AI Market Intelligence API",
         version="0.5.0",
         cors_allow_origins=cors_origins,
         top_cache_ttl_seconds=_int_env("TOP_CACHE_TTL_SECONDS", 15 * 60, minimum=30),
         history_cache_ttl_seconds=_int_env("HISTORY_CACHE_TTL_SECONDS", 5 * 60, minimum=30),
+        blocking_task_timeout_seconds=_float_env("BLOCKING_TASK_TIMEOUT_SECONDS", 15.0, minimum=1.0),
+        top_assets_timeout_seconds=_float_env("TOP_ASSETS_TIMEOUT_SECONDS", 8.0, minimum=1.0),
+        executor_max_workers=_int_env("EXECUTOR_MAX_WORKERS", 8, minimum=1),
+        memory_cache_max_items=_int_env("MEMORY_CACHE_MAX_ITEMS", 512, minimum=32),
+        memory_cache_sweep_batch_size=_int_env("MEMORY_CACHE_SWEEP_BATCH_SIZE", 64, minimum=1),
         rate_limit_window_seconds=_int_env("RATE_LIMIT_WINDOW_SECONDS", 60, minimum=1),
         rate_limit_max_requests_stat=_int_env("RATE_LIMIT_MAX_REQUESTS_STAT", 30, minimum=0),
         rate_limit_max_requests_ai=_int_env("RATE_LIMIT_MAX_REQUESTS_AI", 8, minimum=0),
+        rate_limit_max_requests_search=_int_env("RATE_LIMIT_MAX_REQUESTS_SEARCH", 60, minimum=0),
+        rate_limit_fail_open=_bool_env(
+            "RATE_LIMIT_FAIL_OPEN",
+            default=app_env.lower() not in {"prod", "production"},
+        ),
         openai_chat_completions_url=os.getenv(
             "OPENAI_CHAT_COMPLETIONS_URL",
             "https://api.openai.com/v1/chat/completions",

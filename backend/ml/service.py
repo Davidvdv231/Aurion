@@ -17,7 +17,7 @@ logger = logging.getLogger("stock_predictor.ml")
 _MAX_CACHE_SIZE = 50
 _MODEL_TTL_SECONDS = 3600  # 1 hour
 
-_CacheKey = tuple[str, str, int, int, int, int, bool]
+_CacheKey = tuple[str, str, int, int, int, int, bool, str]
 _CacheEntry = tuple[AnalogForecastModel, BacktestMetrics, float]  # (model, metrics, created_at)
 _model_cache: OrderedDict[_CacheKey, _CacheEntry] = OrderedDict()
 _model_lock = Lock()
@@ -75,6 +75,7 @@ def train_and_predict(
         lookback,
         backtest_folds,
         use_ohlcv,
+        f"{pd.Timestamp(close.index[-1]).isoformat()}:{float(close.iloc[-1]):.6f}",
     )
     cached_entry = _cache_get(cache_key)
 

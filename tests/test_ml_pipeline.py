@@ -5,6 +5,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
+import pytest
 
 import backend.ml.service as ml_service
 from backend.ml.features import FEATURE_COLUMNS, _FEATURE_WARMUP_ROWS, compute_features
@@ -36,20 +37,25 @@ def _synthetic_ohlcv(rows: int = 240) -> pd.DataFrame:
 
 
 def test_compute_features_produces_all_expected_columns() -> None:
-    """compute_features returns all FEATURE_COLUMNS with valid ranges."""
     df = _synthetic_ohlcv()
     features = compute_features(df)
 
     for col in FEATURE_COLUMNS:
         assert col in features.columns, f"Missing column: {col}"
 
-    cleaned = features.dropna()
-    assert not cleaned.empty
-    assert cleaned["rsi_14"].between(0.0, 100.0).all()
+    assert not features.empty
+    assert features["rsi_14"].between(0.0, 100.0).all()
+
+
+def test_compute_features_drops_warmup_instead_of_forward_filling() -> None:
+    df = _synthetic_ohlcv()
+    features = compute_features(df)
+
+    assert features.index[0] == df.index[50]
+    assert not (features.iloc[0] == features.iloc[1]).all()
 
 
 def test_analog_model_fit_predict_roundtrip() -> None:
-    """AnalogForecastModel can fit, predict, and backtest on synthetic data."""
     df = _synthetic_ohlcv()
     close = df["Close"]
 
@@ -75,7 +81,6 @@ def test_analog_model_fit_predict_roundtrip() -> None:
 
 
 def test_model_rejects_insufficient_data() -> None:
-    """Model raises ValueError when data is too short."""
     short_df = _synthetic_ohlcv(rows=50)
     close = short_df["Close"]
 
@@ -83,11 +88,18 @@ def test_model_rejects_insufficient_data() -> None:
 
     with warnings.catch_warnings():
         warnings.simplefilter("error", RuntimeWarning)
-        try:
+        with pytest.raises(ValueError):
             model.fit(close, ohlcv=short_df)
-            assert False, "Expected ValueError for insufficient data"
-        except ValueError:
-            pass
+
+
+def test_predict_rejects_requested_horizon_above_trained_horizon() -> None:
+    df = _synthetic_ohlcv(rows=260)
+    close = df["Close"]
+    model = AnalogForecastModel(lookback=45, horizon=7, n_neighbors=15)
+    model.fit(close, ohlcv=df)
+
+    with np.testing.assert_raises(ValueError):
+        model.predict(close, ohlcv=df, horizon=30, asset_type="stock")
 
 
 def test_train_and_predict_cache_separates_models_by_horizon() -> None:
@@ -126,7 +138,7 @@ def test_train_and_predict_cache_separates_models_by_horizon() -> None:
     assert len(forecast_long.dates) == 30
 
 
-def test_train_and_predict_reuses_cached_backtest_metrics(monkeypatch) -> None:
+def test_train_and_predict_cache_invalidates_when_latest_observation_changes(monkeypatch) -> None:
     df = _synthetic_ohlcv(rows=260)
     close = df["Close"]
     backtest_calls = 0
@@ -139,11 +151,14 @@ def test_train_and_predict_reuses_cached_backtest_metrics(monkeypatch) -> None:
 
     monkeypatch.setattr(AnalogForecastModel, "backtest", counted_backtest)
 
+    mutated_close = close.copy()
+    mutated_close.iloc[-1] = mutated_close.iloc[-1] + 5.0
+
     with ml_service._model_lock:
         ml_service._model_cache.clear()
 
     try:
-        _, first_metrics = ml_service.train_and_predict(
+        ml_service.train_and_predict(
             symbol="AAPL",
             close=close,
             horizon=7,
@@ -153,12 +168,12 @@ def test_train_and_predict_reuses_cached_backtest_metrics(monkeypatch) -> None:
             lookback=45,
             backtest_folds=2,
         )
-        _, second_metrics = ml_service.train_and_predict(
+        ml_service.train_and_predict(
             symbol="AAPL",
-            close=close,
+            close=mutated_close,
             horizon=7,
             asset_type="stock",
-            ohlcv=df,
+            ohlcv=df.assign(Close=mutated_close),
             n_neighbors=15,
             lookback=45,
             backtest_folds=2,

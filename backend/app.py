@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 import json
 import logging
 import time
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -16,11 +17,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
 from backend.config import get_settings
-from backend.errors import ErrorEnvelope, ServiceError
+from backend.errors import ApiErrorPayload, ErrorEnvelope, ServiceError
 from backend.routes import router as api_router
+from backend.runtime import BlockingTaskRunner
 from backend.services.cache import CacheBackend
 from backend.services.metrics import PredictionMetrics
 from backend.services.rate_limit import RateLimiter
+
 
 class _JsonFormatter(logging.Formatter):
     """Emit one JSON object per log line for structured log aggregation."""
@@ -32,7 +35,6 @@ class _JsonFormatter(logging.Formatter):
             "logger": record.name,
             "msg": record.getMessage(),
         }
-        # Merge prediction_* extras from structured logging
         for key, value in record.__dict__.items():
             if key.startswith("prediction_"):
                 entry[key] = value
@@ -46,10 +48,7 @@ _handler.setFormatter(_JsonFormatter())
 logging.basicConfig(level=logging.INFO, handlers=[_handler])
 logger = logging.getLogger("stock_predictor.app")
 
-# Record process start time for uptime reporting
 _BOOT_TIME = time.monotonic()
-
-# Maximum request body size (1 MB)
 MAX_REQUEST_BODY_BYTES = 1_048_576
 
 
@@ -68,8 +67,6 @@ def _normalized_validation_issues(exc: RequestValidationError) -> list[dict]:
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Add security headers to all responses."""
-
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -87,7 +84,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "frame-ancestors 'none'"
         )
 
-        # Cache-Control for static assets
         path = request.url.path
         if path.startswith("/vendor/") or path.startswith("/icons/"):
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
@@ -99,33 +95,93 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
-    """Reject request bodies exceeding the size limit."""
+def _payload_too_large_response(max_body_bytes: int) -> JSONResponse:
+    limit_kb = max_body_bytes // 1024
+    return JSONResponse(
+        status_code=413,
+        content={
+            "error": {
+                "code": "payload_too_large",
+                "message": f"Request body exceeds {limit_kb}KB limit.",
+                "retryable": False,
+            }
+        },
+    )
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > MAX_REQUEST_BODY_BYTES:
-            return JSONResponse(
-                status_code=413,
-                content={
-                    "error": {
-                        "code": "payload_too_large",
-                        "message": f"Request body exceeds {MAX_REQUEST_BODY_BYTES // 1024}KB limit.",
-                        "retryable": False,
-                    }
-                },
-            )
-        return await call_next(request)
+
+class RequestSizeLimitMiddleware:
+    def __init__(self, app, max_body_bytes: int = MAX_REQUEST_BODY_BYTES) -> None:
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers") or [])
+        content_length_raw = headers.get(b"content-length")
+        if content_length_raw is not None:
+            try:
+                if int(content_length_raw.decode("latin-1")) > self.max_body_bytes:
+                    response = _payload_too_large_response(self.max_body_bytes)
+                    await response(scope, receive, send)
+                    return
+            except ValueError:
+                pass
+
+        # Buffer the request once so size checks do not depend on downstream body consumption.
+        total_bytes = 0
+        buffered_messages: list[dict] = []
+        while True:
+            message = await receive()
+            buffered_messages.append(message)
+            if message["type"] == "http.request":
+                total_bytes += len(message.get("body", b"") or b"")
+                if total_bytes > self.max_body_bytes:
+                    response = _payload_too_large_response(self.max_body_bytes)
+                    await response(scope, receive, send)
+                    return
+                if not message.get("more_body", False):
+                    break
+            else:
+                break
+
+        buffered_iter = iter(buffered_messages)
+
+        async def buffered_receive():
+            try:
+                return next(buffered_iter)
+            except StopIteration:
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+        await self.app(scope, buffered_receive, send)
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title=settings.app_title, version=settings.version)
 
-    # Middleware stack (order matters: outermost first)
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        app.state.settings = settings
+        app.state.cache_backend = CacheBackend(settings)
+        app.state.rate_limiter = RateLimiter(settings)
+        app.state.metrics = PredictionMetrics()
+        app.state.boot_time = _BOOT_TIME
+        app.state.blocking_runner = BlockingTaskRunner(
+            max_workers=settings.executor_max_workers,
+            max_in_flight_calls=settings.executor_max_workers,
+            thread_name_prefix="aurion",
+        )
+        try:
+            yield
+        finally:
+            app.state.blocking_runner.shutdown(wait=False, cancel_futures=True)
+
+    app = FastAPI(title=settings.app_title, version=settings.version, lifespan=lifespan)
     app.add_middleware(GZipMiddleware, minimum_size=500)
     app.add_middleware(SecurityHeadersMiddleware)
-    app.add_middleware(RequestSizeLimitMiddleware)
+    app.add_middleware(RequestSizeLimitMiddleware, max_body_bytes=MAX_REQUEST_BODY_BYTES)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_allow_origins),
@@ -133,23 +189,22 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.state.settings = settings
-    app.state.cache_backend = CacheBackend(settings)
-    app.state.rate_limiter = RateLimiter(settings)
-    app.state.metrics = PredictionMetrics()
-
     @app.exception_handler(ServiceError)
     async def handle_service_error(_: Request, exc: ServiceError) -> JSONResponse:
-        return JSONResponse(status_code=exc.status_code, content=jsonable_encoder(exc.to_envelope()))
+        envelope = exc.to_envelope()
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=jsonable_encoder(envelope),
+        )
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
         envelope = ErrorEnvelope(
-            error={
-                "code": "invalid_request",
-                "message": "Invalid request payload.",
-                "details": {"issues": _normalized_validation_issues(exc)},
-            }
+            error=ApiErrorPayload(
+                code="invalid_request",
+                message="Invalid request payload.",
+                details={"issues": _normalized_validation_issues(exc)},
+            ),
         )
         return JSONResponse(status_code=422, content=jsonable_encoder(envelope))
 
@@ -157,11 +212,11 @@ def create_app() -> FastAPI:
     async def handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
         logger.exception("Unhandled application error", exc_info=exc)
         envelope = ErrorEnvelope(
-            error={
-                "code": "internal_error",
-                "message": "Internal server error.",
-                "retryable": False,
-            }
+            error=ApiErrorPayload(
+                code="internal_error",
+                message="Internal server error.",
+                retryable=False,
+            ),
         )
         return JSONResponse(status_code=500, content=jsonable_encoder(envelope))
 

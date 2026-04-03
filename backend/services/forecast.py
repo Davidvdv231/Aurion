@@ -1,12 +1,66 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from backend.errors import ServiceError
 from backend.ticker_catalog import AssetType
+
+
+def backtest_stat_forecast(
+    close: pd.Series,
+    horizon: int,
+    asset_type: AssetType,
+    n_folds: int = 5,
+) -> dict[str, float | int]:
+    n = len(close)
+    min_train = max(60, horizon * 3)
+    fold_size = max(horizon, (n - min_train) // max(n_folds, 1))
+    all_errors: list[float] = []
+    all_actuals: list[float] = []
+    fold_direction_scores: list[float] = []
+
+    for fold in range(n_folds):
+        test_end = n - (fold * fold_size)
+        test_start = test_end - horizon
+        train_end = test_start
+        if train_end < min_train:
+            break
+
+        train_close = close.iloc[:train_end]
+        _, forecast, _ = build_stat_forecast(train_close, horizon, asset_type)
+        predicted = np.array([point["predicted"] for point in forecast], dtype=np.float64)
+        actual = close.iloc[test_start:test_end].to_numpy(dtype=np.float64)
+        actual_len = min(len(predicted), len(actual))
+        if actual_len == 0:
+            continue
+
+        pred = predicted[:actual_len]
+        act = actual[:actual_len]
+        errors = np.abs(pred - act)
+        all_errors.extend(errors.tolist())
+        all_actuals.extend(np.abs(act).tolist())
+        if actual_len > 1:
+            pred_steps = np.sign(np.diff(pred))
+            actual_steps = np.sign(np.diff(act))
+            fold_direction_scores.append(float(np.mean(pred_steps == actual_steps)))
+
+    if not all_errors:
+        return {"mape": 0.0, "directional_accuracy": 0.5, "validation_windows": 0}
+
+    errors_arr = np.array(all_errors, dtype=np.float64)
+    actual_arr = np.array(all_actuals, dtype=np.float64)
+    return {
+        "mape": round(float(np.mean(errors_arr / np.maximum(actual_arr, 0.01))) * 100, 2),
+        "directional_accuracy": round(
+            float(np.mean(fold_direction_scores)) if fold_direction_scores else 0.5,
+            4,
+        ),
+        "validation_windows": len(fold_direction_scores),
+    }
 
 
 def future_dates(last_date: pd.Timestamp, horizon: int, asset_type: AssetType) -> pd.DatetimeIndex:
@@ -56,7 +110,7 @@ def build_stat_forecast(
             "lower": round(float(low), 2),
             "upper": round(float(high), 2),
         }
-        for dt, pred, low, high in zip(projected_dates, predicted, lower, upper)
+        for dt, pred, low, high in zip(projected_dates, predicted, lower, upper, strict=False)
     ]
 
     stats = {
@@ -102,7 +156,15 @@ def normalize_ai_forecast_rows(
                 retryable=True,
             )
 
-        predicted_raw = row.get("predicted", row.get("close"))
+        predicted_raw: Any = row.get("predicted", row.get("close"))
+        if predicted_raw is None:
+            raise ServiceError(
+                status_code=502,
+                code="provider_invalid_response",
+                message="AI engine prediction contains no valid number.",
+                provider=provider,
+                retryable=True,
+            )
         try:
             predicted = max(0.01, float(predicted_raw))
         except (TypeError, ValueError) as exc:
@@ -140,8 +202,16 @@ def normalize_ai_forecast_rows(
         lower_raw = row.get("lower")
         upper_raw = row.get("upper")
         try:
-            lower = float(lower_raw) if lower_raw is not None else predicted * (1 - z_score_80 * daily_vol)
-            upper = float(upper_raw) if upper_raw is not None else predicted * (1 + z_score_80 * daily_vol)
+            lower = (
+                float(lower_raw)
+                if lower_raw is not None
+                else predicted * (1 - z_score_80 * daily_vol)
+            )
+            upper = (
+                float(upper_raw)
+                if upper_raw is not None
+                else predicted * (1 + z_score_80 * daily_vol)
+            )
         except (TypeError, ValueError) as exc:
             raise ServiceError(
                 status_code=502,

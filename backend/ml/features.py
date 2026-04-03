@@ -15,7 +15,7 @@ _FEATURE_WARMUP_ROWS = 50
 
 
 def compute_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute 25 technical indicator features from OHLCV data.
+    """Compute 23 technical indicator features from OHLCV data.
 
     Expects a DataFrame with at least a 'Close' column (and optionally
     'High', 'Low', 'Volume').  Returns a new DataFrame with the same

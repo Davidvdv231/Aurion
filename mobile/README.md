@@ -3,7 +3,7 @@
 Expo/React Native MVP voor een publieke forecasting app. Dit is de mobiele laag die praat met de bestaande FastAPI-backend via een kleine API-client en fallback demo-data.
 
 ## Wat zit erin
-- Login/splash flow met demo-auth
+- Splash/guest flow zonder misleading fake-auth
 - Home met markt-highlights, zoekfunctie en navigatie naar asset detail
 - Asset detail met forecast cards, confidence indicator en chart placeholder
 - Watchlist met lokale opslag

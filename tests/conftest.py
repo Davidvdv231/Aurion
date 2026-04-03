@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,9 +15,14 @@ from backend.app import create_app
 from backend.config import get_settings
 
 APP_ENV_VARS = [
+    "APP_ENV",
     "ARTIFACTS_ROOT",
+    "BLOCKING_TASK_TIMEOUT_SECONDS",
     "CORS_ALLOW_ORIGINS",
+    "EXECUTOR_MAX_WORKERS",
     "HISTORY_CACHE_TTL_SECONDS",
+    "MEMORY_CACHE_MAX_ITEMS",
+    "MEMORY_CACHE_SWEEP_BATCH_SIZE",
     "ML_BACKTEST_WINDOWS",
     "ML_MIN_HISTORY_ROWS",
     "ML_NEIGHBOR_COUNT",
@@ -27,9 +32,12 @@ APP_ENV_VARS = [
     "REDIS_URL",
     "REDIS_PREFIX",
     "REDIS_SOCKET_TIMEOUT_SECONDS",
+    "RATE_LIMIT_MAX_REQUESTS_SEARCH",
+    "RATE_LIMIT_FAIL_OPEN",
     "STOCK_LLM_API_KEY",
     "STOCK_LLM_API_URL",
     "TOP_CACHE_TTL_SECONDS",
+    "TOP_ASSETS_TIMEOUT_SECONDS",
     "RATE_LIMIT_WINDOW_SECONDS",
     "RATE_LIMIT_MAX_REQUESTS_STAT",
     "RATE_LIMIT_MAX_REQUESTS_AI",

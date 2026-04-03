@@ -6,7 +6,6 @@ import { theme } from "@/theme/theme";
 
 interface ConfidenceMeterProps {
   tier: ConfidenceTier;
-  probabilityUp?: number | null;
   degraded?: boolean;
 }
 
@@ -22,11 +21,8 @@ const tierLabels: Record<ConfidenceTier, string> = {
   high: "High",
 };
 
-export function ConfidenceMeter({ tier, probabilityUp, degraded = false }: ConfidenceMeterProps) {
+export function ConfidenceMeter({ tier, degraded = false }: ConfidenceMeterProps) {
   const captionParts: string[] = [];
-  if (typeof probabilityUp === "number") {
-    captionParts.push(`Probability up: ${Math.round(Math.max(0, Math.min(1, probabilityUp)) * 100)}%.`);
-  }
   if (degraded) {
     captionParts.push("Fallback conditions applied.");
   }
