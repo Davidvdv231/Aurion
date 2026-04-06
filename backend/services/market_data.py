@@ -190,31 +190,19 @@ def fetch_close_prices(
             and isinstance(resolved_symbol, str)
             and isinstance(currency, str)
         ):
-<<<<<<< claude/zealous-kapitsa
-            cached_quality = cached_payload.get("data_quality", "clean")
-            cached_warnings = cached_payload.get("data_warnings", [])
-            cached_stale = cached_payload.get("stale", False)
-=======
             close = _deserialize_close_series(points)
             stale = _check_staleness(close, asset_type)
             warnings = list(data_warnings) if isinstance(data_warnings, list) else []
             if stale and "Data may be stale (last point >3 trading days old)." not in warnings:
                 warnings.append("Data may be stale (last point >3 trading days old).")
->>>>>>> main
             return MarketSeries(
                 close=close,
                 resolved_symbol=resolved_symbol,
                 currency=currency,
                 source=f"cache:{provider}",
-<<<<<<< claude/zealous-kapitsa
-                data_quality=cached_quality if cached_quality in ("clean", "patched", "degraded") else "clean",
-                data_warnings=cached_warnings if isinstance(cached_warnings, list) else [],
-                stale=bool(cached_stale),
-=======
                 data_quality=data_quality if data_quality in {"clean", "patched", "degraded"} else "clean",
                 data_warnings=warnings,
                 stale=stale,
->>>>>>> main
             )
 
     end = datetime.now(timezone.utc)
@@ -273,8 +261,6 @@ def fetch_close_prices(
             "data_quality": data_quality,
             "data_warnings": data_warnings,
             "points": _serialize_close_series(close),
-            "data_quality": data_quality,
-            "data_warnings": data_warnings,
             "stale": stale,
         }
         cache_backend.set_json(cache_key, serialized, settings.history_cache_ttl_seconds)

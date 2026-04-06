@@ -98,7 +98,6 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # Safety net: drop any remaining NaN rows that slipped through
     # (e.g. from division-by-zero in edge-case data).
-    pre_count = len(features)
     remaining_nan = features.isna().any(axis=1).sum()
     if remaining_nan > 0:
         nan_cols = features.columns[features.isna().any()].tolist()

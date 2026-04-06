@@ -119,16 +119,13 @@ class AnalogForecastModel:
         close_arr = aligned_close.to_numpy(dtype=np.float64)
         return features, feat_matrix, close_arr
 
-        # Safety net: replace any residual NaN/inf (compute_features should
-        # already have removed them, but guard against upstream regressions).
-        feat_matrix = np.nan_to_num(feat_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+    def fit(self, close: pd.Series, ohlcv: pd.DataFrame | None = None) -> None:
+        features, feat_matrix, close_arr = self._prepare_inputs(close, ohlcv)
+        if len(features) <= self.lookback + self.horizon:
+            raise ValueError("Insufficient data to fit model")
 
-        # Compute normalization statistics only on rows that can serve as
-        # window centers (index >= lookback), matching the training loop below.
-        valid_start = self.lookback
-        valid_features = feat_matrix[valid_start:]
-        self._feature_mean = np.nanmean(valid_features, axis=0)
-        self._feature_std = np.nanstd(valid_features, axis=0)
+        self._feature_mean = np.nanmean(feat_matrix, axis=0)
+        self._feature_std = np.nanstd(feat_matrix, axis=0)
         self._feature_std[self._feature_std < 1e-8] = 1.0
         self._feature_raw_std = np.nanstd(feat_matrix, axis=0)
         self._feature_raw_std[self._feature_raw_std < 1e-8] = 1.0
@@ -332,7 +329,7 @@ class AnalogForecastModel:
             if actual_len > 1:
                 pred_steps = np.sign(np.diff(pred))
                 actual_steps = np.sign(np.diff(act))
-                fold_direction_scores.append(float(np.mean(pred_steps == actual_steps)))
+                all_directions.append(float(np.mean(pred_steps == actual_steps)))
 
         if not all_errors:
             return BacktestMetrics(mae=0, rmse=0, mape=0, directional_accuracy=0.5, validation_windows=0)
@@ -353,7 +350,7 @@ class AnalogForecastModel:
             rmse=round(rmse, 4),
             mape=round(mape, 2),
             directional_accuracy=round(dir_acc, 4),
-            validation_windows=len(fold_direction_scores),
+            validation_windows=len(all_directions),
         )
 
 

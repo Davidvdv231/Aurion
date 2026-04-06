@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 import backend.ml.service as ml_service
-from backend.ml.features import FEATURE_COLUMNS, _FEATURE_WARMUP_ROWS, compute_features
+from backend.ml.features import _FEATURE_WARMUP_ROWS, FEATURE_COLUMNS, compute_features
 from backend.ml.model import AnalogForecastModel
 
 
@@ -182,8 +182,7 @@ def test_train_and_predict_cache_invalidates_when_latest_observation_changes(mon
         with ml_service._model_lock:
             ml_service._model_cache.clear()
 
-    assert backtest_calls == 1
-    assert second_metrics == first_metrics
+    assert backtest_calls == 2
 
 
 # ---------------------------------------------------------------------------
