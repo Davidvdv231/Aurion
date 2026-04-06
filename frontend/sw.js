@@ -1,6 +1,6 @@
 // Cache version derived from build timestamp.
 // Bump this value on each deploy, or replace with a CI-injected hash.
-const CACHE_VERSION = "aurion-20260402";
+const CACHE_VERSION = "aurion-20260406";
 const ASSETS = [
   "/",
   "/index.html",
