@@ -483,7 +483,7 @@ async def build_prediction_response(
             )
             engine_used = "stat_fallback"
             model_name = "Statistical Fallback"
-            engine_note = f"ML engine unavailable ({exc}). Fell back to statistical forecast."
+            engine_note = "ML engine encountered an error. Fell back to statistical forecast."
             (
                 degraded,
                 degradation_code,
@@ -492,7 +492,7 @@ async def build_prediction_response(
             ) = _degradation_fields(
                 degraded=True,
                 code="ml_engine_unavailable",
-                message=f"ML engine unavailable ({exc}). Fell back to statistical forecast.",
+                message="ML engine encountered an error. Fell back to statistical forecast.",
             )
             source = PredictionSource(
                 market_data=market_series.source,
@@ -584,7 +584,9 @@ async def build_prediction_response(
             )
             engine_used = "stat_fallback"
             model_name = "Statistical Fallback"
-            engine_note = f"AI unavailable ({exc.message}). Fell back to statistical forecast."
+            engine_note = (
+                "AI provider is temporarily unavailable. Fell back to statistical forecast."
+            )
             (
                 degraded,
                 degradation_code,
@@ -593,7 +595,7 @@ async def build_prediction_response(
             ) = _degradation_fields(
                 degraded=True,
                 code="ai_provider_unavailable",
-                message=f"AI unavailable ({exc.message}). Fell back to statistical forecast.",
+                message="AI provider is temporarily unavailable. Fell back to statistical forecast.",
             )
             source = PredictionSource(
                 market_data=market_series.source,
@@ -617,7 +619,7 @@ async def build_prediction_response(
             )
             engine_used = "stat_fallback"
             model_name = "Statistical Fallback"
-            engine_note = f"AI engine unavailable ({exc}). Fell back to statistical forecast."
+            engine_note = "AI engine encountered an error. Fell back to statistical forecast."
             (
                 degraded,
                 degradation_code,
@@ -626,7 +628,7 @@ async def build_prediction_response(
             ) = _degradation_fields(
                 degraded=True,
                 code="ai_engine_unavailable",
-                message=f"AI engine unavailable ({exc}). Fell back to statistical forecast.",
+                message="AI engine encountered an error. Fell back to statistical forecast.",
             )
             source = PredictionSource(
                 market_data=market_series.source,
@@ -648,6 +650,32 @@ async def build_prediction_response(
     if ml_explanation_meta is not None and ml_analysis_summary is not None:
         explanation = _build_explanation(ml_explanation_meta, ml_analysis_summary)
 
+    # --- Currency conversion ---
+    native_currency = market_series.currency
+    display_currency = payload.display_currency.upper()
+
+    if display_currency != native_currency.upper():
+        from backend.services.exchange_rates import convert_price, get_exchange_rate
+
+        rate = get_exchange_rate(native_currency, display_currency)
+        if rate != 1.0:
+            # Convert history close prices
+            for pt in history:
+                pt["close"] = convert_price(pt["close"], rate)
+            # Convert forecast prices
+            for pt in forecast:
+                pt["predicted"] = convert_price(pt["predicted"], rate)
+                pt["lower"] = convert_price(pt["lower"], rate)
+                pt["upper"] = convert_price(pt["upper"], rate)
+            # Convert stats
+            if stats.get("last_close") is not None:
+                stats["last_close"] = round(stats["last_close"] * rate, 6)
+            # Rebuild summary with converted prices
+            summary = _build_summary(forecast, stats, evaluation)
+        response_currency = display_currency
+    else:
+        response_currency = native_currency
+
     history_points = [HistoryPoint.model_validate(point) for point in history]
     forecast_points = [ForecastPoint.model_validate(point) for point in forecast]
     stats_model = PredictStats.model_validate(stats)
@@ -656,7 +684,9 @@ async def build_prediction_response(
         symbol=market_series.resolved_symbol,
         requested_symbol=ticker,
         asset_type=payload.asset_type,
-        currency=market_series.currency,
+        currency=response_currency,
+        native_currency=native_currency,
+        display_currency=response_currency,
         generated_at=datetime.now(timezone.utc).isoformat(),
         horizon_days=payload.horizon,
         engine_requested=payload.engine,

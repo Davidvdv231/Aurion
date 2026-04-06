@@ -316,7 +316,7 @@ def test_predict_degrades_to_statistical_fallback_when_ai_fails(client, monkeypa
     assert payload["degradation_code"] == "ai_provider_unavailable"
     assert (
         payload["degradation_message"]
-        == "AI unavailable (OpenAI service unreachable.). Fell back to statistical forecast."
+        == "AI provider is temporarily unavailable. Fell back to statistical forecast."
     )
     assert payload["degradation_reason"] == payload["degradation_message"]
     assert payload["source"]["forecast"] == "stat_fallback"

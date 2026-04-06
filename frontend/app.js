@@ -65,6 +65,9 @@ const themeToggle = document.getElementById("theme-toggle");
 const themeIconDark = document.getElementById("theme-icon-dark");
 const themeIconLight = document.getElementById("theme-icon-light");
 
+// Currency
+const currencySelect = document.getElementById("display-currency");
+
 // Watchlist
 const watchlistAddBtn = document.getElementById("watchlist-add");
 const watchlistItems = document.getElementById("watchlist-items");
@@ -100,6 +103,19 @@ function toggleTheme() {
   localStorage.setItem("aurion-theme", next);
   updateThemeIcons(next);
   if (state.chart) updateChartTheme(state.chart);
+}
+
+// =============================================
+// CURRENCY PREFERENCE
+// =============================================
+function initCurrency() {
+  const saved = localStorage.getItem("aurion-currency");
+  if (saved && currencySelect.querySelector(`option[value="${saved}"]`)) {
+    currencySelect.value = saved;
+  }
+  currencySelect.addEventListener("change", () => {
+    localStorage.setItem("aurion-currency", currencySelect.value);
+  });
 }
 
 function updateThemeIcons(theme) {
@@ -199,14 +215,17 @@ function formatApiError(payload, fallback) {
 }
 
 function formatCurrency(value, currency) {
+  const code = currency || "USD";
+  const locales = { USD: "en-US", EUR: "de-DE", GBP: "en-GB", JPY: "ja-JP", CHF: "de-CH", CAD: "en-CA", AUD: "en-AU" };
+  const locale = locales[code] || "en-US";
   try {
-    return new Intl.NumberFormat("en-US", {
+    return new Intl.NumberFormat(locale, {
       style: "currency",
-      currency: currency || "USD",
-      maximumFractionDigits: 2,
+      currency: code,
+      maximumFractionDigits: code === "JPY" ? 0 : 2,
     }).format(value);
   } catch {
-    return `${Number.isFinite(value) ? value.toFixed(2) : "0.00"} ${currency || "USD"}`;
+    return `${Number.isFinite(value) ? value.toFixed(2) : "0.00"} ${code}`;
   }
 }
 
@@ -284,7 +303,14 @@ function renderSuggestions(tickers) {
     btn.type = "button";
     btn.className = "suggestion-item";
     btn.dataset.index = i;
-    btn.innerHTML = `<span class="suggestion-symbol">${item.symbol}</span><span class="suggestion-name">${item.name} (${item.exchange})</span>`;
+    const symSpan = document.createElement("span");
+    symSpan.className = "suggestion-symbol";
+    symSpan.textContent = item.symbol;
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "suggestion-name";
+    nameSpan.textContent = item.name + " (" + item.exchange + ")";
+    btn.appendChild(symSpan);
+    btn.appendChild(nameSpan);
     btn.addEventListener("click", () => {
       symbolInput.value = item.symbol;
       hideSuggestions();
@@ -372,7 +398,14 @@ function renderTopAssets(items) {
     btn.type = "button";
     btn.className = "chip-btn";
     btn.title = `${item.symbol} - ${item.name}`;
-    btn.innerHTML = `<span class="chip-symbol">${item.symbol}</span><span class="chip-name">${item.name}</span>`;
+    const chipSym = document.createElement("span");
+    chipSym.className = "chip-symbol";
+    chipSym.textContent = item.symbol;
+    const chipName = document.createElement("span");
+    chipName.className = "chip-name";
+    chipName.textContent = item.name;
+    btn.appendChild(chipSym);
+    btn.appendChild(chipName);
     btn.addEventListener("click", () => {
       symbolInput.value = item.symbol;
       hideSuggestions();
@@ -459,13 +492,21 @@ function renderWatchlist() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "chip-btn watchlist-chip";
-    btn.innerHTML = `
-      <div>
-        <span class="chip-symbol">${item.symbol}</span>
-        <span class="chip-name">${item.asset_type}</span>
-      </div>
-      <span class="chip-remove" title="Remove">&times;</span>
-    `;
+    const infoDiv = document.createElement("div");
+    const wlSym = document.createElement("span");
+    wlSym.className = "chip-symbol";
+    wlSym.textContent = item.symbol;
+    const wlType = document.createElement("span");
+    wlType.className = "chip-name";
+    wlType.textContent = item.asset_type;
+    infoDiv.appendChild(wlSym);
+    infoDiv.appendChild(wlType);
+    const removeSpan = document.createElement("span");
+    removeSpan.className = "chip-remove";
+    removeSpan.title = "Remove";
+    removeSpan.textContent = "\u00d7";
+    btn.appendChild(infoDiv);
+    btn.appendChild(removeSpan);
 
     // Click the chip area (not the remove button) to load the symbol
     btn.addEventListener("click", (e) => {
@@ -658,11 +699,12 @@ function updateSignalCard(data) {
   signalSymbol.textContent = data.symbol;
   signalEngine.textContent = `${data.model_name} | ${data.engine_used.toUpperCase()}`;
 
-  // Currency tag
-  currencyTag.textContent = data.currency || "USD";
+  // Currency tag — prefer display_currency from response, fall back to native currency
+  const displayCurrency = data.display_currency || data.currency || "USD";
+  currencyTag.textContent = displayCurrency;
 
-  metricPrice.textContent = formatCurrency(data.stats.last_close, data.currency);
-  metricExpected.textContent = formatCurrency(summary.expected_price, data.currency);
+  metricPrice.textContent = formatCurrency(data.stats.last_close, displayCurrency);
+  metricExpected.textContent = formatCurrency(summary.expected_price, displayCurrency);
 
   metricReturn.textContent = formatPercent(summary.expected_return_pct);
   metricReturn.className = `metric-value ${summary.expected_return_pct >= 0 ? "positive" : "negative"}`;
@@ -729,13 +771,25 @@ function updateSignalCard(data) {
       const dirClass = feat.relation === "higher" ? "positive" : feat.relation === "lower" ? "negative" : "";
       const row = document.createElement("div");
       row.className = "explain-feature";
-      row.innerHTML = `
-        <span class="explain-feature-name">${feat.feature.replace(/_/g, " ")}</span>
-        <div class="explain-bar-track">
-          <div class="explain-bar-fill ${dirClass}" style="width: ${barPct}%"></div>
-        </div>
-        <span class="explain-feature-dir ${dirClass}">${feat.relation}</span>
-      `;
+
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "explain-feature-name";
+      nameSpan.textContent = feat.feature.replace(/_/g, " ");
+
+      const barTrack = document.createElement("div");
+      barTrack.className = "explain-bar-track";
+      const barFill = document.createElement("div");
+      barFill.className = "explain-bar-fill" + (dirClass ? " " + dirClass : "");
+      barFill.style.width = barPct + "%";
+      barTrack.appendChild(barFill);
+
+      const dirSpan = document.createElement("span");
+      dirSpan.className = "explain-feature-dir" + (dirClass ? " " + dirClass : "");
+      dirSpan.textContent = feat.relation;
+
+      row.appendChild(nameSpan);
+      row.appendChild(barTrack);
+      row.appendChild(dirSpan);
       explanationFeatures.appendChild(row);
     }
 
@@ -878,7 +932,7 @@ async function loadPrediction(event) {
   const currentId = ++state.predictionRequestId;
 
   try {
-    const data = await fetchPrediction({ symbol, horizon, engine, asset_type: assetType }, controller);
+    const data = await fetchPrediction({ symbol, horizon, engine, asset_type: assetType, display_currency: currencySelect.value }, controller);
     if (currentId !== state.predictionRequestId) return;
 
     try {
@@ -951,6 +1005,7 @@ if ("serviceWorker" in navigator) {
 // INIT
 // =============================================
 initTheme();
+initCurrency();
 initSegmentedControls();
 initHorizon();
 applyAssetTypeUi();

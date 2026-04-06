@@ -9,6 +9,8 @@ from backend.ticker_catalog import AssetType
 EngineType = Literal["stat", "ml", "ai"]
 EngineUsed = Literal["stat", "ml", "ai", "stat_fallback", "ml_fallback"]
 
+SUPPORTED_CURRENCIES = {"USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD"}
+
 
 class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -78,6 +80,7 @@ class PredictRequest(ApiModel):
     horizon: int = Field(30, ge=7, le=45)
     engine: EngineType = "ml"
     asset_type: AssetType = "stock"
+    display_currency: str = "USD"
 
     @field_validator("symbol")
     @classmethod
@@ -87,12 +90,25 @@ class PredictRequest(ApiModel):
             raise ValueError("Invalid ticker symbol.")
         return normalized
 
+    @field_validator("display_currency")
+    @classmethod
+    def validate_display_currency(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if normalized not in SUPPORTED_CURRENCIES:
+            raise ValueError(
+                f"Unsupported currency '{normalized}'. "
+                f"Supported: {', '.join(sorted(SUPPORTED_CURRENCIES))}"
+            )
+        return normalized
+
 
 class PredictResponse(ApiModel):
     symbol: str
     requested_symbol: str
     asset_type: AssetType
     currency: str
+    native_currency: str
+    display_currency: str
     generated_at: str
     horizon_days: int
     engine_requested: EngineType

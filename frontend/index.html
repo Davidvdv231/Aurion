@@ -91,6 +91,19 @@
             </div>
 
             <div class="form-group">
+              <label for="display-currency">Currency</label>
+              <select id="display-currency" name="display_currency" class="select-input">
+                <option value="USD" selected>USD ($)</option>
+                <option value="EUR">EUR (€)</option>
+                <option value="GBP">GBP (£)</option>
+                <option value="JPY">JPY (¥)</option>
+                <option value="CHF">CHF</option>
+                <option value="CAD">CAD (C$)</option>
+                <option value="AUD">AUD (A$)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
               <label for="horizon">Horizon</label>
               <div class="range-row">
                 <input id="horizon" name="horizon" type="range" min="7" max="45" value="30" />

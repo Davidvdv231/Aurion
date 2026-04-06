@@ -269,7 +269,7 @@ def test_prediction_service_falls_back_to_stat_when_ml_runtime_fails(monkeypatch
     assert response.degraded is True
     assert response.degradation_code == "ml_engine_unavailable"
     assert response.degradation_message is not None
-    assert "model offline" in response.degradation_message
+    assert "ML engine encountered an error" in response.degradation_message
     assert response.source.forecast == "stat_fallback"
     assert response.source.analysis is None
     assert response.explanation is None
@@ -340,7 +340,7 @@ def test_prediction_service_falls_back_to_stat_when_ai_provider_fails(monkeypatc
     assert response.degradation_code == "ai_provider_unavailable"
     assert (
         response.degradation_message
-        == "AI unavailable (OpenAI service unreachable.). Fell back to statistical forecast."
+        == "AI provider is temporarily unavailable. Fell back to statistical forecast."
     )
     assert response.source.forecast == "stat_fallback"
     assert response.source.analysis is None

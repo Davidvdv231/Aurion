@@ -86,11 +86,23 @@ export interface PredictionSource {
   stale: boolean;
 }
 
+export type SupportedCurrency = "USD" | "EUR" | "GBP" | "JPY" | "CHF" | "CAD" | "AUD";
+
+export interface PredictRequest {
+  symbol: string;
+  horizon: number;
+  engine: ForecastEngine;
+  asset_type: AssetType;
+  display_currency?: SupportedCurrency;
+}
+
 export interface PredictResponse {
   symbol: string;
   requested_symbol: string;
   asset_type: AssetType;
   currency: string;
+  native_currency?: string;
+  display_currency?: string;
   generated_at: string;
   horizon_days: number;
   engine_requested: ForecastEngine;

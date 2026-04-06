@@ -318,8 +318,7 @@ class TestDegradedStateVerification:
         """Every response should include X-Request-Id header."""
         _mock_market_data(monkeypatch)
         resp = client.get("/api/health")
-        # Flexible: header may not exist yet
-        assert "X-Request-Id" in resp.headers or resp.status_code == 200
+        assert "x-request-id" in resp.headers
 
 
 class TestResponseContract:
@@ -330,17 +329,17 @@ class TestResponseContract:
         resp = client.post(
             "/api/predict",
             json={
-                "symbol": "A A",
+                "symbol": "",
                 "asset_type": "stock",
                 "engine": "stat",
                 "horizon": 7,
             },
         )
-        if resp.status_code != 200:
-            data = resp.json()
-            assert "error" in data
-            assert "code" in data["error"]
-            assert "message" in data["error"]
+        assert resp.status_code == 422
+        data = resp.json()
+        assert "error" in data
+        assert "code" in data["error"]
+        assert "message" in data["error"]
 
     def test_health_response_structure(self, client) -> None:
         """Health endpoint must return expected fields."""

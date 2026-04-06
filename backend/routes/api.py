@@ -204,10 +204,17 @@ async def predict_get(
     horizon: int = Query(30, ge=7, le=45, description="Days to forecast"),
     engine: EngineType = Query("ml", description="Prediction engine"),
     asset_type: AssetType = Query("stock", description="stock or crypto"),
+    display_currency: str = Query("USD", description="Currency for displayed prices"),
 ) -> PredictResponse:
     return await _predict_impl(
         request,
-        PredictRequest(symbol=symbol, horizon=horizon, engine=engine, asset_type=asset_type),
+        PredictRequest(
+            symbol=symbol,
+            horizon=horizon,
+            engine=engine,
+            asset_type=asset_type,
+            display_currency=display_currency,
+        ),
     )
 
 

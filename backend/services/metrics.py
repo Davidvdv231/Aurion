@@ -14,6 +14,7 @@ class PredictionMetrics:
         self.predictions_by_engine: dict[str, int] = defaultdict(int)
         self.fallbacks_total = 0
         self.fallbacks_by_code: dict[str, int] = defaultdict(int)
+        self.predictions_degraded: dict[str, int] = defaultdict(int)
         self.rate_limit_429_total = 0
         self._latencies: list[float] = []
 
@@ -27,9 +28,13 @@ class PredictionMetrics:
         with self._lock:
             self.predictions_total += 1
             self.predictions_by_engine[engine_used] += 1
-            if degraded and degradation_code:
-                self.fallbacks_total += 1
-                self.fallbacks_by_code[degradation_code] += 1
+            if degraded:
+                self.predictions_degraded[engine_used] = (
+                    self.predictions_degraded.get(engine_used, 0) + 1
+                )
+                if degradation_code:
+                    self.fallbacks_total += 1
+                    self.fallbacks_by_code[degradation_code] += 1
             self._latencies.append(total_ms)
             # Keep last 1000 for percentile computation
             if len(self._latencies) > 1000:
@@ -76,7 +81,7 @@ class PredictionMetrics:
             lines.append("# TYPE aurion_predictions_total counter")
             if self.predictions_by_engine:
                 for engine, count in self.predictions_by_engine.items():
-                    degraded = "true" if engine in self.fallbacks_by_code else "false"
+                    degraded = "true" if engine in self.predictions_degraded else "false"
                     lines.append(
                         f'aurion_predictions_total{{engine_requested="{engine}",'
                         f'engine_used="{engine}",degraded="{degraded}"}} {count}'

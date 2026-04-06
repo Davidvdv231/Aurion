@@ -218,7 +218,11 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIdMiddleware)
 
     @app.exception_handler(ServiceError)
-    async def handle_service_error(_: Request, exc: ServiceError) -> JSONResponse:
+    async def handle_service_error(request: Request, exc: ServiceError) -> JSONResponse:
+        if exc.code == "rate_limited":
+            metrics: PredictionMetrics | None = getattr(request.app.state, "metrics", None)
+            if metrics is not None:
+                metrics.record_rate_limit()
         envelope = exc.to_envelope()
         return JSONResponse(
             status_code=exc.status_code,
