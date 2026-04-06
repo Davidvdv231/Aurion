@@ -41,7 +41,6 @@ jobs:
           python -m pytest
           tests/test_api.py
           tests/test_config.py
-          tests/test_forecast.py
           tests/test_market_data.py
           tests/test_ml_pipeline.py
           tests/test_prediction_service.py

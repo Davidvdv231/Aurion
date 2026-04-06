@@ -148,7 +148,9 @@ def test_predict_success_returns_typed_contract(client, monkeypatch) -> None:
     assert payload["degraded"] is False
 
 
-def test_frontend_shell_assets_disable_caching_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_frontend_shell_assets_disable_caching_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class _DummyRedis:
         def register_script(self, _script):
             return lambda *args, **kwargs: 1
@@ -158,7 +160,9 @@ def test_frontend_shell_assets_disable_caching_in_production(monkeypatch: pytest
 
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("REDIS_URL", "redis://unit-test")
-    monkeypatch.setattr("backend.services.rate_limit.Redis.from_url", lambda *args, **kwargs: _DummyRedis())
+    monkeypatch.setattr(
+        "backend.services.rate_limit.Redis.from_url", lambda *args, **kwargs: _DummyRedis()
+    )
     app = create_app()
     with TestClient(app) as prod_client:
         app_js_response = prod_client.get("/app.js")
@@ -171,9 +175,7 @@ def test_frontend_shell_assets_disable_caching_in_production(monkeypatch: pytest
 
         vendor_response = prod_client.get("/vendor/chart.umd.min.js")
         assert vendor_response.status_code == 200
-        assert (
-            vendor_response.headers["cache-control"] == "public, max-age=31536000, immutable"
-        )
+        assert vendor_response.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
 def test_frontend_app_js_has_no_merge_conflict_markers() -> None:

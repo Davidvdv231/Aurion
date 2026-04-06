@@ -8,7 +8,6 @@ from dataclasses import replace
 import pandas as pd
 
 from backend.config import Settings
-from backend.errors import ServiceError
 from backend.ml.model import BacktestMetrics, FeatureDifference, ForecastResult
 from backend.models import PredictRequest
 from backend.runtime import BlockingTaskRunner

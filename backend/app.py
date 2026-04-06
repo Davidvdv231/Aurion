@@ -149,8 +149,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             # The app shell uses stable filenames, so long-lived caching can pin a broken bundle.
             response.headers["Cache-Control"] = "no-cache"
         elif path.endswith((".css", ".js", ".webmanifest")):
-            if settings.is_production:
-                response.headers["Cache-Control"] = "public, max-age=3600, stale-while-revalidate=86400"
+            if get_settings().is_production:
+                response.headers["Cache-Control"] = (
+                    "public, max-age=3600, stale-while-revalidate=86400"
+                )
             else:
                 response.headers["Cache-Control"] = "no-cache"
         elif path.startswith("/api/"):
