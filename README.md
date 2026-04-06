@@ -46,6 +46,8 @@ flowchart TD
 | Rate limiting | Redis-backed with Lua atomic ops | Fail-closed in production protects infra, but Redis failure = 503 |
 | Caching | Dual-layer (memory + Redis) | Fast reads with persistence, but cache invalidation complexity |
 | AI integration | External provider with fallback | Leverages LLM capability, but black-box dependency |
+| Currency conversion | Server-side via yfinance forex pairs | Real-time rates with 1-hour cache, supports USD/EUR/GBP/JPY/CHF/CAD/AUD |
+| Request tracing | Request-ID middleware with sanitization | Every request gets a traceable ID in logs and response headers |
 
 ## Prediction Engine & Degradation
 
@@ -70,6 +72,9 @@ flowchart TD
 {
   "symbol": "AAPL",
   "asset_type": "stock",
+  "currency": "USD",
+  "native_currency": "USD",
+  "display_currency": "USD",
   "engine_requested": "ml",
   "engine_used": "ml_analog",
   "degraded": false,
@@ -150,6 +155,7 @@ flowchart TD
 | `/api/metrics` | GET | Prediction metrics snapshot (counts, latency, fallback rates) |
 | `/api/tickers` | GET | Search tickers by query (1-50 results) |
 | `/api/top-assets` | GET | Trending assets by type, cached 15 min |
+| `/api/metrics/prometheus` | GET | Prometheus exposition format metrics |
 | `/api/predict` | POST | Multi-engine prediction with quality gating and degradation |
 
 ## Quick Start
@@ -165,10 +171,15 @@ docker-compose -f infra/docker-compose.yml up --build
 # Verify
 curl http://localhost:8000/api/health
 
-# Get a prediction
+# Get a prediction (prices in USD)
 curl -X POST http://localhost:8000/api/predict \
   -H "Content-Type: application/json" \
   -d '{"symbol": "AAPL", "asset_type": "stock", "engine": "stat", "horizon": 30}'
+
+# Get a prediction with currency conversion
+curl -X POST http://localhost:8000/api/predict \
+  -H "Content-Type: application/json" \
+  -d '{"symbol": "AAPL", "asset_type": "stock", "engine": "ml", "horizon": 30, "display_currency": "EUR"}'
 ```
 
 For local development without Docker:
@@ -195,7 +206,7 @@ mypy backend/ --strict
 ruff check backend/ tests/
 ```
 
-25 backend tests covering: API contracts, prediction orchestration, ML pipeline, rate limiting, market data integrity, configuration, frontend serving.
+63 tests covering: API contracts, prediction orchestration, ML pipeline, rate limiting, market data integrity, configuration, smoke integration, and frontend E2E (Playwright).
 
 ## Tech Stack
 
@@ -206,7 +217,7 @@ ruff check backend/ tests/
 | AI | OpenAI API / Custom LLM | AI-assisted forecasting (fallback) |
 | Cache | Redis 7 + in-memory TTL | Dual-layer with configurable TTLs |
 | Web | Vanilla JS PWA | Zero-dependency frontend with service worker |
-| Mobile | React Native / Expo 51 | Cross-platform mobile client |
+| Mobile | React Native / Expo 54 | Cross-platform mobile client |
 | Market Data | yfinance | OHLCV data ingestion |
 | CI/CD | GitHub Actions | Lint, type check, test, audit |
 | Deploy | Docker + Docker Compose | Containerized with health checks |
@@ -225,16 +236,16 @@ ruff check backend/ tests/
 
 - **Vanilla JS PWA over React/Vue** — zero build step means instant deployment and no framework churn, at the cost of no component reuse or state management.
 - **k-NN analog over deep learning** — interpretable, fast to train on-demand, and honest about its limitations. Deep learning would need a training pipeline, GPU infra, and would be harder to explain.
-- **In-memory metrics over Prometheus** — simpler to implement and deploy, but not externally scrapeable or alertable.
+- **In-memory metrics with Prometheus export** — lightweight counters with a `/api/metrics/prometheus` endpoint for external scraping. No full Prometheus client dependency.
 - **Statistical fallback always available** — guarantees every request gets a response, but the stat forecast is basic (log-linear regression + volatility bands).
 - **Fail-closed rate limiting in production** — one Redis failure means 503 for everyone, but prevents abuse. Development mode is fail-open.
 - **Thread pool for blocking tasks** — avoids blocking the async event loop, but adds concurrency limits (8 workers default).
 
 ## Project Status
 
-Aurion is a solo-built MVP. The prediction orchestration, degradation semantics, and web PWA are production-quality. The ML model is functional but would benefit from deeper validation. The mobile app is scaffolded and usable but secondary to the web experience.
+Aurion is a solo-built MVP. The prediction orchestration, degradation semantics, currency conversion, and web PWA are production-quality. Observability covers request tracing, Prometheus metrics, and structured JSON logging. The ML model is functional but would benefit from deeper validation. The mobile app is scaffolded and usable but secondary to the web experience.
 
-**Current focus:** validation depth, observability, and portfolio presentation.
+**Current focus:** ML validation depth, mobile feature parity, and deployment hardening.
 
 ## License
 
