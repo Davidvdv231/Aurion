@@ -244,7 +244,7 @@ def test_predict_degrades_to_statistical_fallback_when_ml_quality_gate_fails(cli
                 mae=4.2,
                 rmse=5.1,
                 mape=2.8,
-                directional_accuracy=0.45,
+                directional_accuracy=0.40,
                 validation_windows=5,
             ),
         )
@@ -265,7 +265,7 @@ def test_predict_degrades_to_statistical_fallback_when_ml_quality_gate_fails(cli
     assert payload["degradation_code"] == "model_quality_insufficient"
     assert payload["source"]["forecast"] == "stat_fallback"
     assert payload["source"]["analysis"] == "ml_pattern_difference"
-    assert payload["evaluation"]["directional_accuracy"] == 0.45
+    assert payload["evaluation"]["directional_accuracy"] == 0.40
     assert payload["evaluation"]["validation_windows"] == 5
     assert payload["explanation"] is not None
     assert payload["explanation"]["nearest_analog_date"] == "2024-09-18"

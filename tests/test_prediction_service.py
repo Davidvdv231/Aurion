@@ -190,7 +190,7 @@ def test_prediction_service_falls_back_when_validation_windows_are_insufficient(
                 rmse=5.1,
                 mape=2.8,
                 directional_accuracy=0.74,
-                validation_windows=3,
+                validation_windows=2,
             ),
         )
 
@@ -206,7 +206,7 @@ def test_prediction_service_falls_back_when_validation_windows_are_insufficient(
     assert response.source.forecast == "stat_fallback"
     assert response.source.analysis == "ml_pattern_difference"
     assert response.evaluation is not None
-    assert response.evaluation.validation_windows == 3
+    assert response.evaluation.validation_windows == 2
     assert response.explanation is not None
     assert response.explanation.nearest_analog_date == "2024-11-08"
     assert "historical patterns" in response.explanation.narrative
