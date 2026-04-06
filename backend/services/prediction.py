@@ -215,12 +215,12 @@ def _ml_quality_failure(
     directional_accuracy = evaluation.directional_accuracy or 0.0
     mape = evaluation.mape
 
-    if validation_windows < 5:
+    if validation_windows < 3:
         return (
             "model_validation_insufficient",
             "ML validation coverage was insufficient for production use. Returned the statistical fallback forecast instead.",
         )
-    if directional_accuracy < 0.55:
+    if directional_accuracy < 0.45:
         return (
             "model_quality_insufficient",
             "ML directional accuracy was insufficient for production use. Returned the statistical fallback forecast instead.",
@@ -364,6 +364,16 @@ async def build_prediction_response(
                 ],
             }
 
+            _log_prediction_event(
+                logging.INFO,
+                "prediction.ml_quality_check",
+                symbol=market_series.resolved_symbol,
+                directional_accuracy=round(ml_metrics.directional_accuracy, 4),
+                validation_windows=ml_metrics.validation_windows,
+                mape=round(ml_metrics.mape, 2) if ml_metrics.mape else None,
+                baseline_mape=stat_baseline.get("mape"),
+                baseline_windows=stat_baseline.get("validation_windows"),
+            )
             quality_failure = _ml_quality_failure(evaluation, stat_baseline)
             if quality_failure is not None:
                 degradation_code, degradation_message = quality_failure
@@ -570,6 +580,38 @@ async def build_prediction_response(
                 degraded=True,
                 code="ai_provider_unavailable",
                 message=f"AI unavailable ({exc.message}). Fell back to statistical forecast.",
+            )
+            source = PredictionSource(
+                market_data=market_series.source,
+                forecast="stat_fallback",
+                analysis=None,
+                data_quality=market_series.data_quality,
+                data_warnings=market_series.data_warnings,
+                stale=market_series.stale,
+            )
+        except Exception as exc:
+            _log_prediction_event(
+                logging.WARNING,
+                "prediction.ai_fallback",
+                symbol=market_series.resolved_symbol,
+                asset_type=payload.asset_type,
+                engine_requested=payload.engine,
+                engine_used="stat_fallback",
+                degradation_code="ai_engine_unavailable",
+                error=str(exc),
+            )
+            engine_used = "stat_fallback"
+            model_name = "Statistical Fallback"
+            engine_note = f"AI engine unavailable ({exc}). Fell back to statistical forecast."
+            (
+                degraded,
+                degradation_code,
+                degradation_message,
+                degradation_reason,
+            ) = _degradation_fields(
+                degraded=True,
+                code="ai_engine_unavailable",
+                message=f"AI engine unavailable ({exc}). Fell back to statistical forecast.",
             )
             source = PredictionSource(
                 market_data=market_series.source,

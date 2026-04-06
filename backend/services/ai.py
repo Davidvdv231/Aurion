@@ -281,6 +281,17 @@ def build_ai_forecast(
         )
 
     if settings.openai_api_key:
+        if not settings.openai_api_key.startswith("sk-"):
+            logger.warning(
+                "OPENAI_API_KEY is set but does not look like a valid key (expected 'sk-' prefix)"
+            )
+            raise ServiceError(
+                status_code=400,
+                code="not_configured",
+                message="OPENAI_API_KEY appears invalid (expected 'sk-' prefix). Check your .env file.",
+                provider="openai",
+                retryable=False,
+            )
         return _build_openai_forecast(
             symbol=symbol,
             close=close,
