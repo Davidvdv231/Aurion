@@ -142,7 +142,9 @@ def get_settings() -> Settings:
         cors_allow_origins=cors_origins,
         top_cache_ttl_seconds=_int_env("TOP_CACHE_TTL_SECONDS", 15 * 60, minimum=30),
         history_cache_ttl_seconds=_int_env("HISTORY_CACHE_TTL_SECONDS", 5 * 60, minimum=30),
-        blocking_task_timeout_seconds=_float_env("BLOCKING_TASK_TIMEOUT_SECONDS", 15.0, minimum=1.0),
+        blocking_task_timeout_seconds=_float_env(
+            "BLOCKING_TASK_TIMEOUT_SECONDS", 15.0, minimum=1.0
+        ),
         top_assets_timeout_seconds=_float_env("TOP_ASSETS_TIMEOUT_SECONDS", 8.0, minimum=1.0),
         executor_max_workers=_int_env("EXECUTOR_MAX_WORKERS", 8, minimum=1),
         memory_cache_max_items=_int_env("MEMORY_CACHE_MAX_ITEMS", 512, minimum=32),

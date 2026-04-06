@@ -35,7 +35,9 @@ def build_statistical_baseline(close: pd.Series, horizon: int, asset_type: str) 
     sigma = max(sigma, 0.01)
 
     if asset_type == "crypto":
-        future_dates = pd.date_range(close.index[-1] + pd.Timedelta(days=1), periods=horizon, freq="D")
+        future_dates = pd.date_range(
+            close.index[-1] + pd.Timedelta(days=1), periods=horizon, freq="D"
+        )
     else:
         future_dates = pd.bdate_range(close.index[-1] + pd.Timedelta(days=1), periods=horizon)
 

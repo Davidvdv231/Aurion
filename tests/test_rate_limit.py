@@ -102,7 +102,9 @@ def test_production_runtime_redis_failure_fails_closed(monkeypatch: pytest.Monke
     assert response.json()["error"]["code"] == "rate_limit_backend_unavailable"
 
 
-def test_redis_failure_tracker_logs_recovery_and_changed_failures(caplog: pytest.LogCaptureFixture) -> None:
+def test_redis_failure_tracker_logs_recovery_and_changed_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     tracker = RedisFailureTracker("rate_limit", throttle_seconds=999.0)
     logger = logging.getLogger("tests.redis_health")
 
@@ -121,6 +123,4 @@ def test_redis_failure_tracker_logs_recovery_and_changed_failures(caplog: pytest
     with caplog.at_level(logging.INFO, logger=logger.name):
         tracker.record_success(logger)
 
-    assert [record.getMessage() for record in caplog.records] == [
-        "Redis rate_limit recovered."
-    ]
+    assert [record.getMessage() for record in caplog.records] == ["Redis rate_limit recovered."]

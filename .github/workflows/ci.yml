@@ -46,6 +46,7 @@ jobs:
           tests/test_ml_pipeline.py
           tests/test_prediction_service.py
           tests/test_rate_limit.py
+          tests/test_smoke_integration.py
           --cov=backend
           --cov-report=term-missing
           -q

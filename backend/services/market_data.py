@@ -53,7 +53,9 @@ class MarketSeries:
     stale: bool = False
 
 
-def _check_ohlcv_integrity(close: pd.Series, symbol: str) -> tuple[pd.Series, DataQuality, list[str]]:
+def _check_ohlcv_integrity(
+    close: pd.Series, symbol: str
+) -> tuple[pd.Series, DataQuality, list[str]]:
     """Validate and patch OHLCV close series. Returns (patched_series, quality, warnings)."""
     warnings: list[str] = []
     quality: DataQuality = "clean"
@@ -84,7 +86,9 @@ def _check_ohlcv_integrity(close: pd.Series, symbol: str) -> tuple[pd.Series, Da
     returns = close.pct_change().abs()
     extreme_count = int((returns > 0.50).sum())
     if extreme_count > 0:
-        warnings.append(f"{extreme_count} extreme daily moves (>50%) — possible split or data error.")
+        warnings.append(
+            f"{extreme_count} extreme daily moves (>50%) — possible split or data error."
+        )
         quality = "degraded"
 
     if warnings:
@@ -200,7 +204,9 @@ def fetch_close_prices(
                 resolved_symbol=resolved_symbol,
                 currency=currency,
                 source=f"cache:{provider}",
-                data_quality=data_quality if data_quality in {"clean", "patched", "degraded"} else "clean",
+                data_quality=data_quality
+                if data_quality in {"clean", "patched", "degraded"}
+                else "clean",
                 data_warnings=warnings,
                 stale=stale,
             )
@@ -363,7 +369,11 @@ def _fetch_coingecko_top(count: int = 20) -> list[dict]:
             continue
 
         symbol = f"{symbol_raw.strip().upper()}-USD"
-        name = name_raw.strip() if isinstance(name_raw, str) and name_raw.strip() else symbol_raw.upper()
+        name = (
+            name_raw.strip()
+            if isinstance(name_raw, str) and name_raw.strip()
+            else symbol_raw.upper()
+        )
         popularity = max(1000 - (index * 20), 100)
         items.append(
             {
@@ -400,7 +410,9 @@ def resolve_top_assets(
 
         live_symbols = list(dict.fromkeys(live_symbols))
         source = "live_yahoo" if live_symbols else "catalog_fallback"
-        fallback_symbols = [row["symbol"] for row in top_catalog_tickers(limit=25, asset_type="stock")]
+        fallback_symbols = [
+            row["symbol"] for row in top_catalog_tickers(limit=25, asset_type="stock")
+        ]
         merged_symbols = list(dict.fromkeys([*live_symbols, *fallback_symbols]))
 
         items: list[dict] = []
@@ -424,7 +436,9 @@ def resolve_top_assets(
         source = "live_coingecko" if live_items else "catalog_fallback"
 
         live_symbols = [row["symbol"] for row in live_items]
-        fallback_symbols = [row["symbol"] for row in top_catalog_tickers(limit=25, asset_type="crypto")]
+        fallback_symbols = [
+            row["symbol"] for row in top_catalog_tickers(limit=25, asset_type="crypto")
+        ]
         merged_symbols = list(dict.fromkeys([*live_symbols, *fallback_symbols]))
         live_map = {row["symbol"]: row for row in live_items}
 
@@ -432,14 +446,18 @@ def resolve_top_assets(
         live_set = set(live_symbols)
         for symbol in merged_symbols:
             metadata = get_ticker_metadata(symbol, asset_type="crypto")
-            item = metadata or live_map.get(symbol) or {
-                "symbol": symbol,
-                "name": symbol.replace("-USD", ""),
-                "exchange": "Crypto",
-                "region": "GLOBAL",
-                "popularity": 0,
-                "asset_type": "crypto",
-            }
+            item = (
+                metadata
+                or live_map.get(symbol)
+                or {
+                    "symbol": symbol,
+                    "name": symbol.replace("-USD", ""),
+                    "exchange": "Crypto",
+                    "region": "GLOBAL",
+                    "popularity": 0,
+                    "asset_type": "crypto",
+                }
+            )
             item["source"] = "live_coingecko" if symbol in live_set else "catalog"
             items.append(item)
             if len(items) >= limit:

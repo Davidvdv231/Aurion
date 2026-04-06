@@ -1,4 +1,5 @@
 """Lightweight in-memory prediction metrics (resets on restart)."""
+
 from __future__ import annotations
 
 import statistics
@@ -92,32 +93,20 @@ class PredictionMetrics:
             lines.append("# TYPE aurion_fallbacks_total counter")
             if self.fallbacks_by_code:
                 for code, count in self.fallbacks_by_code.items():
-                    lines.append(
-                        f'aurion_fallbacks_total{{degradation_code="{code}"}} {count}'
-                    )
+                    lines.append(f'aurion_fallbacks_total{{degradation_code="{code}"}} {count}')
             else:
-                lines.append(
-                    'aurion_fallbacks_total{degradation_code="none"} 0'
-                )
+                lines.append('aurion_fallbacks_total{degradation_code="none"} 0')
 
             # --- prediction duration (summary with quantiles) ---
             lines.append("")
-            lines.append(
-                "# HELP aurion_prediction_duration_seconds Prediction request duration"
-            )
+            lines.append("# HELP aurion_prediction_duration_seconds Prediction request duration")
             lines.append("# TYPE aurion_prediction_duration_seconds summary")
             p50 = self._percentile(0.50)
             p95 = self._percentile(0.95)
             p99 = self._percentile(0.99)
-            lines.append(
-                f'aurion_prediction_duration_seconds{{quantile="0.5"}} {p50}'
-            )
-            lines.append(
-                f'aurion_prediction_duration_seconds{{quantile="0.95"}} {p95}'
-            )
-            lines.append(
-                f'aurion_prediction_duration_seconds{{quantile="0.99"}} {p99}'
-            )
+            lines.append(f'aurion_prediction_duration_seconds{{quantile="0.5"}} {p50}')
+            lines.append(f'aurion_prediction_duration_seconds{{quantile="0.95"}} {p95}')
+            lines.append(f'aurion_prediction_duration_seconds{{quantile="0.99"}} {p99}')
 
             # --- cache size gauge ---
             lines.append("")
@@ -133,9 +122,7 @@ class PredictionMetrics:
 
             # --- rate-limit 429s ---
             lines.append("")
-            lines.append(
-                "# HELP aurion_rate_limit_429_total Total 429 rate-limit responses"
-            )
+            lines.append("# HELP aurion_rate_limit_429_total Total 429 rate-limit responses")
             lines.append("# TYPE aurion_rate_limit_429_total counter")
             lines.append(f"aurion_rate_limit_429_total {self.rate_limit_429_total}")
 

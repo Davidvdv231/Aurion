@@ -1,4 +1,5 @@
 """High-level ML service: train, cache, and predict."""
+
 from __future__ import annotations
 
 import logging
@@ -62,9 +63,7 @@ def train_and_predict(
 ) -> tuple[ForecastResult, BacktestMetrics]:
     """Train (or reuse) a model for the given symbol and return predictions."""
     if len(close) < MIN_HISTORY_ROWS:
-        raise ValueError(
-            f"Need at least {MIN_HISTORY_ROWS} data points, got {len(close)}"
-        )
+        raise ValueError(f"Need at least {MIN_HISTORY_ROWS} data points, got {len(close)}")
 
     use_ohlcv = ohlcv is not None and "Close" in ohlcv.columns
     cache_key = (

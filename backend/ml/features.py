@@ -1,4 +1,5 @@
 """Technical indicator feature engineering for the ML pipeline."""
+
 from __future__ import annotations
 
 import logging
@@ -112,13 +113,27 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 FEATURE_COLUMNS = [
-    "return_1", "log_return_1", "return_5",
-    "volatility_5", "volatility_20",
-    "sma_5", "sma_10", "sma_20", "sma_50",
-    "ema_12", "ema_26",
-    "macd", "macd_signal", "macd_hist",
-    "rsi_14", "momentum_10",
-    "bb_bandwidth", "bb_position",
-    "price_to_sma_20", "high_low_range", "close_open_gap",
-    "volume_change_5", "volume_zscore_20",
+    "return_1",
+    "log_return_1",
+    "return_5",
+    "volatility_5",
+    "volatility_20",
+    "sma_5",
+    "sma_10",
+    "sma_20",
+    "sma_50",
+    "ema_12",
+    "ema_26",
+    "macd",
+    "macd_signal",
+    "macd_hist",
+    "rsi_14",
+    "momentum_10",
+    "bb_bandwidth",
+    "bb_position",
+    "price_to_sma_20",
+    "high_low_range",
+    "close_open_gap",
+    "volume_change_5",
+    "volume_zscore_20",
 ]

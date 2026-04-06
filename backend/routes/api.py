@@ -107,6 +107,7 @@ async def health_ready(request: FastAPIRequest) -> dict:
     # Market data provider check
     try:
         import yfinance  # noqa: F401
+
         checks["market_data"] = "available"
     except Exception:
         checks["market_data"] = "unavailable"
@@ -197,7 +198,9 @@ async def top_assets(
 @router.get("/api/predict", response_model=PredictResponse, include_in_schema=False)
 async def predict_get(
     request: FastAPIRequest,
-    symbol: str = Query(..., min_length=1, max_length=20, description="Ticker symbol, e.g. AAPL or BTC"),
+    symbol: str = Query(
+        ..., min_length=1, max_length=20, description="Ticker symbol, e.g. AAPL or BTC"
+    ),
     horizon: int = Query(30, ge=7, le=45, description="Days to forecast"),
     engine: EngineType = Query("ml", description="Prediction engine"),
     asset_type: AssetType = Query("stock", description="stock or crypto"),

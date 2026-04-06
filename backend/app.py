@@ -56,18 +56,26 @@ MAX_REQUEST_BODY_BYTES = 1_048_576
 def _validate_environment(settings) -> None:
     """Log environment configuration status at startup."""
     _logger = logging.getLogger("stock_predictor.app")
-    _logger.info("environment.config", extra={
-        "app_env": settings.app_env,
-        "is_production": settings.is_production,
-        "redis_configured": bool(settings.redis_url),
-        "ai_configured": bool(settings.openai_api_key or settings.stock_llm_api_url),
-        "rate_limit_fail_open": settings.rate_limit_fail_open,
-        "executor_workers": settings.executor_max_workers,
-    })
+    _logger.info(
+        "environment.config",
+        extra={
+            "app_env": settings.app_env,
+            "is_production": settings.is_production,
+            "redis_configured": bool(settings.redis_url),
+            "ai_configured": bool(settings.openai_api_key or settings.stock_llm_api_url),
+            "rate_limit_fail_open": settings.rate_limit_fail_open,
+            "executor_workers": settings.executor_max_workers,
+        },
+    )
     if settings.is_production and not settings.redis_url:
-        _logger.error("production.redis_required", extra={"detail": "REDIS_URL is required in production"})
+        _logger.error(
+            "production.redis_required", extra={"detail": "REDIS_URL is required in production"}
+        )
     if not settings.openai_api_key and not settings.stock_llm_api_url:
-        _logger.warning("ai.not_configured", extra={"detail": "No AI provider configured — AI engine will fall back to statistical"})
+        _logger.warning(
+            "ai.not_configured",
+            extra={"detail": "No AI provider configured — AI engine will fall back to statistical"},
+        )
 
 
 def _normalized_validation_issues(exc: RequestValidationError) -> list[dict]:

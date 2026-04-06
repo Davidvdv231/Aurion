@@ -36,7 +36,9 @@ class PredictionSummary(ApiModel):
     expected_return_pct: float
     trend: Literal["bullish", "bearish", "neutral"]
     confidence_tier: Literal["low", "medium", "high"]
-    signal: Literal["Strongly Bullish", "Bullish Outlook", "Neutral", "Bearish Outlook", "Strongly Bearish"]
+    signal: Literal[
+        "Strongly Bullish", "Bullish Outlook", "Neutral", "Bearish Outlook", "Strongly Bearish"
+    ]
 
 
 class PredictionEvaluation(ApiModel):

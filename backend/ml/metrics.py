@@ -28,7 +28,9 @@ def mape(actual: object, predicted: object) -> float:
     mask = actual_array != 0.0
     if not np.any(mask):
         return 0.0
-    return float(np.mean(np.abs((actual_array[mask] - predicted_array[mask]) / actual_array[mask])) * 100.0)
+    return float(
+        np.mean(np.abs((actual_array[mask] - predicted_array[mask]) / actual_array[mask])) * 100.0
+    )
 
 
 def directional_accuracy(actual: object, predicted: object) -> float:

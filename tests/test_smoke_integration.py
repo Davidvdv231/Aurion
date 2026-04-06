@@ -60,23 +60,29 @@ class TestStatEngineSmokeTest:
     def test_stat_prediction_returns_200(self, client, monkeypatch) -> None:
         """Stat engine should always succeed for known tickers."""
         _mock_market_data(monkeypatch)
-        resp = client.post("/api/predict", json={
-            "symbol": "AAPL",
-            "asset_type": "stock",
-            "engine": "stat",
-            "horizon": 7,
-        })
+        resp = client.post(
+            "/api/predict",
+            json={
+                "symbol": "AAPL",
+                "asset_type": "stock",
+                "engine": "stat",
+                "horizon": 7,
+            },
+        )
         assert resp.status_code == 200
 
     def test_stat_prediction_not_degraded(self, client, monkeypatch) -> None:
         """Stat engine should never be degraded (it IS the fallback)."""
         _mock_market_data(monkeypatch)
-        resp = client.post("/api/predict", json={
-            "symbol": "AAPL",
-            "asset_type": "stock",
-            "engine": "stat",
-            "horizon": 7,
-        })
+        resp = client.post(
+            "/api/predict",
+            json={
+                "symbol": "AAPL",
+                "asset_type": "stock",
+                "engine": "stat",
+                "horizon": 7,
+            },
+        )
         data = resp.json()
         assert data["degraded"] is False
         assert data["degradation_code"] is None
@@ -85,12 +91,15 @@ class TestStatEngineSmokeTest:
     def test_stat_prediction_has_forecast(self, client, monkeypatch) -> None:
         """Stat engine must return forecast array matching horizon."""
         _mock_market_data(monkeypatch)
-        resp = client.post("/api/predict", json={
-            "symbol": "AAPL",
-            "asset_type": "stock",
-            "engine": "stat",
-            "horizon": 7,
-        })
+        resp = client.post(
+            "/api/predict",
+            json={
+                "symbol": "AAPL",
+                "asset_type": "stock",
+                "engine": "stat",
+                "horizon": 7,
+            },
+        )
         data = resp.json()
         assert len(data["forecast"]) == 7
         for point in data["forecast"]:
@@ -103,12 +112,15 @@ class TestStatEngineSmokeTest:
     def test_stat_prediction_has_summary(self, client, monkeypatch) -> None:
         """Stat engine must return complete summary."""
         _mock_market_data(monkeypatch)
-        resp = client.post("/api/predict", json={
-            "symbol": "AAPL",
-            "asset_type": "stock",
-            "engine": "stat",
-            "horizon": 7,
-        })
+        resp = client.post(
+            "/api/predict",
+            json={
+                "symbol": "AAPL",
+                "asset_type": "stock",
+                "engine": "stat",
+                "horizon": 7,
+            },
+        )
         data = resp.json()
         summary = data["summary"]
         assert "expected_price" in summary
@@ -135,19 +147,25 @@ class TestMLEngineSmoke:
             return (
                 _ml_forecast_result(horizon=7),
                 BacktestMetrics(
-                    mae=4.2, rmse=5.1, mape=2.8,
-                    directional_accuracy=0.55, validation_windows=5,
+                    mae=4.2,
+                    rmse=5.1,
+                    mape=2.8,
+                    directional_accuracy=0.55,
+                    validation_windows=5,
                 ),
             )
 
         monkeypatch.setattr("backend.ml.service.train_and_predict", fake_train_and_predict)
 
-        resp = client.post("/api/predict", json={
-            "symbol": "AAPL",
-            "asset_type": "stock",
-            "engine": "ml",
-            "horizon": 7,
-        })
+        resp = client.post(
+            "/api/predict",
+            json={
+                "symbol": "AAPL",
+                "asset_type": "stock",
+                "engine": "ml",
+                "horizon": 7,
+            },
+        )
         assert resp.status_code == 200
 
     def test_ml_prediction_valid_engine_used(self, client, monkeypatch) -> None:
@@ -162,19 +180,25 @@ class TestMLEngineSmoke:
             return (
                 _ml_forecast_result(horizon=7),
                 BacktestMetrics(
-                    mae=4.2, rmse=5.1, mape=2.8,
-                    directional_accuracy=0.55, validation_windows=5,
+                    mae=4.2,
+                    rmse=5.1,
+                    mape=2.8,
+                    directional_accuracy=0.55,
+                    validation_windows=5,
                 ),
             )
 
         monkeypatch.setattr("backend.ml.service.train_and_predict", fake_train_and_predict)
 
-        resp = client.post("/api/predict", json={
-            "symbol": "AAPL",
-            "asset_type": "stock",
-            "engine": "ml",
-            "horizon": 7,
-        })
+        resp = client.post(
+            "/api/predict",
+            json={
+                "symbol": "AAPL",
+                "asset_type": "stock",
+                "engine": "ml",
+                "horizon": 7,
+            },
+        )
         data = resp.json()
         assert data["engine_used"] in ("ml", "stat_fallback")
 
@@ -190,19 +214,25 @@ class TestMLEngineSmoke:
             return (
                 _ml_forecast_result(horizon=7),
                 BacktestMetrics(
-                    mae=4.2, rmse=5.1, mape=2.8,
-                    directional_accuracy=0.55, validation_windows=5,
+                    mae=4.2,
+                    rmse=5.1,
+                    mape=2.8,
+                    directional_accuracy=0.55,
+                    validation_windows=5,
                 ),
             )
 
         monkeypatch.setattr("backend.ml.service.train_and_predict", fake_train_and_predict)
 
-        resp = client.post("/api/predict", json={
-            "symbol": "AAPL",
-            "asset_type": "stock",
-            "engine": "ml",
-            "horizon": 7,
-        })
+        resp = client.post(
+            "/api/predict",
+            json={
+                "symbol": "AAPL",
+                "asset_type": "stock",
+                "engine": "ml",
+                "horizon": 7,
+            },
+        )
         data = resp.json()
         if data["degraded"]:
             assert data["degradation_code"] is not None
@@ -227,7 +257,9 @@ class TestDegradedStateVerification:
             return (
                 _ml_forecast_result(horizon=7),
                 BacktestMetrics(
-                    mae=10.0, rmse=12.0, mape=15.0,
+                    mae=10.0,
+                    rmse=12.0,
+                    mape=15.0,
                     directional_accuracy=0.30,  # Below 0.45 threshold
                     validation_windows=5,
                 ),
@@ -235,12 +267,15 @@ class TestDegradedStateVerification:
 
         monkeypatch.setattr("backend.ml.service.train_and_predict", fake_train_and_predict)
 
-        resp = client.post("/api/predict", json={
-            "symbol": "AAPL",
-            "asset_type": "stock",
-            "engine": "ml",
-            "horizon": 7,
-        })
+        resp = client.post(
+            "/api/predict",
+            json={
+                "symbol": "AAPL",
+                "asset_type": "stock",
+                "engine": "ml",
+                "horizon": 7,
+            },
+        )
         data = resp.json()
         assert data["degraded"] is True
         assert data["degradation_code"] in (
@@ -263,15 +298,21 @@ class TestDegradedStateVerification:
 
         monkeypatch.setattr("backend.ml.service.train_and_predict", raise_timeout)
 
-        resp = client.post("/api/predict", json={
-            "symbol": "AAPL",
-            "asset_type": "stock",
-            "engine": "ml",
-            "horizon": 7,
-        })
+        resp = client.post(
+            "/api/predict",
+            json={
+                "symbol": "AAPL",
+                "asset_type": "stock",
+                "engine": "ml",
+                "horizon": 7,
+            },
+        )
         data = resp.json()
         assert data["degraded"] is True
-        assert "timeout" in data["degradation_code"].lower() or "unavailable" in data["degradation_code"].lower()
+        assert (
+            "timeout" in data["degradation_code"].lower()
+            or "unavailable" in data["degradation_code"].lower()
+        )
 
     def test_request_id_in_response_headers(self, client, monkeypatch) -> None:
         """Every response should include X-Request-Id header."""
@@ -286,12 +327,15 @@ class TestResponseContract:
 
     def test_error_response_envelope(self, client) -> None:
         """Invalid requests should return structured error envelope."""
-        resp = client.post("/api/predict", json={
-            "symbol": "A A",
-            "asset_type": "stock",
-            "engine": "stat",
-            "horizon": 7,
-        })
+        resp = client.post(
+            "/api/predict",
+            json={
+                "symbol": "A A",
+                "asset_type": "stock",
+                "engine": "stat",
+                "horizon": 7,
+            },
+        )
         if resp.status_code != 200:
             data = resp.json()
             assert "error" in data

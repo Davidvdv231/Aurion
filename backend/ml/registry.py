@@ -22,10 +22,14 @@ class ModelArtifact:
 
 class ModelRegistry:
     def __init__(self, root: Path | str | None = None) -> None:
-        self.root = Path(root) if root is not None else Path(__file__).resolve().parent / "artifacts"
+        self.root = (
+            Path(root) if root is not None else Path(__file__).resolve().parent / "artifacts"
+        )
         self.root.mkdir(parents=True, exist_ok=True)
 
-    def save(self, model: AnalogForecastModel, metadata: dict[str, object] | None = None) -> ModelArtifact:
+    def save(
+        self, model: AnalogForecastModel, metadata: dict[str, object] | None = None
+    ) -> ModelArtifact:
         version = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + f"-{uuid.uuid4().hex[:8]}"
         artifact_dir = self.root / model.model_name / version
         artifact_dir.mkdir(parents=True, exist_ok=False)
@@ -54,15 +58,23 @@ class ModelRegistry:
         if metadata:
             meta.update(metadata)
 
-        (artifact_dir / "metadata.json").write_text(json.dumps(meta, indent=2, sort_keys=True), encoding="utf-8")
-        return ModelArtifact(name=model.model_name, version=version, path=artifact_dir, metadata=meta)
+        (artifact_dir / "metadata.json").write_text(
+            json.dumps(meta, indent=2, sort_keys=True), encoding="utf-8"
+        )
+        return ModelArtifact(
+            name=model.model_name, version=version, path=artifact_dir, metadata=meta
+        )
 
     def load_latest(self, name: str) -> AnalogForecastModel:
         versions_root = self.root / name
         if not versions_root.exists():
             raise FileNotFoundError(f"No artifacts found for model '{name}'.")
 
-        candidates = sorted((path for path in versions_root.iterdir() if path.is_dir()), key=lambda path: path.name, reverse=True)
+        candidates = sorted(
+            (path for path in versions_root.iterdir() if path.is_dir()),
+            key=lambda path: path.name,
+            reverse=True,
+        )
         if not candidates:
             raise FileNotFoundError(f"No artifact versions found for model '{name}'.")
         return self.load(candidates[0])

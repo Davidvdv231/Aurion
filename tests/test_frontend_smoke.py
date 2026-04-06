@@ -121,7 +121,16 @@ def live_server() -> str:
     env["REDIS_URL"] = ""
     env["APP_ENV"] = "development"
     process = subprocess.Popen(
-        [str(PYTHON_EXE), "-m", "uvicorn", "backend.app:app", "--host", "127.0.0.1", "--port", "8765"],
+        [
+            str(PYTHON_EXE),
+            "-m",
+            "uvicorn",
+            "backend.app:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8765",
+        ],
         cwd=ROOT,
         env=env,
         stdout=subprocess.DEVNULL,
@@ -171,7 +180,9 @@ def page(browser, live_server: str):
 def _mock_top_assets(page) -> None:
     page.route(
         "**/api/top-assets*",
-        lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps(TOP_ASSETS)),
+        lambda route: route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(TOP_ASSETS)
+        ),
     )
 
 
@@ -180,7 +191,9 @@ def test_submit_success_flow(page) -> None:
     _mock_top_assets(current_page)
     current_page.route(
         "**/api/predict",
-        lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps(SUCCESS_PREDICTION)),
+        lambda route: route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(SUCCESS_PREDICTION)
+        ),
     )
 
     current_page.goto("/", wait_until="domcontentloaded")
@@ -192,7 +205,9 @@ def test_submit_success_flow(page) -> None:
     assert "Medium" in current_page.locator("[data-testid='confidence-value']").text_content()
     assert current_page.locator("[data-testid='evaluation-row']").is_visible()
     assert current_page.locator("[data-testid='metric-expected']").text_content().strip() != ""
-    assert "Probability" not in current_page.locator("[data-testid='confidence-value']").text_content()
+    assert (
+        "Probability" not in current_page.locator("[data-testid='confidence-value']").text_content()
+    )
 
 
 def test_submit_failure_clears_stale_results(page) -> None:
@@ -203,13 +218,22 @@ def test_submit_failure_clears_stale_results(page) -> None:
     def fulfill_predict(route) -> None:
         call_count["predict"] += 1
         if call_count["predict"] == 1:
-            route.fulfill(status=200, content_type="application/json", body=json.dumps(SUCCESS_PREDICTION))
+            route.fulfill(
+                status=200, content_type="application/json", body=json.dumps(SUCCESS_PREDICTION)
+            )
             return
 
         route.fulfill(
             status=502,
             content_type="application/json",
-            body=json.dumps({"error": {"code": "provider_unavailable", "message": "Market data provider temporarily unavailable."}}),
+            body=json.dumps(
+                {
+                    "error": {
+                        "code": "provider_unavailable",
+                        "message": "Market data provider temporarily unavailable.",
+                    }
+                }
+            ),
         )
 
     current_page.route("**/api/predict", fulfill_predict)
@@ -223,7 +247,10 @@ def test_submit_failure_clears_stale_results(page) -> None:
     current_page.wait_for_function("() => document.getElementById('signal-card').hidden === true")
 
     assert current_page.locator("[data-testid='signal-card']").is_hidden()
-    assert "Market data provider temporarily unavailable." in current_page.locator("#status").text_content()
+    assert (
+        "Market data provider temporarily unavailable."
+        in current_page.locator("#status").text_content()
+    )
 
 
 def test_missing_chart_library_shows_friendly_error(page) -> None:
@@ -232,7 +259,9 @@ def test_missing_chart_library_shows_friendly_error(page) -> None:
     current_page.route("**/vendor/chart.umd.min.js", lambda route: route.abort())
     current_page.route(
         "**/api/predict",
-        lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps(SUCCESS_PREDICTION)),
+        lambda route: route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(SUCCESS_PREDICTION)
+        ),
     )
 
     current_page.goto("/", wait_until="domcontentloaded")
@@ -259,9 +288,18 @@ def test_fallback_explanation_is_visible_and_honestly_labeled(page) -> None:
     current_page.click("[data-testid='predict-submit']")
 
     current_page.wait_for_selector("[data-testid='explanation-card']:not([hidden])")
-    assert "Forecast source: Statistical fallback." in current_page.locator("[data-testid='explanation-source']").text_content()
-    assert "Explanation source: Pattern-difference analysis." in current_page.locator("[data-testid='explanation-source']").text_content()
-    assert "current market pattern differed" in current_page.locator("[data-testid='explanation-note']").text_content()
+    assert (
+        "Forecast source: Statistical fallback."
+        in current_page.locator("[data-testid='explanation-source']").text_content()
+    )
+    assert (
+        "Explanation source: Pattern-difference analysis."
+        in current_page.locator("[data-testid='explanation-source']").text_content()
+    )
+    assert (
+        "current market pattern differed"
+        in current_page.locator("[data-testid='explanation-note']").text_content()
+    )
 
 
 def test_offline_shell_is_served_from_service_worker(page) -> None:

@@ -32,7 +32,9 @@ from backend.services.metrics import PredictionMetrics
 logger = logging.getLogger("stock_predictor.prediction")
 
 
-def _log_prediction_event(level: int, event: str, *, request_id: str | None = None, **fields: object) -> None:
+def _log_prediction_event(
+    level: int, event: str, *, request_id: str | None = None, **fields: object
+) -> None:
     clean_fields = {key: value for key, value in fields.items() if value is not None}
     details = " ".join(f"{key}={clean_fields[key]}" for key in sorted(clean_fields))
     message = event if not details else f"{event} {details}"
@@ -98,7 +100,9 @@ def _build_summary(
     else:
         confidence_tier = "low"
 
-    signal: Literal["Strongly Bullish", "Bullish Outlook", "Neutral", "Bearish Outlook", "Strongly Bearish"]
+    signal: Literal[
+        "Strongly Bullish", "Bullish Outlook", "Neutral", "Bearish Outlook", "Strongly Bearish"
+    ]
     if expected_return > 5.0 and confidence_tier == "high":
         signal = "Strongly Bullish"
     elif expected_return > 1.5 and confidence_tier != "low":
@@ -170,9 +174,13 @@ def _build_narrative(
     )
 
     if summary.confidence_tier == "high":
-        parts.append("The analog forecast bands are relatively tight, so the pattern match is more stable.")
+        parts.append(
+            "The analog forecast bands are relatively tight, so the pattern match is more stable."
+        )
     elif summary.confidence_tier == "low":
-        parts.append("The analog forecast bands are wide, so this pattern comparison is less stable.")
+        parts.append(
+            "The analog forecast bands are wide, so this pattern comparison is less stable."
+        )
     else:
         parts.append("The analog forecast bands are moderate, so the pattern comparison is mixed.")
 

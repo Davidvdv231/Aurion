@@ -103,7 +103,9 @@ class CacheBackend:
                     try:
                         return json.loads(raw)
                     except json.JSONDecodeError:
-                        logger.warning("Ignoring invalid JSON payload in Redis cache for key=%s", key)
+                        logger.warning(
+                            "Ignoring invalid JSON payload in Redis cache for key=%s", key
+                        )
 
         return self._memory.get(key)
 

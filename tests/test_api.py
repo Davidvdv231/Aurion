@@ -53,7 +53,9 @@ def _assert_predict_contract(payload: dict, *, evaluation_expected: bool) -> Non
     assert payload["engine_used"] in {"stat", "ml", "ai", "stat_fallback", "ml_fallback"}
     assert payload["model_name"]
     assert payload["engine_note"]
-    assert {"market_data", "forecast", "analysis", "data_quality", "data_warnings", "stale"} <= set(payload["source"])
+    assert {"market_data", "forecast", "analysis", "data_quality", "data_warnings", "stale"} <= set(
+        payload["source"]
+    )
     assert payload["source"]["data_quality"] in {"clean", "patched", "degraded"}
     assert isinstance(payload["source"]["data_warnings"], list)
     assert isinstance(payload["source"]["stale"], bool)
@@ -189,7 +191,9 @@ def test_predict_maps_not_found_errors(client, monkeypatch) -> None:
 
 def test_predict_maps_rate_limit_errors(client, monkeypatch) -> None:
     def raise_rate_limit(*_, **__):
-        raise ServiceError(status_code=429, code="rate_limited", message="Too many requests.", retryable=True)
+        raise ServiceError(
+            status_code=429, code="rate_limited", message="Too many requests.", retryable=True
+        )
 
     monkeypatch.setattr(client.app.state.rate_limiter, "enforce_predict_limit", raise_rate_limit)
 
@@ -211,7 +215,9 @@ def test_predict_maps_provider_errors(client, monkeypatch) -> None:
             retryable=True,
         )
 
-    monkeypatch.setattr("backend.services.prediction.fetch_close_prices", raise_provider_unavailable)
+    monkeypatch.setattr(
+        "backend.services.prediction.fetch_close_prices", raise_provider_unavailable
+    )
 
     response = client.post(
         "/api/predict",
@@ -222,7 +228,9 @@ def test_predict_maps_provider_errors(client, monkeypatch) -> None:
     assert response.json()["error"]["code"] == "provider_unavailable"
 
 
-def test_predict_degrades_to_statistical_fallback_when_ml_quality_gate_fails(client, monkeypatch) -> None:
+def test_predict_degrades_to_statistical_fallback_when_ml_quality_gate_fails(
+    client, monkeypatch
+) -> None:
     monkeypatch.setattr(
         "backend.services.prediction.fetch_close_prices",
         lambda **_: MarketSeries(
@@ -306,7 +314,10 @@ def test_predict_degrades_to_statistical_fallback_when_ai_fails(client, monkeypa
     assert payload["engine_used"] == "stat_fallback"
     assert payload["degraded"] is True
     assert payload["degradation_code"] == "ai_provider_unavailable"
-    assert payload["degradation_message"] == "AI unavailable (OpenAI service unreachable.). Fell back to statistical forecast."
+    assert (
+        payload["degradation_message"]
+        == "AI unavailable (OpenAI service unreachable.). Fell back to statistical forecast."
+    )
     assert payload["degradation_reason"] == payload["degradation_message"]
     assert payload["source"]["forecast"] == "stat_fallback"
 
@@ -423,7 +434,9 @@ def test_request_size_limit_replays_buffered_body_for_downstream() -> None:
     assert received_messages == expected_messages
 
 
-def test_top_assets_returns_timeout_when_blocking_lookup_exceeds_request_timeout(monkeypatch) -> None:
+def test_top_assets_returns_timeout_when_blocking_lookup_exceeds_request_timeout(
+    monkeypatch,
+) -> None:
     monkeypatch.delenv("REDIS_URL", raising=False)
 
     def slow_top_assets(**_):
@@ -433,7 +446,9 @@ def test_top_assets_returns_timeout_when_blocking_lookup_exceeds_request_timeout
     monkeypatch.setattr("backend.routes.api.resolve_top_assets", slow_top_assets)
 
     with TestClient(create_app()) as client:
-        client.app.state.settings = replace(client.app.state.settings, top_assets_timeout_seconds=0.01)
+        client.app.state.settings = replace(
+            client.app.state.settings, top_assets_timeout_seconds=0.01
+        )
         response = client.get("/api/top-assets?limit=10&asset_type=stock")
 
     assert response.status_code == 504

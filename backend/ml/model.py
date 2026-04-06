@@ -1,4 +1,5 @@
 """Analog Pattern Forecaster - non-linear nearest-neighbor ensemble model."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -97,7 +98,9 @@ class AnalogForecastModel:
         model._feature_raw_std = np.asarray(state.get("feature_raw_std", np.array([])))
         model._windows = np.asarray(state["windows"])
         model._future_returns = np.asarray(state["future_returns"])
-        model._window_end_features_raw = np.asarray(state.get("window_end_features_raw", np.array([])))
+        model._window_end_features_raw = np.asarray(
+            state.get("window_end_features_raw", np.array([]))
+        )
         model._window_end_positions = np.asarray(state.get("window_end_positions", np.array([])))
         model._fitted = bool(state.get("fitted", True))
         return model
@@ -139,7 +142,7 @@ class AnalogForecastModel:
         n = len(normalized)
 
         for i in range(self.lookback, n - self.horizon):
-            window = normalized[i - self.lookback:i]
+            window = normalized[i - self.lookback : i]
             if np.any(np.isnan(window)):
                 continue
 
@@ -147,7 +150,7 @@ class AnalogForecastModel:
             if base_price <= 0:
                 continue
 
-            future_prices = close_arr[i:i + self.horizon]
+            future_prices = close_arr[i : i + self.horizon]
             if len(future_prices) < self.horizon:
                 continue
 
@@ -188,10 +191,10 @@ class AnalogForecastModel:
         feat_matrix = np.nan_to_num(feat_matrix, nan=0.0, posinf=0.0, neginf=0.0)
 
         normalized = (feat_matrix - self._feature_mean) / self._feature_std
-        query = normalized[-self.lookback:].flatten()
+        query = normalized[-self.lookback :].flatten()
 
         diffs = self._windows - query
-        distances = np.sqrt(np.sum(diffs ** 2, axis=1))
+        distances = np.sqrt(np.sum(diffs**2, axis=1))
         k = min(self.n_neighbors, len(distances))
         nearest_idx = np.argpartition(distances, k - 1)[:k]
         nearest_distances = distances[nearest_idx]
@@ -249,14 +252,12 @@ class AnalogForecastModel:
             )
 
         weighted_returns = np.average(nearest_returns, axis=0, weights=weights)
-        lower_returns = np.array([
-            _weighted_quantile(nearest_returns[:, t], weights, 0.10)
-            for t in range(horizon)
-        ])
-        upper_returns = np.array([
-            _weighted_quantile(nearest_returns[:, t], weights, 0.90)
-            for t in range(horizon)
-        ])
+        lower_returns = np.array(
+            [_weighted_quantile(nearest_returns[:, t], weights, 0.10) for t in range(horizon)]
+        )
+        upper_returns = np.array(
+            [_weighted_quantile(nearest_returns[:, t], weights, 0.90) for t in range(horizon)]
+        )
 
         base_price = float(close.iloc[-1])
         predicted = base_price * (1.0 + weighted_returns)
@@ -280,7 +281,9 @@ class AnalogForecastModel:
             nearest_analog_date=nearest_analog_date,
         )
 
-    def backtest(self, close: pd.Series, ohlcv: pd.DataFrame | None, n_folds: int = 5) -> BacktestMetrics:
+    def backtest(
+        self, close: pd.Series, ohlcv: pd.DataFrame | None, n_folds: int = 5
+    ) -> BacktestMetrics:
         if ohlcv is not None and "Close" in ohlcv.columns:
             df = ohlcv
         else:
@@ -332,16 +335,22 @@ class AnalogForecastModel:
                 all_directions.append(float(np.mean(pred_steps == actual_steps)))
 
         if not all_errors:
-            return BacktestMetrics(mae=0, rmse=0, mape=0, directional_accuracy=0.5, validation_windows=0)
+            return BacktestMetrics(
+                mae=0, rmse=0, mape=0, directional_accuracy=0.5, validation_windows=0
+            )
 
         errors_arr = np.array(all_errors)
         actuals_arr = np.array(all_actuals)
         mae = float(np.mean(errors_arr))
-        rmse = float(np.sqrt(np.mean(errors_arr ** 2)))
+        rmse = float(np.sqrt(np.mean(errors_arr**2)))
 
         # MAPE: pointwise |error| / |actual|, skipping zero actuals
         nonzero = np.abs(actuals_arr) > 0.01
-        mape = float(np.mean(errors_arr[nonzero] / np.abs(actuals_arr[nonzero]))) * 100 if np.any(nonzero) else 0.0
+        mape = (
+            float(np.mean(errors_arr[nonzero] / np.abs(actuals_arr[nonzero]))) * 100
+            if np.any(nonzero)
+            else 0.0
+        )
 
         dir_acc = float(np.mean(all_directions)) if all_directions else 0.5
 

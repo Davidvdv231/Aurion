@@ -30,7 +30,11 @@ def split_train_validation_test(
     n_rows = len(frame)
     test_start = int(round(n_rows * (1.0 - test_size)))
     val_start = int(round(n_rows * (1.0 - test_size - validation_size)))
-    return frame.iloc[:val_start].copy(), frame.iloc[val_start:test_start].copy(), frame.iloc[test_start:].copy()
+    return (
+        frame.iloc[:val_start].copy(),
+        frame.iloc[val_start:test_start].copy(),
+        frame.iloc[test_start:].copy(),
+    )
 
 
 def build_supervised_dataset(
@@ -46,7 +50,9 @@ def build_supervised_dataset(
     if "close" not in feature_frame.columns:
         raise ValueError("feature_frame must contain a close column.")
 
-    feature_columns = feature_columns or tuple(column for column in feature_frame.columns if column != "close")
+    feature_columns = feature_columns or tuple(
+        column for column in feature_frame.columns if column != "close"
+    )
     frame = feature_frame[list(feature_columns) + ["close"]].dropna().copy()
     if len(frame) < lookback + horizon:
         raise ValueError("Not enough rows to build a supervised dataset.")

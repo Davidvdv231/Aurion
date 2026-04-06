@@ -113,7 +113,9 @@ def _run_prediction(payload: PredictRequest, *, settings: Settings | None = None
 
 
 def test_prediction_service_uses_stat_engine_and_logs_completion(monkeypatch, caplog) -> None:
-    monkeypatch.setattr("backend.services.prediction.fetch_close_prices", lambda **_: _market_series())
+    monkeypatch.setattr(
+        "backend.services.prediction.fetch_close_prices", lambda **_: _market_series()
+    )
 
     with caplog.at_level(logging.INFO, logger="stock_predictor.prediction"):
         response = _run_prediction(
@@ -138,7 +140,9 @@ def test_prediction_service_uses_stat_engine_and_logs_completion(monkeypatch, ca
 
 
 def test_prediction_service_uses_ml_engine_when_quality_gate_passes(monkeypatch) -> None:
-    monkeypatch.setattr("backend.services.prediction.fetch_close_prices", lambda **_: _market_series())
+    monkeypatch.setattr(
+        "backend.services.prediction.fetch_close_prices", lambda **_: _market_series()
+    )
     monkeypatch.setattr(
         "backend.services.prediction.backtest_stat_forecast",
         lambda *_, **__: {"mape": 3.5, "directional_accuracy": 0.52, "validation_windows": 5},
@@ -175,8 +179,12 @@ def test_prediction_service_uses_ml_engine_when_quality_gate_passes(monkeypatch)
     assert response.explanation.top_features[0].relation == "higher"
 
 
-def test_prediction_service_falls_back_when_validation_windows_are_insufficient(monkeypatch) -> None:
-    monkeypatch.setattr("backend.services.prediction.fetch_close_prices", lambda **_: _market_series())
+def test_prediction_service_falls_back_when_validation_windows_are_insufficient(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "backend.services.prediction.fetch_close_prices", lambda **_: _market_series()
+    )
     monkeypatch.setattr(
         "backend.services.prediction.backtest_stat_forecast",
         lambda *_, **__: {"mape": 6.0, "directional_accuracy": 0.51, "validation_windows": 5},
@@ -213,7 +221,9 @@ def test_prediction_service_falls_back_when_validation_windows_are_insufficient(
 
 
 def test_prediction_service_falls_back_when_ml_underperforms_stat_baseline(monkeypatch) -> None:
-    monkeypatch.setattr("backend.services.prediction.fetch_close_prices", lambda **_: _market_series())
+    monkeypatch.setattr(
+        "backend.services.prediction.fetch_close_prices", lambda **_: _market_series()
+    )
     monkeypatch.setattr(
         "backend.services.prediction.backtest_stat_forecast",
         lambda *_, **__: {"mape": 1.5, "directional_accuracy": 0.58, "validation_windows": 5},
@@ -243,7 +253,9 @@ def test_prediction_service_falls_back_when_ml_underperforms_stat_baseline(monke
 
 
 def test_prediction_service_falls_back_to_stat_when_ml_runtime_fails(monkeypatch) -> None:
-    monkeypatch.setattr("backend.services.prediction.fetch_close_prices", lambda **_: _market_series())
+    monkeypatch.setattr(
+        "backend.services.prediction.fetch_close_prices", lambda **_: _market_series()
+    )
     monkeypatch.setattr(
         "backend.ml.service.train_and_predict",
         lambda **_: (_ for _ in ()).throw(RuntimeError("model offline")),
@@ -264,7 +276,9 @@ def test_prediction_service_falls_back_to_stat_when_ml_runtime_fails(monkeypatch
 
 
 def test_prediction_service_falls_back_when_ml_task_times_out(monkeypatch) -> None:
-    monkeypatch.setattr("backend.services.prediction.fetch_close_prices", lambda **_: _market_series())
+    monkeypatch.setattr(
+        "backend.services.prediction.fetch_close_prices", lambda **_: _market_series()
+    )
     monkeypatch.setattr(
         "backend.services.prediction.backtest_stat_forecast",
         lambda *_, **__: {"mape": 3.5, "directional_accuracy": 0.52, "validation_windows": 5},
@@ -324,7 +338,10 @@ def test_prediction_service_falls_back_to_stat_when_ai_provider_fails(monkeypatc
     assert response.engine_used == "stat_fallback"
     assert response.degraded is True
     assert response.degradation_code == "ai_provider_unavailable"
-    assert response.degradation_message == "AI unavailable (OpenAI service unreachable.). Fell back to statistical forecast."
+    assert (
+        response.degradation_message
+        == "AI unavailable (OpenAI service unreachable.). Fell back to statistical forecast."
+    )
     assert response.source.forecast == "stat_fallback"
     assert response.source.analysis is None
     assert response.explanation is None
