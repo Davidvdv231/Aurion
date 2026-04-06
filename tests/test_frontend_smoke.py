@@ -52,7 +52,7 @@ SUCCESS_PREDICTION = {
         "expected_return_pct": 1.71,
         "trend": "neutral",
         "confidence_tier": "medium",
-        "signal": "mildly_bullish",
+        "signal": "Bullish Outlook",
     },
     "evaluation": {
         "mae": 1.23,

@@ -69,11 +69,11 @@ def _assert_predict_contract(payload: dict, *, evaluation_expected: bool) -> Non
     assert payload["summary"]["confidence_tier"] in {"low", "medium", "high"}
     assert "probability_up" not in payload["summary"]
     assert payload["summary"]["signal"] in {
-        "bullish",
-        "mildly_bullish",
-        "neutral",
-        "mildly_bearish",
-        "bearish",
+        "Strongly Bullish",
+        "Bullish Outlook",
+        "Neutral",
+        "Bearish Outlook",
+        "Strongly Bearish",
     }
     assert isinstance(payload["history"], list) and payload["history"]
     assert isinstance(payload["forecast"], list) and payload["forecast"]

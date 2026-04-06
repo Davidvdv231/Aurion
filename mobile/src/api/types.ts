@@ -3,7 +3,7 @@ export type ForecastEngine = "stat" | "ml" | "ai";
 export type EngineUsed = "stat" | "ml" | "ai" | "stat_fallback" | "ml_fallback";
 export type PredictionTrend = "bullish" | "bearish" | "neutral";
 export type ConfidenceTier = "low" | "medium" | "high";
-export type PredictionSignal = "bullish" | "mildly_bullish" | "neutral" | "mildly_bearish" | "bearish";
+export type PredictionSignal = "Strongly Bullish" | "Bullish Outlook" | "Neutral" | "Bearish Outlook" | "Strongly Bearish";
 
 export interface TickerItem {
   symbol: string;
@@ -62,9 +62,28 @@ export interface PredictionEvaluation {
   validation_windows: number | null;
 }
 
+export interface ExplanationFeature {
+  feature: string;
+  difference_score: number;
+  value: number;
+  relation: "higher" | "lower" | "similar";
+}
+
+export interface PredictionExplanation {
+  top_features: ExplanationFeature[];
+  neighbors_used: number;
+  avg_neighbor_distance: number;
+  nearest_analog_date: string;
+  narrative: string;
+}
+
 export interface PredictionSource {
   market_data: string;
   forecast: string;
+  analysis: string | null;
+  data_quality: "clean" | "patched" | "degraded";
+  data_warnings: string[];
+  stale: boolean;
 }
 
 export interface PredictResponse {
@@ -88,5 +107,6 @@ export interface PredictResponse {
   stats: PredictStats;
   summary: PredictionSummary;
   evaluation: PredictionEvaluation | null;
+  explanation: PredictionExplanation | null;
   disclaimer: string;
 }

@@ -32,18 +32,16 @@ from backend.services.metrics import PredictionMetrics
 logger = logging.getLogger("stock_predictor.prediction")
 
 
-def _log_prediction_event(level: int, event: str, **fields: object) -> None:
+def _log_prediction_event(level: int, event: str, *, request_id: str | None = None, **fields: object) -> None:
     clean_fields = {key: value for key, value in fields.items() if value is not None}
     details = " ".join(f"{key}={clean_fields[key]}" for key in sorted(clean_fields))
     message = event if not details else f"{event} {details}"
-    logger.log(
-        level,
-        message,
-        extra={
-            "prediction_event": event,
-            **{f"prediction_{key}": value for key, value in clean_fields.items()},
-        },
-    )
+    extra: dict[str, object] = {
+        "prediction_event": event,
+        "request_id": request_id or "unknown",
+        **{f"prediction_{key}": value for key, value in clean_fields.items()},
+    }
+    logger.log(level, message, extra=extra)
 
 
 def _degradation_fields(
@@ -68,7 +66,7 @@ def _build_summary(
             expected_return_pct=0.0,
             trend="neutral",
             confidence_tier="low",
-            signal="neutral",
+            signal="Neutral",
         )
 
     last_close = stats["last_close"]
@@ -100,17 +98,17 @@ def _build_summary(
     else:
         confidence_tier = "low"
 
-    signal: Literal["bullish", "mildly_bullish", "neutral", "mildly_bearish", "bearish"]
+    signal: Literal["Strongly Bullish", "Bullish Outlook", "Neutral", "Bearish Outlook", "Strongly Bearish"]
     if expected_return > 5.0 and confidence_tier == "high":
-        signal = "bullish"
+        signal = "Strongly Bullish"
     elif expected_return > 1.5 and confidence_tier != "low":
-        signal = "mildly_bullish"
+        signal = "Bullish Outlook"
     elif expected_return < -5.0 and confidence_tier == "high":
-        signal = "bearish"
+        signal = "Strongly Bearish"
     elif expected_return < -1.5 and confidence_tier != "low":
-        signal = "mildly_bearish"
+        signal = "Bearish Outlook"
     else:
-        signal = "neutral"
+        signal = "Neutral"
 
     return PredictionSummary(
         expected_price=round(final_predicted, 2),
@@ -242,12 +240,14 @@ async def build_prediction_response(
     cache_backend: CacheBackend,
     metrics: PredictionMetrics | None = None,
     blocking_runner: BlockingTaskRunner,
+    request_id: str | None = None,
 ) -> PredictResponse:
     ticker = normalize_symbol_input(payload.symbol)
     t_start = time.perf_counter()
     _log_prediction_event(
         logging.INFO,
         "prediction.started",
+        request_id=request_id,
         requested_symbol=ticker,
         asset_type=payload.asset_type,
         engine_requested=payload.engine,
@@ -367,6 +367,7 @@ async def build_prediction_response(
             _log_prediction_event(
                 logging.INFO,
                 "prediction.ml_quality_check",
+                request_id=request_id,
                 symbol=market_series.resolved_symbol,
                 directional_accuracy=round(ml_metrics.directional_accuracy, 4),
                 validation_windows=ml_metrics.validation_windows,
@@ -380,6 +381,7 @@ async def build_prediction_response(
                 _log_prediction_event(
                     logging.WARNING,
                     "prediction.ml_quality_fallback",
+                    request_id=request_id,
                     symbol=market_series.resolved_symbol,
                     asset_type=payload.asset_type,
                     engine_requested=payload.engine,
@@ -431,6 +433,7 @@ async def build_prediction_response(
             _log_prediction_event(
                 logging.WARNING,
                 "prediction.ml_runtime_fallback",
+                request_id=request_id,
                 symbol=market_series.resolved_symbol,
                 asset_type=payload.asset_type,
                 engine_requested=payload.engine,
@@ -462,6 +465,7 @@ async def build_prediction_response(
             _log_prediction_event(
                 logging.WARNING,
                 "prediction.ml_runtime_fallback",
+                request_id=request_id,
                 symbol=market_series.resolved_symbol,
                 asset_type=payload.asset_type,
                 engine_requested=payload.engine,
@@ -530,6 +534,7 @@ async def build_prediction_response(
             _log_prediction_event(
                 logging.WARNING,
                 "prediction.ai_fallback",
+                request_id=request_id,
                 symbol=market_series.resolved_symbol,
                 asset_type=payload.asset_type,
                 engine_requested=payload.engine,
@@ -561,6 +566,7 @@ async def build_prediction_response(
             _log_prediction_event(
                 logging.WARNING,
                 "prediction.ai_fallback",
+                request_id=request_id,
                 symbol=market_series.resolved_symbol,
                 asset_type=payload.asset_type,
                 engine_requested=payload.engine,
@@ -593,6 +599,7 @@ async def build_prediction_response(
             _log_prediction_event(
                 logging.WARNING,
                 "prediction.ai_fallback",
+                request_id=request_id,
                 symbol=market_series.resolved_symbol,
                 asset_type=payload.asset_type,
                 engine_requested=payload.engine,
@@ -665,6 +672,7 @@ async def build_prediction_response(
     _log_prediction_event(
         logging.INFO,
         "prediction.completed",
+        request_id=request_id,
         symbol=response.symbol,
         asset_type=response.asset_type,
         engine_requested=response.engine_requested,

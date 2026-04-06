@@ -42,11 +42,11 @@ function buildSignal(
   expectedReturnPct: number,
   confidence: number,
 ): PredictResponse["summary"]["signal"] {
-  if (expectedReturnPct > 5 && confidence >= 0.67) return "bullish";
-  if (expectedReturnPct > 1.5 && confidence >= 0.45) return "mildly_bullish";
-  if (expectedReturnPct < -5 && confidence >= 0.67) return "bearish";
-  if (expectedReturnPct < -1.5 && confidence >= 0.45) return "mildly_bearish";
-  return "neutral";
+  if (expectedReturnPct > 5 && confidence >= 0.67) return "Strongly Bullish";
+  if (expectedReturnPct > 1.5 && confidence >= 0.45) return "Bullish Outlook";
+  if (expectedReturnPct < -5 && confidence >= 0.67) return "Strongly Bearish";
+  if (expectedReturnPct < -1.5 && confidence >= 0.45) return "Bearish Outlook";
+  return "Neutral";
 }
 
 export const demoMarketCards: DemoMarketCard[] = [
@@ -119,7 +119,7 @@ export function getDemoForecast(symbol: string, assetType: AssetType): PredictRe
     engine_used: "stat_fallback",
     model_name: "Demo analog forecast",
     engine_note: "Fallback-demo data while backend is unavailable.",
-    source: { market_data: "demo", forecast: "demo" },
+    source: { market_data: "demo", forecast: "demo", analysis: null, data_quality: "clean", data_warnings: [], stale: false },
     degraded: true,
     degradation_code: "demo_data_unavailable",
     degradation_message: "Using fallback demo data while the backend is unavailable.",
@@ -138,6 +138,7 @@ export function getDemoForecast(symbol: string, assetType: AssetType): PredictRe
       signal: buildSignal(expectedReturnPct, asset.confidence),
     },
     evaluation: null,
+    explanation: null,
     disclaimer: "Demo-only forecast. This is not financial advice.",
   };
 }

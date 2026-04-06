@@ -1,210 +1,241 @@
-# AI Stock & Crypto Forecasting Platform
+# Aurion
 
-Een production-minded MVP voor een schaalbare forecasting app voor aandelen en crypto. De huidige codebasis bevat:
+> Market forecasting that tells you when it doesn't know.
 
-- een `FastAPI` backend met zoek-, top-assets- en predict-endpoints
-- een modulaire ML-pipeline op historische OHLCV-data
-- probabilistic forecasts with confidence bands, tiered confidence labels and backtest metrics
-- een bestaande web/PWA-shell
-- een nieuwe Expo/React Native mobiele MVP in `mobile/`
-- Docker- en artifact-structuur als basis voor verdere productie-uitrol
+[![CI](https://github.com/Davidvdv231/Aurion/actions/workflows/ci.yml/badge.svg)](https://github.com/Davidvdv231/Aurion/actions/workflows/ci.yml)
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
-## Korte samenvatting
+Aurion is a multi-engine market forecasting system that combines statistical baselines, ML pattern matching, and AI-assisted prediction — with explicit quality gating and transparent degradation. When a model underperforms its benchmark, the system falls back honestly and tells you why. Built for trust under imperfect conditions, not prediction theater.
 
-De hoofdengine is niet langer een simpele lineaire voorspeller. De MVP gebruikt een niet-lineaire analog forecaster die vergelijkbare historische marktpatronen zoekt op basis van technische indicatoren en daaruit een dagelijkse forecast path afleidt. De statistische trendlijn blijft bestaan als benchmark en fallback.
+## Architecture
 
-De applicatie claimt geen marktzekerheid. Elke forecast is probabilistisch, bevat onzekerheidsbanden en wordt gekoppeld aan evaluatiemetrics.
+```mermaid
+flowchart TD
+    Client["Client (PWA / Mobile)"] --> API["FastAPI Gateway"]
+    API --> RL["Rate Limiter (Redis / In-Memory)"]
+    RL --> PO["Prediction Orchestrator"]
+    PO --> MD["Market Data Service"]
+    MD --> Cache["Dual-Layer Cache (Memory + Redis)"]
 
-## Aanbevolen architectuur
+    PO --> |"engine=stat"| STAT["Statistical Baseline"]
+    PO --> |"engine=ml"| ML["ML Analog Forecaster (k-NN)"]
+    PO --> |"engine=ai"| AI["AI Provider (OpenAI / Custom)"]
 
-### Backend
+    ML --> QG{"Quality Gate"}
+    AI --> QG
+    QG --> |"passes"| RES["Response with engine_used"]
+    QG --> |"fails"| FB["Fallback to Statistical"]
+    FB --> DEG["Response with degraded=true + degradation_code"]
+    STAT --> RES
 
-- `FastAPI` als API-laag
-- servicegrenzen voor market data, caching, rate limiting en forecasting
-- compatibiliteit met bestaande webclient
-
-### Data-opslag
-
-- MVP: lokale `artifacts/` voor modelversies en ruwe snapshots
-- cache: Redis when available, otherwise in-memory fallback
-- rate limiting: Redis-backed in production, in-memory fallback only in non-production
-- productierichting: PostgreSQL of TimescaleDB voor metadata, gebruikersdata en prediction snapshots
-
-### ML-pipeline
-
-- ingestie van OHLCV via `yfinance`
-- feature engineering voor returns, volatility, RSI, MACD, moving averages en Bollinger Bands
-- supervised dataset construction voor horizon-based forecasting
-- walk-forward validation en rolling backtesting
-- model registry met versiebeheer per artifact
-
-### API
-
-- `GET /api/health`
-- `GET /api/tickers`
-- `GET /api/top-assets`
-- `POST /api/predict`
-
-### Mobiele app
-
-- Expo + React Native TypeScript
-- splash/guest flow
-- home/dashboard
-- asset detail met forecast cards en confidence indicator
-- watchlist met lokale opslag
-
-### Deployment
-
-- `backend/Dockerfile`
-- `infra/docker-compose.yml` met API, Redis en PostgreSQL
-- duidelijke scheiding tussen training, validatie en online inference
-
-## Tech stack
-
-### Geïmplementeerd in deze MVP
-
-- Python
-- FastAPI
-- Pandas / NumPy
-- yfinance
-- Redis fallback cache/rate limiting
-- Expo / React Native TypeScript
-- Docker
-
-### Productieroadmap
-
-- PostgreSQL / TimescaleDB
-- object storage voor model artifacts
-- scheduled retraining worker
-- XGBoost/LightGBM adapters
-- GRU/LSTM/TFT experimenttracking
-
-## Modelaanpak
-
-### Huidige hoofdmodel
-
-- `Analog Pattern Forecaster`
-- niet-lineair
-- werkt op genormaliseerde feature-windows
-- kiest vergelijkbare historische marktsituaties
-- maakt dagelijkse padvoorspellingen met lower/upper bands via gewogen kwantielen
-
-### Benchmark / fallback
-
-- `stat` engine: log-lineaire trendbenchmark
-- gebruikt voor vergelijking en degraded fallback wanneer ML niet bruikbaar is
-
-### Metrics
-
-- MAE
-- RMSE
-- MAPE
-- directional accuracy
-- rolling walk-forward folds
-
-## Projectstructuur
-
-```text
-backend/
-  app.py
-  main.py
-  config.py
-  models.py
-  routes/
-  services/
-  ml/
-    features.py
-    dataset.py
-    model.py
-    registry.py
-    service.py
-frontend/
-  index.html
-  app.js
-  styles.css
-mobile/
-  App.tsx
-  src/
-  README.md
-infra/
-  docker-compose.yml
-docs/
-  PROJECT_BLUEPRINT.md
-artifacts/
-  data/
-  models/
-tests/
+    style QG fill:#f59e0b,stroke:#d97706,color:#000
+    style FB fill:#ef4444,stroke:#dc2626,color:#fff
+    style DEG fill:#ef4444,stroke:#dc2626,color:#fff
+    style RES fill:#22c55e,stroke:#16a34a,color:#fff
 ```
 
-## Belangrijkste output van `/api/predict`
+## Design Decisions
 
-- `forecast`: dagelijkse voorspelde prijzen met `lower` en `upper`
-- `stats`: laatste koers en dagelijkse trend
-- `summary`:
-  - expected price
-  - expected return %
-  - bullish / bearish / neutral
-  - confidence tier
-  - buy / hold / sell als model-output, niet als advies
-- `evaluation`:
-  - MAE
-  - RMSE
-  - MAPE
-  - directional accuracy
-  - validation windows
-- `model_version`
+| Decision | Choice | Trade-off |
+|----------|--------|-----------|
+| Forecasting approach | Multi-engine with quality gating | More complex orchestration, but honest about prediction quality |
+| ML model | k-NN analog pattern matching | Simple and interpretable, but limited expressiveness vs. deep learning |
+| Frontend framework | Vanilla JS PWA | Zero build step, instant deployment, but no component reuse |
+| Rate limiting | Redis-backed with Lua atomic ops | Fail-closed in production protects infra, but Redis failure = 503 |
+| Caching | Dual-layer (memory + Redis) | Fast reads with persistence, but cache invalidation complexity |
+| AI integration | External provider with fallback | Leverages LLM capability, but black-box dependency |
 
-## Lokale start
+## Prediction Engine & Degradation
 
-### Backend
+| Condition | Engine Used | Degraded | Code |
+|-----------|------------|----------|------|
+| Stat engine requested | `stat` | `false` | — |
+| ML requested, quality passes | `ml_analog` | `false` | — |
+| ML requested, validation windows < 3 | `stat_fallback` | `true` | `model_validation_insufficient` |
+| ML requested, directional accuracy < 0.45 | `stat_fallback` | `true` | `model_quality_insufficient` |
+| ML requested, MAPE > baseline MAPE | `stat_fallback` | `true` | `model_baseline_underperforming` |
+| ML requested, training timeout (>15s) | `stat_fallback` | `true` | `ml_engine_timeout` |
+| ML requested, exception during training | `stat_fallback` | `true` | `ml_engine_unavailable` |
+| AI requested, provider timeout | `stat_fallback` | `true` | `ai_provider_timeout` |
+| AI requested, provider error | `stat_fallback` | `true` | `ai_provider_unavailable` |
+| AI requested, no API keys configured | `stat_fallback` | `true` | `not_configured` |
 
-1. Maak een venv:
-   - `python -m venv .venv`
-   - `.\.venv\Scripts\Activate.ps1`
-2. Installeer dependencies:
-   - `pip install -r backend/requirements.txt`
-3. Maak config:
-   - `Copy-Item .env.example .env`
-4. Start de API:
-   - `python backend/main.py`
+## Example API Responses
 
-### Mobiele app
+**Clean ML prediction:**
 
-Zie `mobile/README.md`.
+```json
+{
+  "symbol": "AAPL",
+  "asset_type": "stock",
+  "engine_requested": "ml",
+  "engine_used": "ml_analog",
+  "degraded": false,
+  "degradation_code": null,
+  "degradation_message": null,
+  "summary": {
+    "expected_price": 198.45,
+    "expected_return_pct": 2.3,
+    "trend": "bullish",
+    "confidence_tier": "medium",
+    "signal": "Bullish Outlook"
+  },
+  "evaluation": {
+    "mae": 3.21,
+    "rmse": 4.15,
+    "mape": 1.8,
+    "directional_accuracy": 0.62,
+    "validation_windows": 5
+  },
+  "forecast": [
+    {"date": "2026-04-07", "predicted": 194.82, "lower": 191.20, "upper": 198.44}
+  ]
+}
+```
 
-## Tests
+**Degraded ML to stat fallback:**
 
-- Gerichte backendtests:
-  - `.\.venv\Scripts\python.exe -m pytest tests\test_api.py tests\test_config.py tests\test_forecast.py tests\test_market_data.py tests\test_ml_pipeline.py -q`
-- Volledige suite:
-  - `.\.venv\Scripts\python.exe -m pytest -q`
+```json
+{
+  "symbol": "GME",
+  "asset_type": "stock",
+  "engine_requested": "ml",
+  "engine_used": "stat_fallback",
+  "degraded": true,
+  "degradation_code": "model_quality_insufficient",
+  "degradation_message": "ML directional accuracy (0.38) below threshold (0.45); using statistical fallback.",
+  "summary": {
+    "expected_price": 27.15,
+    "expected_return_pct": -1.2,
+    "trend": "bearish",
+    "confidence_tier": "low",
+    "signal": "Bearish Outlook"
+  },
+  "evaluation": null,
+  "forecast": [
+    {"date": "2026-04-07", "predicted": 27.42, "lower": 25.80, "upper": 29.04}
+  ]
+}
+```
 
-## Configuratie
+**Clean statistical baseline:**
 
-Belangrijke `.env` keys:
+```json
+{
+  "symbol": "BTC-USD",
+  "asset_type": "crypto",
+  "engine_requested": "stat",
+  "engine_used": "stat",
+  "degraded": false,
+  "degradation_code": null,
+  "summary": {
+    "expected_price": 84250.00,
+    "expected_return_pct": 1.8,
+    "trend": "bullish",
+    "confidence_tier": "medium",
+    "signal": "Bullish Outlook"
+  },
+  "evaluation": null
+}
+```
 
-- `REDIS_URL`
-- `ARTIFACTS_ROOT`
-- `ML_NEIGHBOR_COUNT`
-- `ML_BACKTEST_WINDOWS`
-- `ML_MIN_HISTORY_ROWS`
-- `RATE_LIMIT_WINDOW_SECONDS`
-- `RATE_LIMIT_MAX_REQUESTS_STAT`
-- `RATE_LIMIT_MAX_REQUESTS_AI`
-- `RATE_LIMIT_MAX_REQUESTS_SEARCH`
-- `RATE_LIMIT_FAIL_OPEN` (`true` by default in development for local fallback; production stays fail-closed when Redis is unavailable)
-- `APP_ENV`
+## API Reference
 
-## Beperkingen van de MVP
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/health` | GET | Liveness check — status, Redis health, cache size, uptime |
+| `/api/health/ready` | GET | Readiness check — validates all dependencies |
+| `/api/metrics` | GET | Prediction metrics snapshot (counts, latency, fallback rates) |
+| `/api/tickers` | GET | Search tickers by query (1-50 results) |
+| `/api/top-assets` | GET | Trending assets by type, cached 15 min |
+| `/api/predict` | POST | Multi-engine prediction with quality gating and degradation |
 
-- Databron is nog `yfinance`; voor publieke release is een productiefeed aanbevolen.
-- Model is per-asset en on-demand trainbaar; scheduled retraining en central artifact promotion zijn logische volgende stappen.
-- De mobiele app is scaffolded maar niet in deze workspace geïnstalleerd of lokaal gestart.
+## Quick Start
 
-## Volgende uitbreidingen
+```bash
+# Clone and start
+git clone https://github.com/Davidvdv231/Aurion.git
+cd Aurion
 
-1. Voeg geplande retraining en modelpromotie toe.
-2. Introduceer meerdere modeladapters en model selection per asset/horizon.
-3. Verplaats metadata en gebruikersdata naar PostgreSQL.
-4. Voeg echte auth, pushnotificaties en portfolio/watchlist sync toe in de mobiele app.
-5. Bereid store release pipelines voor via Expo EAS of native CI/CD.
+# Run with Docker (includes Redis)
+docker-compose -f infra/docker-compose.yml up --build
+
+# Verify
+curl http://localhost:8000/api/health
+
+# Get a prediction
+curl -X POST http://localhost:8000/api/predict \
+  -H "Content-Type: application/json" \
+  -d '{"symbol": "AAPL", "asset_type": "stock", "engine": "stat", "horizon": 30}'
+```
+
+For local development without Docker:
+
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn app:create_app --factory --reload
+```
+
+## Testing
+
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Run with coverage
+pytest tests/ --cov=backend --cov-report=term-missing
+
+# Type checking
+mypy backend/ --strict
+
+# Linting
+ruff check backend/ tests/
+```
+
+25 backend tests covering: API contracts, prediction orchestration, ML pipeline, rate limiting, market data integrity, configuration, frontend serving.
+
+## Tech Stack
+
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| API | FastAPI 0.115 / Python 3.12 | Async API with validation |
+| ML | scikit-learn / NumPy / pandas | k-NN analog pattern forecaster |
+| AI | OpenAI API / Custom LLM | AI-assisted forecasting (fallback) |
+| Cache | Redis 7 + in-memory TTL | Dual-layer with configurable TTLs |
+| Web | Vanilla JS PWA | Zero-dependency frontend with service worker |
+| Mobile | React Native / Expo 51 | Cross-platform mobile client |
+| Market Data | yfinance | OHLCV data ingestion |
+| CI/CD | GitHub Actions | Lint, type check, test, audit |
+| Deploy | Docker + Docker Compose | Containerized with health checks |
+
+## Known Limitations
+
+- **ML model is k-NN analog** — simple by design, not a deep learning system. Effective for pattern matching, limited for complex market dynamics.
+- **Market data via yfinance** — free and functional, but not a production-grade feed. Rate limits and data gaps may occur.
+- **No persistent storage** — models and cache reset on container restart. No user database.
+- **AI path requires external API keys** — not self-contained. Depends on OpenAI or custom LLM availability.
+- **No user authentication** — stateless API, no multi-tenancy or user sessions.
+- **Mobile chart is a visual placeholder** — forecast cards work, but no charting library integrated yet.
+- **Single-process deployment** — no horizontal scaling or distributed training.
+
+## Engineering Trade-offs
+
+- **Vanilla JS PWA over React/Vue** — zero build step means instant deployment and no framework churn, at the cost of no component reuse or state management.
+- **k-NN analog over deep learning** — interpretable, fast to train on-demand, and honest about its limitations. Deep learning would need a training pipeline, GPU infra, and would be harder to explain.
+- **In-memory metrics over Prometheus** — simpler to implement and deploy, but not externally scrapeable or alertable.
+- **Statistical fallback always available** — guarantees every request gets a response, but the stat forecast is basic (log-linear regression + volatility bands).
+- **Fail-closed rate limiting in production** — one Redis failure means 503 for everyone, but prevents abuse. Development mode is fail-open.
+- **Thread pool for blocking tasks** — avoids blocking the async event loop, but adds concurrency limits (8 workers default).
+
+## Project Status
+
+Aurion is a solo-built MVP. The prediction orchestration, degradation semantics, and web PWA are production-quality. The ML model is functional but would benefit from deeper validation. The mobile app is scaffolded and usable but secondary to the web experience.
+
+**Current focus:** validation depth, observability, and portfolio presentation.
+
+## License
+
+MIT

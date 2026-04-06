@@ -16,3 +16,22 @@ pretty = true
 warn_unused_configs = true
 ignore_missing_imports = true
 show_error_codes = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+
+[tool.coverage.run]
+source = ["backend"]
+omit = ["backend/__pycache__/*", "tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+fail_under = 60
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__",
+    "raise NotImplementedError",
+]

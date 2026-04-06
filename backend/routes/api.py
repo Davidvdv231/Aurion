@@ -7,6 +7,7 @@ from functools import partial
 
 from fastapi import APIRouter, Query
 from fastapi import Request as FastAPIRequest
+from fastapi.responses import PlainTextResponse
 
 from backend.config import Settings
 from backend.errors import ServiceError
@@ -58,6 +59,7 @@ async def _predict_impl(request: FastAPIRequest, payload: PredictRequest) -> Pre
         cache_backend=_cache_backend(request),
         metrics=_metrics(request),
         blocking_runner=_blocking_runner(request),
+        request_id=getattr(request.state, "request_id", None),
     )
 
 
@@ -84,9 +86,59 @@ def health(request: FastAPIRequest) -> HealthResponse:
     )
 
 
+@router.get("/api/health/ready")
+async def health_ready(request: FastAPIRequest) -> dict:
+    """Readiness probe — validates all dependencies are reachable."""
+    checks: dict[str, str] = {}
+    ready = True
+
+    # Redis check
+    cache = _cache_backend(request)
+    try:
+        if hasattr(cache, "_redis") and cache._redis is not None:
+            await asyncio.get_event_loop().run_in_executor(None, cache._redis.ping)
+            checks["redis"] = "connected"
+        else:
+            checks["redis"] = "not_configured"
+    except Exception:
+        checks["redis"] = "unavailable"
+        ready = False
+
+    # Market data provider check
+    try:
+        import yfinance  # noqa: F401
+        checks["market_data"] = "available"
+    except Exception:
+        checks["market_data"] = "unavailable"
+
+    # AI provider check
+    settings = _settings(request)
+    if settings.openai_api_key or settings.stock_llm_api_url:
+        checks["ai_provider"] = "configured"
+    else:
+        checks["ai_provider"] = "not_configured"
+
+    return {
+        "ready": ready,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "checks": checks,
+    }
+
+
 @router.get("/api/metrics")
 def metrics(request: FastAPIRequest) -> dict:
     return _metrics(request).snapshot()
+
+
+@router.get("/api/metrics/prometheus")
+def metrics_prometheus(request: FastAPIRequest) -> PlainTextResponse:
+    cache = _cache_backend(request)
+    uptime = int(time.monotonic() - request.app.state.boot_time)
+    body = _metrics(request).prometheus_exposition(
+        uptime_seconds=uptime,
+        cache_size=cache.memory_size,
+    )
+    return PlainTextResponse(content=body, media_type="text/plain; charset=utf-8")
 
 
 @router.get("/api/tickers", response_model=TickerSearchResponse)

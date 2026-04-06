@@ -18,6 +18,7 @@ from starlette.responses import Response
 
 from backend.config import get_settings
 from backend.errors import ApiErrorPayload, ErrorEnvelope, ServiceError
+from backend.middleware import RequestIdMiddleware
 from backend.routes import router as api_router
 from backend.runtime import BlockingTaskRunner
 from backend.services.cache import CacheBackend
@@ -36,7 +37,7 @@ class _JsonFormatter(logging.Formatter):
             "msg": record.getMessage(),
         }
         for key, value in record.__dict__.items():
-            if key.startswith("prediction_"):
+            if key.startswith("prediction_") or key == "request_id":
                 entry[key] = value
         if record.exc_info and record.exc_info[0] is not None:
             entry["exc"] = self.formatException(record.exc_info)
@@ -50,6 +51,23 @@ logger = logging.getLogger("stock_predictor.app")
 
 _BOOT_TIME = time.monotonic()
 MAX_REQUEST_BODY_BYTES = 1_048_576
+
+
+def _validate_environment(settings) -> None:
+    """Log environment configuration status at startup."""
+    _logger = logging.getLogger("stock_predictor.app")
+    _logger.info("environment.config", extra={
+        "app_env": settings.app_env,
+        "is_production": settings.is_production,
+        "redis_configured": bool(settings.redis_url),
+        "ai_configured": bool(settings.openai_api_key or settings.stock_llm_api_url),
+        "rate_limit_fail_open": settings.rate_limit_fail_open,
+        "executor_workers": settings.executor_max_workers,
+    })
+    if settings.is_production and not settings.redis_url:
+        _logger.error("production.redis_required", extra={"detail": "REDIS_URL is required in production"})
+    if not settings.openai_api_key and not settings.stock_llm_api_url:
+        _logger.warning("ai.not_configured", extra={"detail": "No AI provider configured — AI engine will fall back to statistical"})
 
 
 def _normalized_validation_issues(exc: RequestValidationError) -> list[dict]:
@@ -164,6 +182,7 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.settings = settings
+        _validate_environment(settings)
         app.state.cache_backend = CacheBackend(settings)
         app.state.rate_limiter = RateLimiter(settings)
         app.state.metrics = PredictionMetrics()
@@ -188,6 +207,7 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
+    app.add_middleware(RequestIdMiddleware)
 
     @app.exception_handler(ServiceError)
     async def handle_service_error(_: Request, exc: ServiceError) -> JSONResponse:

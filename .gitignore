@@ -1,11 +1,15 @@
 .venv/
 .claude/
+.claude-flow/
+.swarm/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .pytest_cache/
 .mypy_cache/
+.coverage
+htmlcov/
 .DS_Store
 Thumbs.db
 node_modules/
@@ -20,3 +24,4 @@ artifacts/models/*
 artifacts/data/*
 !artifacts/models/.gitkeep
 !artifacts/data/.gitkeep
+.mcp.json

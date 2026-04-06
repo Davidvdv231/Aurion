@@ -38,6 +38,15 @@ class PredictionMetrics:
         with self._lock:
             self.rate_limit_429_total += 1
 
+    def _percentile(self, q: float) -> float:
+        """Return the *q*-th percentile (0-1) of recorded latencies in **seconds**."""
+        if not self._latencies:
+            return 0.0
+        sorted_lat = sorted(self._latencies)
+        idx = int(len(sorted_lat) * q)
+        idx = min(idx, len(sorted_lat) - 1)
+        return round(sorted_lat[idx] / 1000.0, 6)  # ms -> seconds
+
     def snapshot(self) -> dict:
         with self._lock:
             avg_ms = statistics.mean(self._latencies) if self._latencies else 0.0
@@ -55,3 +64,80 @@ class PredictionMetrics:
                 "avg_prediction_ms": round(avg_ms, 1),
                 "p95_prediction_ms": round(p95_ms, 1),
             }
+
+    def prometheus_exposition(self, *, uptime_seconds: int = 0, cache_size: int = 0) -> str:
+        """Return metrics in Prometheus text exposition format."""
+        with self._lock:
+            lines: list[str] = []
+
+            # --- predictions total (per engine) ---
+            lines.append("# HELP aurion_predictions_total Total predictions served")
+            lines.append("# TYPE aurion_predictions_total counter")
+            if self.predictions_by_engine:
+                for engine, count in self.predictions_by_engine.items():
+                    degraded = "true" if engine in self.fallbacks_by_code else "false"
+                    lines.append(
+                        f'aurion_predictions_total{{engine_requested="{engine}",'
+                        f'engine_used="{engine}",degraded="{degraded}"}} {count}'
+                    )
+            else:
+                lines.append(
+                    'aurion_predictions_total{engine_requested="none",'
+                    'engine_used="none",degraded="false"} 0'
+                )
+
+            # --- fallbacks total (per degradation code) ---
+            lines.append("")
+            lines.append("# HELP aurion_fallbacks_total Total fallback events")
+            lines.append("# TYPE aurion_fallbacks_total counter")
+            if self.fallbacks_by_code:
+                for code, count in self.fallbacks_by_code.items():
+                    lines.append(
+                        f'aurion_fallbacks_total{{degradation_code="{code}"}} {count}'
+                    )
+            else:
+                lines.append(
+                    'aurion_fallbacks_total{degradation_code="none"} 0'
+                )
+
+            # --- prediction duration (summary with quantiles) ---
+            lines.append("")
+            lines.append(
+                "# HELP aurion_prediction_duration_seconds Prediction request duration"
+            )
+            lines.append("# TYPE aurion_prediction_duration_seconds summary")
+            p50 = self._percentile(0.50)
+            p95 = self._percentile(0.95)
+            p99 = self._percentile(0.99)
+            lines.append(
+                f'aurion_prediction_duration_seconds{{quantile="0.5"}} {p50}'
+            )
+            lines.append(
+                f'aurion_prediction_duration_seconds{{quantile="0.95"}} {p95}'
+            )
+            lines.append(
+                f'aurion_prediction_duration_seconds{{quantile="0.99"}} {p99}'
+            )
+
+            # --- cache size gauge ---
+            lines.append("")
+            lines.append("# HELP aurion_cache_size Current cache size")
+            lines.append("# TYPE aurion_cache_size gauge")
+            lines.append(f'aurion_cache_size{{layer="memory"}} {cache_size}')
+
+            # --- uptime gauge ---
+            lines.append("")
+            lines.append("# HELP aurion_uptime_seconds Process uptime")
+            lines.append("# TYPE aurion_uptime_seconds gauge")
+            lines.append(f"aurion_uptime_seconds {uptime_seconds}")
+
+            # --- rate-limit 429s ---
+            lines.append("")
+            lines.append(
+                "# HELP aurion_rate_limit_429_total Total 429 rate-limit responses"
+            )
+            lines.append("# TYPE aurion_rate_limit_429_total counter")
+            lines.append(f"aurion_rate_limit_429_total {self.rate_limit_429_total}")
+
+            lines.append("")
+            return "\n".join(lines)

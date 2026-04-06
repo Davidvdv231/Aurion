@@ -554,19 +554,19 @@ input[type="range"]::-webkit-slider-thumb:hover {
   text-transform: uppercase;
 }
 
-.signal-badge[data-signal="bullish"],
-.signal-badge[data-signal="mildly_bullish"] {
+.signal-badge[data-signal="Strongly Bullish"],
+.signal-badge[data-signal="Bullish Outlook"] {
   background: var(--green-bg);
   color: var(--green);
 }
 
-.signal-badge[data-signal="neutral"] {
+.signal-badge[data-signal="Neutral"] {
   background: var(--yellow-bg);
   color: var(--yellow);
 }
 
-.signal-badge[data-signal="mildly_bearish"],
-.signal-badge[data-signal="bearish"] {
+.signal-badge[data-signal="Bearish Outlook"],
+.signal-badge[data-signal="Strongly Bearish"] {
   background: var(--red-bg);
   color: var(--red);
 }
