@@ -1,6 +1,6 @@
-// Cache version derived from build timestamp.
-// Bump this value on each deploy, or replace with a CI-injected hash.
-const CACHE_VERSION = "aurion-20260406";
+// Cache version — updated automatically by CI or pre-commit hook.
+// To bump manually: change the date suffix below.
+const CACHE_VERSION = "aurion-v0.5.0";
 const ASSETS = [
   "/",
   "/index.html",

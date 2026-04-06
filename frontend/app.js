@@ -238,8 +238,6 @@ function formatSourceLabel(value) {
   const labels = {
     stat: "Statistical baseline",
     stat_fallback: "Statistical fallback",
-    ml_analog: "ML analog analysis",
-    ml_pattern_difference: "Pattern-difference analysis",
     unknown: "Unknown",
   };
   return labels[value] || String(value || "Unknown").replace(/_/g, " ");
@@ -436,7 +434,11 @@ async function loadTopAssets() {
     try { data = await res.json(); } catch { data = null; }
     if (currentId !== state.topAssetsRequestId) return;
     if (!res.ok) {
-      topAssetsNode.innerHTML = `<p class="empty-hint">${formatApiError(data, "Could not load trending assets.")}</p>`;
+      topAssetsNode.textContent = "";
+      const errP = document.createElement("p");
+      errP.className = "empty-hint";
+      errP.textContent = formatApiError(data, "Could not load trending assets.");
+      topAssetsNode.appendChild(errP);
       return;
     }
     renderTopAssets(data?.items || []);

@@ -3,6 +3,7 @@ import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider } from "@/context/AuthContext";
 import { WatchlistProvider } from "@/context/WatchlistContext";
 import { RootNavigator } from "@/navigation/RootNavigator";
@@ -22,16 +23,18 @@ const navigationTheme = {
 
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <AuthProvider>
-        <WatchlistProvider>
-          <NavigationContainer theme={navigationTheme}>
-            <StatusBar style="light" />
-            <RootNavigator />
-          </NavigationContainer>
-        </WatchlistProvider>
-      </AuthProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <WatchlistProvider>
+            <NavigationContainer theme={navigationTheme}>
+              <StatusBar style="light" />
+              <RootNavigator />
+            </NavigationContainer>
+          </WatchlistProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 

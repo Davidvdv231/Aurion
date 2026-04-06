@@ -29,16 +29,21 @@ export interface ForecastOptions {
   displayCurrency?: SupportedCurrency;
 }
 
+export interface ForecastResult {
+  data: PredictResponse;
+  isDemo: boolean;
+}
+
 export async function loadForecast(
   symbol: string,
   assetType: AssetType,
   options: ForecastOptions = {},
-): Promise<PredictResponse> {
+): Promise<ForecastResult> {
   const { horizon = 7, engine = "ml", displayCurrency } = options;
   try {
-    return await api.predict(symbol, assetType, horizon, engine, displayCurrency);
+    return { data: await api.predict(symbol, assetType, horizon, engine, displayCurrency), isDemo: false };
   } catch {
-    return getDemoForecast(symbol, assetType);
+    return { data: getDemoForecast(symbol, assetType), isDemo: true };
   }
 }
 

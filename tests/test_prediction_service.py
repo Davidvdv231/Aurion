@@ -40,6 +40,7 @@ def _settings() -> Settings:
         ml_min_validation_windows=3,
         ml_min_directional_accuracy=0.45,
         ml_max_mape_vs_baseline=1.0,
+        metrics_token="",
     )
 
 

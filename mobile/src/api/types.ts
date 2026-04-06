@@ -101,8 +101,8 @@ export interface PredictResponse {
   requested_symbol: string;
   asset_type: AssetType;
   currency: string;
-  native_currency?: string;
-  display_currency?: string;
+  native_currency: string;
+  display_currency: string;
   generated_at: string;
   horizon_days: number;
   engine_requested: ForecastEngine;

@@ -27,6 +27,11 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
 
+      - name: Stamp service worker cache version
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          sed -i "s/aurion-v[^\"']*/aurion-${SHORT_SHA}/" frontend/sw.js
+
       - name: Lint backend
         run: python -m ruff check backend tests
 
@@ -46,6 +51,7 @@ jobs:
           tests/test_prediction_service.py
           tests/test_rate_limit.py
           tests/test_smoke_integration.py
+          tests/test_exchange_rates.py
           --cov=backend
           --cov-report=term-missing
           -q

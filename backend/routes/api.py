@@ -5,9 +5,9 @@ import time
 from datetime import datetime, timezone
 from functools import partial
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Header, Query
 from fastapi import Request as FastAPIRequest
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from backend.config import Settings
 from backend.errors import ServiceError
@@ -29,6 +29,18 @@ from backend.services.rate_limit import RateLimiter
 from backend.ticker_catalog import AssetType, search_tickers
 
 router = APIRouter()
+
+
+def _check_metrics_token(request: FastAPIRequest, authorization: str | None) -> None:
+    """Reject metrics requests when METRICS_TOKEN is configured and not provided."""
+    token = _settings(request).metrics_token
+    if not token:
+        return
+    expected = f"Bearer {token}"
+    if authorization != expected:
+        raise ServiceError(
+            status_code=403, code="forbidden", message="Invalid or missing metrics token."
+        )
 
 
 def _settings(request: FastAPIRequest) -> Settings:
@@ -95,7 +107,7 @@ def health(request: FastAPIRequest) -> HealthResponse:
 
 
 @router.get("/api/health/ready")
-async def health_ready(request: FastAPIRequest) -> dict:
+async def health_ready(request: FastAPIRequest) -> JSONResponse:
     """Readiness probe — validates all dependencies are reachable."""
     checks: dict[str, str] = {}
     ready = True
@@ -120,20 +132,28 @@ async def health_ready(request: FastAPIRequest) -> dict:
     except Exception:
         checks["market_data"] = "unavailable"
 
-    return {
-        "ready": ready,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "checks": checks,
-    }
+    status_code = 200 if ready else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "ready": ready,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "checks": checks,
+        },
+    )
 
 
 @router.get("/api/metrics")
-def metrics(request: FastAPIRequest) -> dict:
+def metrics(request: FastAPIRequest, authorization: str | None = Header(None)) -> dict:
+    _check_metrics_token(request, authorization)
     return _metrics(request).snapshot()
 
 
 @router.get("/api/metrics/prometheus")
-def metrics_prometheus(request: FastAPIRequest) -> PlainTextResponse:
+def metrics_prometheus(
+    request: FastAPIRequest, authorization: str | None = Header(None)
+) -> PlainTextResponse:
+    _check_metrics_token(request, authorization)
     cache = _cache_backend(request)
     uptime = int(time.monotonic() - request.app.state.boot_time)
     body = _metrics(request).prometheus_exposition(
@@ -225,8 +245,9 @@ async def predict_post(request: FastAPIRequest, payload: PredictRequest) -> Pred
 
 
 @router.get("/api/validation-summary")
-def validation_summary(request: FastAPIRequest) -> dict:
+def validation_summary(request: FastAPIRequest, authorization: str | None = Header(None)) -> dict:
     """Return configured ML quality-gate thresholds and the latest prediction evaluation."""
+    _check_metrics_token(request, authorization)
     settings = _settings(request)
     latest = getattr(request.app.state, "latest_evaluation", None)
     return {

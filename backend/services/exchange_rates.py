@@ -141,7 +141,7 @@ def get_exchange_rate(from_currency: str, to_currency: str) -> float:
         extra={
             "from": from_currency,
             "to": to_currency,
-            "msg": "Could not determine rate, using 1.0",
+            "detail": "Could not determine rate, using 1.0",
         },
     )
     return 1.0

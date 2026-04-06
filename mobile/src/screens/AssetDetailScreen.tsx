@@ -213,6 +213,7 @@ export function AssetDetailScreen({ route, navigation }: Props) {
   const { symbol, assetType, name, engine: initialEngine } = route.params;
   const { isSaved, toggle } = useWatchlist();
   const [data, setData] = useState<PredictResponse>(() => getDemoForecast(symbol, assetType));
+  const [isDemo, setIsDemo] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const [currency, setCurrency] = useState<SupportedCurrency>("USD");
@@ -244,14 +245,16 @@ export function AssetDetailScreen({ route, navigation }: Props) {
       engine,
       displayCurrency: currency,
     })
-      .then((payload) => {
+      .then((result) => {
         if (mounted) {
-          setData(payload);
+          setData(result.data);
+          setIsDemo(result.isDemo);
         }
       })
       .catch(() => {
         if (mounted) {
           setData(getDemoForecast(symbol, assetType));
+          setIsDemo(true);
         }
       })
       .finally(() => {
@@ -280,6 +283,12 @@ export function AssetDetailScreen({ route, navigation }: Props) {
           <Text style={styles.watchButtonText}>{saved ? "Saved" : "Save"}</Text>
         </Pressable>
       </View>
+
+      {isDemo && (
+        <View style={styles.demoBanner}>
+          <Text style={styles.demoBannerText}>Demo data — could not reach the server</Text>
+        </View>
+      )}
 
       <View style={styles.hero}>
         <View style={{ flex: 1 }}>
@@ -409,6 +418,18 @@ const styles = StyleSheet.create({
   watchButtonText: {
     color: theme.colors.textPrimary,
     fontWeight: "800",
+  },
+  demoBanner: {
+    backgroundColor: "#5c3d00",
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: theme.radius.md,
+    alignItems: "center",
+  },
+  demoBannerText: {
+    color: "#ffc107",
+    fontWeight: "700",
+    fontSize: theme.fontSizes.sm,
   },
   hero: {
     flexDirection: "row",

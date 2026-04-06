@@ -110,6 +110,7 @@ class Settings:
     ml_min_validation_windows: int
     ml_min_directional_accuracy: float
     ml_max_mape_vs_baseline: float
+    metrics_token: str
 
     @property
     def use_trusted_proxy_headers(self) -> bool:
@@ -160,4 +161,5 @@ def get_settings() -> Settings:
         ml_min_validation_windows=_int_env("ML_MIN_VALIDATION_WINDOWS", 3, minimum=1),
         ml_min_directional_accuracy=_float_env("ML_MIN_DIRECTIONAL_ACCURACY", 0.45, minimum=0.0),
         ml_max_mape_vs_baseline=_float_env("ML_MAX_MAPE_VS_BASELINE", 1.0, minimum=0.0),
+        metrics_token=os.getenv("METRICS_TOKEN", "").strip(),
     )

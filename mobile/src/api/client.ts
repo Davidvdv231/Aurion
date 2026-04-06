@@ -1,6 +1,8 @@
 import type { AssetType, ForecastEngine, PredictRequest, PredictResponse, SupportedCurrency, TickerSearchResponse, TopAssetsResponse } from "@/api/types";
 
-const DEFAULT_BASE_URL = "http://127.0.0.1:8000";
+const DEFAULT_BASE_URL = __DEV__ ? "http://127.0.0.1:8000" : "https://aurion.example.com";
+
+const REQUEST_TIMEOUT_MS = 15_000;
 
 export class ApiError extends Error {
   constructor(message: string, public status?: number) {
@@ -14,13 +16,27 @@ function resolveBaseUrl() {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${resolveBaseUrl()}${path}`, {
-    headers: {
-      Accept: "application/json",
-      ...(init?.headers || {}),
-    },
-    ...init,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(`${resolveBaseUrl()}${path}`, {
+      headers: {
+        Accept: "application/json",
+        ...(init?.headers || {}),
+      },
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (err: unknown) {
+    clearTimeout(timeout);
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new ApiError("Request timed out", 0);
+    }
+    throw err;
+  }
+  clearTimeout(timeout);
 
   const text = await response.text();
   let payload: unknown = null;
