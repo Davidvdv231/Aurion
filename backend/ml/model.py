@@ -37,6 +37,8 @@ class BacktestMetrics:
     mape: float
     directional_accuracy: float
     validation_windows: int
+    coverage_80: float | None = None
+    mean_error: float | None = None
 
 
 @dataclass
@@ -296,6 +298,8 @@ class AnalogForecastModel:
         all_errors = []
         all_actuals = []
         all_directions = []
+        all_signed_errors: list[float] = []
+        all_within_band: list[bool] = []
 
         for fold in range(n_folds):
             test_end = n - (fold * fold_size)
@@ -325,9 +329,15 @@ class AnalogForecastModel:
 
             pred = result.predicted[:actual_len]
             act = actual[:actual_len]
+            lower = result.lower[:actual_len]
+            upper = result.upper[:actual_len]
             errors = np.abs(pred - act)
             all_errors.extend(errors.tolist())
             all_actuals.extend(act.tolist())
+            all_signed_errors.extend((pred - act).tolist())
+
+            for i in range(actual_len):
+                all_within_band.append(bool(lower[i] <= act[i] <= upper[i]))
 
             if actual_len > 1:
                 pred_steps = np.sign(np.diff(pred))
@@ -336,7 +346,13 @@ class AnalogForecastModel:
 
         if not all_errors:
             return BacktestMetrics(
-                mae=0, rmse=0, mape=0, directional_accuracy=0.5, validation_windows=0
+                mae=0,
+                rmse=0,
+                mape=0,
+                directional_accuracy=0.5,
+                validation_windows=0,
+                coverage_80=None,
+                mean_error=None,
             )
 
         errors_arr = np.array(all_errors)
@@ -354,12 +370,19 @@ class AnalogForecastModel:
 
         dir_acc = float(np.mean(all_directions)) if all_directions else 0.5
 
+        coverage_80 = (
+            round(sum(all_within_band) / len(all_within_band), 4) if all_within_band else None
+        )
+        mean_error = round(float(np.mean(all_signed_errors)), 4) if all_signed_errors else None
+
         return BacktestMetrics(
             mae=round(mae, 4),
             rmse=round(rmse, 4),
             mape=round(mape, 2),
             directional_accuracy=round(dir_acc, 4),
             validation_windows=len(all_directions),
+            coverage_80=coverage_80,
+            mean_error=mean_error,
         )
 
 

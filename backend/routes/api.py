@@ -53,7 +53,7 @@ def _blocking_runner(request: FastAPIRequest) -> BlockingTaskRunner:
 
 async def _predict_impl(request: FastAPIRequest, payload: PredictRequest) -> PredictResponse:
     _rate_limiter(request).enforce_predict_limit(request=request, engine=payload.engine)
-    return await build_prediction_response(
+    response = await build_prediction_response(
         payload,
         settings=_settings(request),
         cache_backend=_cache_backend(request),
@@ -61,6 +61,14 @@ async def _predict_impl(request: FastAPIRequest, payload: PredictRequest) -> Pre
         blocking_runner=_blocking_runner(request),
         request_id=getattr(request.state, "request_id", None),
     )
+    # Store latest evaluation for the validation-summary endpoint
+    request.app.state.latest_evaluation = {
+        "symbol": response.symbol,
+        "engine_used": response.engine_used,
+        "evaluation": response.evaluation.model_dump() if response.evaluation else None,
+        "generated_at": response.generated_at,
+    }
+    return response
 
 
 @router.get("/api/health", response_model=HealthResponse)
@@ -221,3 +229,18 @@ async def predict_get(
 @router.post("/api/predict", response_model=PredictResponse)
 async def predict_post(request: FastAPIRequest, payload: PredictRequest) -> PredictResponse:
     return await _predict_impl(request, payload)
+
+
+@router.get("/api/validation-summary")
+def validation_summary(request: FastAPIRequest) -> dict:
+    """Return configured ML quality-gate thresholds and the latest prediction evaluation."""
+    settings = _settings(request)
+    latest = getattr(request.app.state, "latest_evaluation", None)
+    return {
+        "quality_gates": {
+            "ml_min_validation_windows": settings.ml_min_validation_windows,
+            "ml_min_directional_accuracy": settings.ml_min_directional_accuracy,
+            "ml_max_mape_vs_baseline": settings.ml_max_mape_vs_baseline,
+        },
+        "latest_evaluation": latest,
+    }

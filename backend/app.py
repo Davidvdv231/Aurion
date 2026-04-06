@@ -69,13 +69,44 @@ def _validate_environment(settings) -> None:
     )
     if settings.is_production and not settings.redis_url:
         _logger.error(
-            "production.redis_required", extra={"detail": "REDIS_URL is required in production"}
+            "production.redis_required",
+            extra={"detail": "REDIS_URL is required in production"},
         )
     if not settings.openai_api_key and not settings.stock_llm_api_url:
         _logger.warning(
             "ai.not_configured",
             extra={"detail": "No AI provider configured — AI engine will fall back to statistical"},
         )
+
+    # --- Production-specific warnings ---
+    if settings.is_production:
+        if "*" in settings.cors_allow_origins:
+            _logger.warning(
+                "production.cors_wildcard",
+                extra={
+                    "detail": "CORS allows wildcard origins in production — restrict to explicit domains"
+                },
+            )
+        if MAX_REQUEST_BODY_BYTES > 5 * 1024 * 1024:
+            _logger.warning(
+                "production.request_size_limit",
+                extra={
+                    "detail": (
+                        f"Request size limit is {MAX_REQUEST_BODY_BYTES} bytes "
+                        f"(>{5 * 1024 * 1024} bytes) — consider lowering for production"
+                    )
+                },
+            )
+
+    # --- Log quality gate thresholds ---
+    _logger.info(
+        "quality_gate.thresholds",
+        extra={
+            "ml_min_validation_windows": settings.ml_min_validation_windows,
+            "ml_min_directional_accuracy": settings.ml_min_directional_accuracy,
+            "ml_max_mape_vs_baseline": settings.ml_max_mape_vs_baseline,
+        },
+    )
 
 
 def _normalized_validation_issues(exc: RequestValidationError) -> list[dict]:
@@ -200,10 +231,18 @@ def create_app() -> FastAPI:
             max_in_flight_calls=settings.executor_max_workers,
             thread_name_prefix="aurion",
         )
+        logger.info(
+            "startup.complete", extra={"boot_ms": round((time.monotonic() - _BOOT_TIME) * 1000)}
+        )
         try:
             yield
         finally:
-            app.state.blocking_runner.shutdown(wait=False, cancel_futures=True)
+            logger.info("shutdown.start")
+            app.state.blocking_runner.shutdown(wait=True, cancel_futures=True)
+            cache: CacheBackend | None = getattr(app.state, "cache_backend", None)
+            if cache is not None:
+                await cache.close()
+            logger.info("shutdown.complete")
 
     app = FastAPI(title=settings.app_title, version=settings.version, lifespan=lifespan)
     app.add_middleware(GZipMiddleware, minimum_size=500)

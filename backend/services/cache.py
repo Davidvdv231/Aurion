@@ -121,3 +121,13 @@ class CacheBackend:
             self._redis_tracker.record_success(logger)
         except (TypeError, RedisError) as exc:
             self._redis_tracker.record_failure(logger, exc)
+
+    async def close(self) -> None:
+        """Close the Redis connection pool (if any) for graceful shutdown."""
+        if self._redis is not None:
+            try:
+                if hasattr(self._redis, "close"):
+                    self._redis.close()
+                logger.info("Redis connection closed")
+            except Exception as exc:
+                logger.warning("Error closing Redis connection: %s", exc)

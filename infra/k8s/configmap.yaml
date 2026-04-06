@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aurion-config
+  namespace: aurion
+  labels:
+    app: aurion-api
+data:
+  APP_ENV: "production"
+  CORS_ALLOW_ORIGINS: "https://aurion.example.com"
+  EXECUTOR_MAX_WORKERS: "8"
+  BLOCKING_TASK_TIMEOUT_SECONDS: "15.0"
+  TOP_ASSETS_TIMEOUT_SECONDS: "8.0"
+  TOP_CACHE_TTL_SECONDS: "900"
+  HISTORY_CACHE_TTL_SECONDS: "300"
+  MEMORY_CACHE_MAX_ITEMS: "512"
+  RATE_LIMIT_WINDOW_SECONDS: "60"
+  RATE_LIMIT_MAX_REQUESTS_STAT: "30"
+  RATE_LIMIT_MAX_REQUESTS_AI: "8"
+  RATE_LIMIT_MAX_REQUESTS_SEARCH: "60"
+  RATE_LIMIT_FAIL_OPEN: "false"
+  REDIS_PREFIX: "stock-predictor"
+  REDIS_SOCKET_TIMEOUT_SECONDS: "1.0"
+  LOG_LEVEL: "INFO"

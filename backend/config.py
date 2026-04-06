@@ -113,6 +113,9 @@ class Settings:
     redis_prefix: str
     redis_socket_timeout_seconds: float
     trusted_proxy_ips: tuple[str, ...]
+    ml_min_validation_windows: int
+    ml_min_directional_accuracy: float
+    ml_max_mape_vs_baseline: float
 
     @property
     def use_trusted_proxy_headers(self) -> bool:
@@ -170,4 +173,7 @@ def get_settings() -> Settings:
         redis_prefix=os.getenv("REDIS_PREFIX", "stock-predictor").strip() or "stock-predictor",
         redis_socket_timeout_seconds=_float_env("REDIS_SOCKET_TIMEOUT_SECONDS", 1.0, minimum=0.1),
         trusted_proxy_ips=_csv_env("TRUSTED_PROXY_IPS"),
+        ml_min_validation_windows=_int_env("ML_MIN_VALIDATION_WINDOWS", 3, minimum=1),
+        ml_min_directional_accuracy=_float_env("ML_MIN_DIRECTIONAL_ACCURACY", 0.45, minimum=0.0),
+        ml_max_mape_vs_baseline=_float_env("ML_MAX_MAPE_VS_BASELINE", 1.0, minimum=0.0),
     )

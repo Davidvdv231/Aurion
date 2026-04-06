@@ -44,6 +44,9 @@ def _settings() -> Settings:
         redis_prefix="test",
         redis_socket_timeout_seconds=1.0,
         trusted_proxy_ips=(),
+        ml_min_validation_windows=3,
+        ml_min_directional_accuracy=0.45,
+        ml_max_mape_vs_baseline=1.0,
     )
 
 

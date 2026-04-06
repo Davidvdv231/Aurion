@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 
-import type { AssetType, TickerItem } from "@/api/types";
+import type { AssetType, ForecastEngine, TickerItem } from "@/api/types";
 import { demoMarketCards, demoTickers } from "@/data/demoAssets";
 import { MarketCard } from "@/components/MarketCard";
 import { SectionHeader } from "@/components/SectionHeader";
@@ -23,6 +23,7 @@ interface HomeScreenProps {
 export function HomeScreen({ navigation }: HomeScreenProps) {
   const [query, setQuery] = useState("");
   const [assetType, setAssetType] = useState<AssetType>("stock");
+  const [engine, setEngine] = useState<ForecastEngine>("ml");
   const [results, setResults] = useState<TickerItem[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -65,7 +66,7 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
 
   const topCards = demoMarketCards.filter((item) => item.assetType === assetType);
   const openAsset = (symbol: string, name: string) => {
-    const payload = { symbol, assetType, name };
+    const payload = { symbol, assetType, name, engine };
     const parentNavigation = navigation.getParent?.();
     if (parentNavigation) {
       parentNavigation.navigate("AssetDetail", payload);
@@ -101,6 +102,20 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
             >
               <Text style={styles.toggleText}>Crypto</Text>
             </Pressable>
+          </View>
+
+          <View style={styles.toggleRow}>
+            {(["ml", "stat", "ai"] as const).map((eng) => (
+              <Pressable
+                key={eng}
+                onPress={() => setEngine(eng)}
+                style={[styles.toggle, engine === eng && styles.toggleActive]}
+              >
+                <Text style={styles.toggleText}>
+                  {eng === "ml" ? "ML" : eng === "stat" ? "Stat" : "AI"}
+                </Text>
+              </Pressable>
+            ))}
           </View>
 
           <View style={styles.searchCard}>

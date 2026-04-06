@@ -337,3 +337,141 @@ def test_backtest_mape_is_pointwise() -> None:
         f"MAPE ({metrics.mape}) equals old formula MAE/last_close*100 "
         f"({old_formula_mape:.2f}). Pointwise division is not being used."
     )
+
+
+# ---------------------------------------------------------------------------
+# Coverage and mean_error fields in BacktestMetrics
+# ---------------------------------------------------------------------------
+
+
+def test_backtest_returns_coverage_80_and_mean_error() -> None:
+    """backtest() must populate coverage_80 and mean_error when folds succeed."""
+    df = _synthetic_ohlcv(rows=260)
+    close = df["Close"]
+
+    model = AnalogForecastModel(lookback=45, horizon=7, n_neighbors=15)
+    model.fit(close, ohlcv=df)
+    metrics = model.backtest(close, ohlcv=df, n_folds=3)
+
+    assert metrics.coverage_80 is not None, "coverage_80 should not be None"
+    assert metrics.mean_error is not None, "mean_error should not be None"
+
+
+def test_coverage_80_is_bounded() -> None:
+    """coverage_80 must be between 0.0 and 1.0 inclusive."""
+    df = _synthetic_ohlcv(rows=260)
+    close = df["Close"]
+
+    model = AnalogForecastModel(lookback=45, horizon=7, n_neighbors=15)
+    model.fit(close, ohlcv=df)
+    metrics = model.backtest(close, ohlcv=df, n_folds=3)
+
+    assert metrics.coverage_80 is not None
+    assert 0.0 <= metrics.coverage_80 <= 1.0, (
+        f"coverage_80 ({metrics.coverage_80}) is out of [0.0, 1.0] range"
+    )
+
+
+def test_mean_error_is_finite() -> None:
+    """mean_error (predicted - actual) should be a finite float."""
+    df = _synthetic_ohlcv(rows=260)
+    close = df["Close"]
+
+    model = AnalogForecastModel(lookback=45, horizon=7, n_neighbors=15)
+    model.fit(close, ohlcv=df)
+    metrics = model.backtest(close, ohlcv=df, n_folds=3)
+
+    assert metrics.mean_error is not None
+    assert np.isfinite(metrics.mean_error), f"mean_error is not finite: {metrics.mean_error}"
+
+
+def test_backtest_no_data_returns_none_for_new_fields() -> None:
+    """When backtest has zero successful folds, coverage_80 and mean_error are None."""
+    df = _synthetic_ohlcv(rows=80)
+    close = df["Close"]
+
+    model = AnalogForecastModel(lookback=45, horizon=30, n_neighbors=15)
+    # With only 80 rows and lookback=45 + horizon=30 + min_train overhead,
+    # no folds should succeed.
+    try:
+        model.fit(close, ohlcv=df)
+    except ValueError:
+        return  # Cannot even fit — test passes trivially
+
+    metrics = model.backtest(close, ohlcv=df, n_folds=5)
+    if metrics.validation_windows == 0:
+        assert metrics.coverage_80 is None
+        assert metrics.mean_error is None
+
+
+# ---------------------------------------------------------------------------
+# Configurable quality-gate thresholds
+# ---------------------------------------------------------------------------
+
+
+def test_configurable_thresholds_used_in_quality_failure() -> None:
+    """_ml_quality_failure must respect settings thresholds, not hardcoded values."""
+    from unittest.mock import MagicMock
+
+    from backend.models import PredictionEvaluation
+    from backend.services.prediction import _ml_quality_failure
+
+    evaluation = PredictionEvaluation(
+        mae=1.0,
+        rmse=1.5,
+        mape=5.0,
+        directional_accuracy=0.40,
+        validation_windows=5,
+    )
+    stat_baseline: dict[str, float | int] = {"mape": 6.0, "validation_windows": 5}
+
+    # With default-like settings (min_directional_accuracy=0.45), 0.40 should fail
+    strict_settings = MagicMock()
+    strict_settings.ml_min_validation_windows = 3
+    strict_settings.ml_min_directional_accuracy = 0.45
+    strict_settings.ml_max_mape_vs_baseline = 1.0
+    result = _ml_quality_failure(evaluation, stat_baseline, strict_settings)
+    assert result is not None
+    assert result[0] == "model_quality_insufficient"
+
+    # With relaxed settings (min_directional_accuracy=0.30), 0.40 should pass
+    relaxed_settings = MagicMock()
+    relaxed_settings.ml_min_validation_windows = 2
+    relaxed_settings.ml_min_directional_accuracy = 0.30
+    relaxed_settings.ml_max_mape_vs_baseline = 2.0
+    result = _ml_quality_failure(evaluation, stat_baseline, relaxed_settings)
+    assert result is None
+
+
+def test_configurable_mape_threshold_multiplier() -> None:
+    """ml_max_mape_vs_baseline acts as a multiplier on the baseline MAPE."""
+    from unittest.mock import MagicMock
+
+    from backend.models import PredictionEvaluation
+    from backend.services.prediction import _ml_quality_failure
+
+    evaluation = PredictionEvaluation(
+        mae=1.0,
+        rmse=1.5,
+        mape=8.0,
+        directional_accuracy=0.60,
+        validation_windows=5,
+    )
+    stat_baseline: dict[str, float | int] = {"mape": 5.0, "validation_windows": 5}
+
+    # multiplier=1.0 → threshold is 5.0, ML mape 8.0 exceeds → fail
+    settings_strict = MagicMock()
+    settings_strict.ml_min_validation_windows = 3
+    settings_strict.ml_min_directional_accuracy = 0.45
+    settings_strict.ml_max_mape_vs_baseline = 1.0
+    result = _ml_quality_failure(evaluation, stat_baseline, settings_strict)
+    assert result is not None
+    assert result[0] == "model_baseline_underperforming"
+
+    # multiplier=2.0 → threshold is 10.0, ML mape 8.0 is within → pass
+    settings_relaxed = MagicMock()
+    settings_relaxed.ml_min_validation_windows = 3
+    settings_relaxed.ml_min_directional_accuracy = 0.45
+    settings_relaxed.ml_max_mape_vs_baseline = 2.0
+    result = _ml_quality_failure(evaluation, stat_baseline, settings_relaxed)
+    assert result is None

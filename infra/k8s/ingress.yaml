@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aurion-ingress
+  namespace: aurion
+  labels:
+    app: aurion-api
+  annotations:
+    # Adjust for your ingress controller (nginx, traefik, etc.)
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/rate-limit: "30"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: aurion.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: aurion-api
+                port:
+                  number: 8000
+  tls:
+    - hosts:
+        - aurion.example.com
+      secretName: aurion-tls

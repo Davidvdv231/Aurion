@@ -216,24 +216,30 @@ async def _run_blocking(
 def _ml_quality_failure(
     evaluation: PredictionEvaluation,
     stat_baseline: dict[str, float | int],
+    settings: Settings,
 ) -> tuple[str, str] | None:
     validation_windows = evaluation.validation_windows or 0
     directional_accuracy = evaluation.directional_accuracy or 0.0
     mape = evaluation.mape
 
-    if validation_windows < 3:
+    if validation_windows < settings.ml_min_validation_windows:
         return (
             "model_validation_insufficient",
             "ML validation coverage was insufficient for production use. Returned the statistical fallback forecast instead.",
         )
-    if directional_accuracy < 0.45:
+    if directional_accuracy < settings.ml_min_directional_accuracy:
         return (
             "model_quality_insufficient",
             "ML directional accuracy was insufficient for production use. Returned the statistical fallback forecast instead.",
         )
     baseline_windows = int(stat_baseline.get("validation_windows", 0))
     baseline_mape = float(stat_baseline.get("mape", 0.0))
-    if baseline_windows > 0 and mape is not None and mape > baseline_mape:
+    if (
+        baseline_windows > 0
+        and mape is not None
+        and baseline_mape > 0
+        and mape > baseline_mape * settings.ml_max_mape_vs_baseline
+    ):
         return (
             "model_baseline_underperforming",
             "ML error quality did not beat the statistical baseline. Returned the statistical fallback forecast instead.",
@@ -383,7 +389,7 @@ async def build_prediction_response(
                 baseline_mape=stat_baseline.get("mape"),
                 baseline_windows=stat_baseline.get("validation_windows"),
             )
-            quality_failure = _ml_quality_failure(evaluation, stat_baseline)
+            quality_failure = _ml_quality_failure(evaluation, stat_baseline, settings)
             if quality_failure is not None:
                 degradation_code, degradation_message = quality_failure
                 _log_prediction_event(

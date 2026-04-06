@@ -1,5 +1,5 @@
 import { createApiClient } from "@/api/client";
-import type { AssetType, PredictResponse, TickerItem } from "@/api/types";
+import type { AssetType, ForecastEngine, PredictResponse, SupportedCurrency, TickerItem } from "@/api/types";
 import { demoMarketCards, demoTickers, getDemoForecast } from "@/data/demoAssets";
 
 const api = createApiClient();
@@ -23,9 +23,20 @@ export async function searchAssets(query: string, assetType: AssetType): Promise
   }
 }
 
-export async function loadForecast(symbol: string, assetType: AssetType): Promise<PredictResponse> {
+export interface ForecastOptions {
+  horizon?: number;
+  engine?: ForecastEngine;
+  displayCurrency?: SupportedCurrency;
+}
+
+export async function loadForecast(
+  symbol: string,
+  assetType: AssetType,
+  options: ForecastOptions = {},
+): Promise<PredictResponse> {
+  const { horizon = 7, engine = "ml", displayCurrency } = options;
   try {
-    return await api.predict(symbol, assetType, 7);
+    return await api.predict(symbol, assetType, horizon, engine, displayCurrency);
   } catch {
     return getDemoForecast(symbol, assetType);
   }

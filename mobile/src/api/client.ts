@@ -1,4 +1,4 @@
-import type { AssetType, ForecastEngine, PredictResponse, TickerSearchResponse, TopAssetsResponse } from "@/api/types";
+import type { AssetType, ForecastEngine, PredictRequest, PredictResponse, SupportedCurrency, TickerSearchResponse, TopAssetsResponse } from "@/api/types";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:8000";
 
@@ -51,17 +51,28 @@ export function createApiClient() {
       ),
     topAssets: (assetType: AssetType, limit = 8) =>
       requestJson<TopAssetsResponse>(`/api/top-assets?asset_type=${assetType}&limit=${limit}`),
-    predict: (symbol: string, assetType: AssetType, horizon = 7, engine: ForecastEngine = "ml") =>
-      requestJson<PredictResponse>("/api/predict", {
+    predict: (
+      symbol: string,
+      assetType: AssetType,
+      horizon = 7,
+      engine: ForecastEngine = "ml",
+      displayCurrency?: SupportedCurrency,
+    ) => {
+      const body: PredictRequest = {
+        symbol,
+        asset_type: assetType,
+        horizon,
+        engine,
+      };
+      if (displayCurrency) {
+        body.display_currency = displayCurrency;
+      }
+      return requestJson<PredictResponse>("/api/predict", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          symbol,
-          asset_type: assetType,
-          horizon,
-          engine,
-        }),
-      }),
+        body: JSON.stringify(body),
+      });
+    },
   };
 }
 
