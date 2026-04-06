@@ -51,6 +51,14 @@ logger = logging.getLogger("stock_predictor.app")
 
 _BOOT_TIME = time.monotonic()
 MAX_REQUEST_BODY_BYTES = 1_048_576
+FRONTEND_SHELL_ASSETS = {
+    "/",
+    "/index.html",
+    "/app.js",
+    "/styles.css",
+    "/manifest.webmanifest",
+    "/sw.js",
+}
 
 
 def _validate_environment(settings) -> None:
@@ -62,7 +70,6 @@ def _validate_environment(settings) -> None:
             "app_env": settings.app_env,
             "is_production": settings.is_production,
             "redis_configured": bool(settings.redis_url),
-            "ai_configured": bool(settings.openai_api_key or settings.stock_llm_api_url),
             "rate_limit_fail_open": settings.rate_limit_fail_open,
             "executor_workers": settings.executor_max_workers,
         },
@@ -72,12 +79,6 @@ def _validate_environment(settings) -> None:
             "production.redis_required",
             extra={"detail": "REDIS_URL is required in production"},
         )
-    if not settings.openai_api_key and not settings.stock_llm_api_url:
-        _logger.warning(
-            "ai.not_configured",
-            extra={"detail": "No AI provider configured — AI engine will fall back to statistical"},
-        )
-
     # --- Production-specific warnings ---
     if settings.is_production:
         if "*" in settings.cors_allow_origins:
@@ -144,8 +145,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if path.startswith("/vendor/") or path.startswith("/icons/"):
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif path in FRONTEND_SHELL_ASSETS:
+            # The app shell uses stable filenames, so long-lived caching can pin a broken bundle.
+            response.headers["Cache-Control"] = "no-cache"
         elif path.endswith((".css", ".js", ".webmanifest")):
-            response.headers["Cache-Control"] = "public, max-age=3600, stale-while-revalidate=86400"
+            if settings.is_production:
+                response.headers["Cache-Control"] = "public, max-age=3600, stale-while-revalidate=86400"
+            else:
+                response.headers["Cache-Control"] = "no-cache"
         elif path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
 

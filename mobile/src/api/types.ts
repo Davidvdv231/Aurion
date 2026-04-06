@@ -1,6 +1,6 @@
 export type AssetType = "stock" | "crypto";
-export type ForecastEngine = "stat" | "ml" | "ai";
-export type EngineUsed = "stat" | "ml" | "ai" | "stat_fallback" | "ml_fallback";
+export type ForecastEngine = "stat" | "ml";
+export type EngineUsed = "stat" | "ml" | "stat_fallback";
 export type PredictionTrend = "bullish" | "bearish" | "neutral";
 export type ConfidenceTier = "low" | "medium" | "high";
 export type PredictionSignal = "Strongly Bullish" | "Bullish Outlook" | "Neutral" | "Bearish Outlook" | "Strongly Bearish";

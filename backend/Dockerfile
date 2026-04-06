@@ -17,7 +17,7 @@ FROM python:3.12-slim AS runtime
 
 LABEL maintainer="Aurion Team" \
       version="0.5.0" \
-      description="Aurion AI Market Intelligence API"
+      description="Aurion Market Intelligence API"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

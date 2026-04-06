@@ -131,11 +131,7 @@ class RateLimiter:
 
     def enforce_predict_limit(self, request: FastAPIRequest, engine: EngineType) -> None:
         window_seconds = self._settings.rate_limit_window_seconds
-        limit = (
-            self._settings.rate_limit_max_requests_ai
-            if engine == "ai"
-            else self._settings.rate_limit_max_requests_stat
-        )
+        limit = self._settings.rate_limit_max_requests_stat
 
         if limit <= 0:
             return

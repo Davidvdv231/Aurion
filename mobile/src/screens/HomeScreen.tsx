@@ -105,14 +105,14 @@ export function HomeScreen({ navigation }: HomeScreenProps) {
           </View>
 
           <View style={styles.toggleRow}>
-            {(["ml", "stat", "ai"] as const).map((eng) => (
+            {(["ml", "stat"] as const).map((eng) => (
               <Pressable
                 key={eng}
                 onPress={() => setEngine(eng)}
                 style={[styles.toggle, engine === eng && styles.toggleActive]}
               >
                 <Text style={styles.toggleText}>
-                  {eng === "ml" ? "ML" : eng === "stat" ? "Stat" : "AI"}
+                  {eng === "ml" ? "ML" : "Stat"}
                 </Text>
               </Pressable>
             ))}

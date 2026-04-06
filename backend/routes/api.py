@@ -120,13 +120,6 @@ async def health_ready(request: FastAPIRequest) -> dict:
     except Exception:
         checks["market_data"] = "unavailable"
 
-    # AI provider check
-    settings = _settings(request)
-    if settings.openai_api_key or settings.stock_llm_api_url:
-        checks["ai_provider"] = "configured"
-    else:
-        checks["ai_provider"] = "not_configured"
-
     return {
         "ready": ready,
         "timestamp": datetime.now(timezone.utc).isoformat(),

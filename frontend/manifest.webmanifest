@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Aurion - AI Market Intelligence",
+  "name": "Aurion - Market Intelligence",
   "short_name": "Aurion",
-  "description": "AI-powered stock and crypto price forecasting with ML pattern analysis.",
+  "description": "Stock and crypto price forecasting with statistical and ML analysis.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

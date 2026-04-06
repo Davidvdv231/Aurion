@@ -101,14 +101,8 @@ class Settings:
     memory_cache_sweep_batch_size: int
     rate_limit_window_seconds: int
     rate_limit_max_requests_stat: int
-    rate_limit_max_requests_ai: int
     rate_limit_max_requests_search: int
     rate_limit_fail_open: bool
-    openai_chat_completions_url: str
-    openai_model: str
-    openai_api_key: str
-    stock_llm_api_url: str
-    stock_llm_api_key: str
     redis_url: str
     redis_prefix: str
     redis_socket_timeout_seconds: float
@@ -140,7 +134,7 @@ def get_settings() -> Settings:
 
     return Settings(
         app_env=app_env,
-        app_title="Aurion - AI Market Intelligence API",
+        app_title="Aurion - Market Intelligence API",
         version="0.5.0",
         cors_allow_origins=cors_origins,
         top_cache_ttl_seconds=_int_env("TOP_CACHE_TTL_SECONDS", 15 * 60, minimum=30),
@@ -154,21 +148,11 @@ def get_settings() -> Settings:
         memory_cache_sweep_batch_size=_int_env("MEMORY_CACHE_SWEEP_BATCH_SIZE", 64, minimum=1),
         rate_limit_window_seconds=_int_env("RATE_LIMIT_WINDOW_SECONDS", 60, minimum=1),
         rate_limit_max_requests_stat=_int_env("RATE_LIMIT_MAX_REQUESTS_STAT", 30, minimum=0),
-        rate_limit_max_requests_ai=_int_env("RATE_LIMIT_MAX_REQUESTS_AI", 8, minimum=0),
         rate_limit_max_requests_search=_int_env("RATE_LIMIT_MAX_REQUESTS_SEARCH", 60, minimum=0),
         rate_limit_fail_open=_bool_env(
             "RATE_LIMIT_FAIL_OPEN",
             default=app_env.lower() not in {"prod", "production"},
         ),
-        openai_chat_completions_url=os.getenv(
-            "OPENAI_CHAT_COMPLETIONS_URL",
-            "https://api.openai.com/v1/chat/completions",
-        ).strip()
-        or "https://api.openai.com/v1/chat/completions",
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini",
-        openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
-        stock_llm_api_url=os.getenv("STOCK_LLM_API_URL", "").strip(),
-        stock_llm_api_key=os.getenv("STOCK_LLM_API_KEY", "").strip(),
         redis_url=os.getenv("REDIS_URL", "").strip(),
         redis_prefix=os.getenv("REDIS_PREFIX", "stock-predictor").strip() or "stock-predictor",
         redis_socket_timeout_seconds=_float_env("REDIS_SOCKET_TIMEOUT_SECONDS", 1.0, minimum=0.1),

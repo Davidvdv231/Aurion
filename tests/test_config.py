@@ -20,15 +20,14 @@ def test_get_settings_loads_values_from_dotenv(monkeypatch) -> None:
     temp_root = _make_temp_root()
     try:
         (temp_root / ".env").write_text(
-            "OPENAI_API_KEY=test-openai-key\nOPENAI_MODEL=test-model\nCORS_ALLOW_ORIGINS=http://a,http://b\n",
+            "REDIS_PREFIX=test-prefix\nCORS_ALLOW_ORIGINS=http://a,http://b\n",
             encoding="utf-8",
         )
         monkeypatch.setattr("backend.config.PROJECT_ROOT", temp_root)
 
         settings = get_settings()
 
-        assert settings.openai_api_key == "test-openai-key"
-        assert settings.openai_model == "test-model"
+        assert settings.redis_prefix == "test-prefix"
         assert settings.cors_allow_origins == ("http://a", "http://b")
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -37,13 +36,13 @@ def test_get_settings_loads_values_from_dotenv(monkeypatch) -> None:
 def test_real_environment_overrides_dotenv(monkeypatch) -> None:
     temp_root = _make_temp_root()
     try:
-        (temp_root / ".env").write_text("OPENAI_API_KEY=dotenv-value\n", encoding="utf-8")
+        (temp_root / ".env").write_text("REDIS_PREFIX=dotenv-value\n", encoding="utf-8")
         monkeypatch.setattr("backend.config.PROJECT_ROOT", temp_root)
-        monkeypatch.setenv("OPENAI_API_KEY", "shell-value")
+        monkeypatch.setenv("REDIS_PREFIX", "shell-value")
 
         settings = get_settings()
 
-        assert settings.openai_api_key == "shell-value"
+        assert settings.redis_prefix == "shell-value"
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
 

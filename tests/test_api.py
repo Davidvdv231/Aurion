@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import replace
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -12,6 +13,8 @@ from backend.app import RequestSizeLimitMiddleware, create_app
 from backend.errors import ServiceError
 from backend.ml.model import BacktestMetrics, FeatureDifference, ForecastResult
 from backend.services.market_data import MarketSeries
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _close_series() -> pd.Series:
@@ -49,8 +52,8 @@ def _assert_predict_contract(payload: dict, *, evaluation_expected: bool) -> Non
     assert payload["currency"]
     assert payload["generated_at"]
     assert isinstance(payload["horizon_days"], int)
-    assert payload["engine_requested"] in {"stat", "ml", "ai"}
-    assert payload["engine_used"] in {"stat", "ml", "ai", "stat_fallback", "ml_fallback"}
+    assert payload["engine_requested"] in {"stat", "ml"}
+    assert payload["engine_used"] in {"stat", "ml", "stat_fallback"}
     assert payload["model_name"]
     assert payload["engine_note"]
     assert {"market_data", "forecast", "analysis", "data_quality", "data_warnings", "stale"} <= set(
@@ -143,6 +146,44 @@ def test_predict_success_returns_typed_contract(client, monkeypatch) -> None:
     assert payload["source"]["forecast"] == "stat"
     assert payload["source"]["data_quality"] == "clean"
     assert payload["degraded"] is False
+
+
+def test_frontend_shell_assets_disable_caching_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _DummyRedis:
+        def register_script(self, _script):
+            return lambda *args, **kwargs: 1
+
+        def ping(self) -> bool:
+            return True
+
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("REDIS_URL", "redis://unit-test")
+    monkeypatch.setattr("backend.services.rate_limit.Redis.from_url", lambda *args, **kwargs: _DummyRedis())
+    app = create_app()
+    with TestClient(app) as prod_client:
+        app_js_response = prod_client.get("/app.js")
+        assert app_js_response.status_code == 200
+        assert app_js_response.headers["cache-control"] == "no-cache"
+
+        shell_response = prod_client.get("/")
+        assert shell_response.status_code == 200
+        assert shell_response.headers["cache-control"] == "no-cache"
+
+        vendor_response = prod_client.get("/vendor/chart.umd.min.js")
+        assert vendor_response.status_code == 200
+        assert (
+            vendor_response.headers["cache-control"] == "public, max-age=31536000, immutable"
+        )
+
+
+def test_frontend_app_js_has_no_merge_conflict_markers() -> None:
+    app_js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+    conflict_lines = [
+        line
+        for line in app_js.splitlines()
+        if line.startswith("<<<<<<< ") or line == "=======" or line.startswith(">>>>>>> ")
+    ]
+    assert conflict_lines == []
 
 
 def test_predict_get_is_kept_for_backward_compatibility(client, monkeypatch) -> None:
@@ -281,45 +322,14 @@ def test_predict_degrades_to_statistical_fallback_when_ml_quality_gate_fails(
     assert payload["explanation"]["top_features"][0]["relation"] == "higher"
 
 
-def test_predict_degrades_to_statistical_fallback_when_ai_fails(client, monkeypatch) -> None:
-    monkeypatch.setattr(
-        "backend.services.prediction.fetch_close_prices",
-        lambda **_: MarketSeries(
-            close=_close_series(),
-            resolved_symbol="BTC-USD",
-            currency="USD",
-            source="yfinance",
-        ),
-    )
-
-    def raise_ai_failure(*_, **__):
-        raise ServiceError(
-            status_code=502,
-            code="provider_unavailable",
-            message="OpenAI service unreachable.",
-            provider="openai",
-            retryable=True,
-        )
-
-    monkeypatch.setattr("backend.services.prediction.build_ai_forecast", raise_ai_failure)
-
+def test_predict_rejects_removed_ai_engine(client) -> None:
     response = client.post(
         "/api/predict",
         json={"symbol": "BTC", "horizon": 30, "engine": "ai", "asset_type": "crypto"},
     )
 
-    assert response.status_code == 200
-    payload = response.json()
-    _assert_predict_contract(payload, evaluation_expected=False)
-    assert payload["engine_used"] == "stat_fallback"
-    assert payload["degraded"] is True
-    assert payload["degradation_code"] == "ai_provider_unavailable"
-    assert (
-        payload["degradation_message"]
-        == "AI provider is temporarily unavailable. Fell back to statistical forecast."
-    )
-    assert payload["degradation_reason"] == payload["degradation_message"]
-    assert payload["source"]["forecast"] == "stat_fallback"
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_request"
 
 
 def test_request_size_limit_rejects_large_body_without_content_length() -> None:

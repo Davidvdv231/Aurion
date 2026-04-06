@@ -6,8 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.ticker_catalog import AssetType
 
-EngineType = Literal["stat", "ml", "ai"]
-EngineUsed = Literal["stat", "ml", "ai", "stat_fallback", "ml_fallback"]
+EngineType = Literal["stat", "ml"]
+EngineUsed = Literal["stat", "ml", "stat_fallback"]
 
 SUPPORTED_CURRENCIES = {"USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD"}
 

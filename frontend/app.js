@@ -1,5 +1,5 @@
 /* ============================================
-   AURION - AI Market Intelligence
+   AURION - Market Intelligence
    Frontend Application
    ============================================ */
 
@@ -240,7 +240,6 @@ function formatSourceLabel(value) {
     stat_fallback: "Statistical fallback",
     ml_analog: "ML analog analysis",
     ml_pattern_difference: "Pattern-difference analysis",
-    ai: "AI forecast",
     unknown: "Unknown",
   };
   return labels[value] || String(value || "Unknown").replace(/_/g, " ");

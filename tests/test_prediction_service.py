@@ -32,14 +32,8 @@ def _settings() -> Settings:
         memory_cache_sweep_batch_size=4,
         rate_limit_window_seconds=60,
         rate_limit_max_requests_stat=30,
-        rate_limit_max_requests_ai=8,
         rate_limit_max_requests_search=60,
         rate_limit_fail_open=True,
-        openai_chat_completions_url="https://api.openai.com/v1/chat/completions",
-        openai_model="gpt-4o-mini",
-        openai_api_key="",
-        stock_llm_api_url="",
-        stock_llm_api_key="",
         redis_url="",
         redis_prefix="test",
         redis_socket_timeout_seconds=1.0,
@@ -288,7 +282,7 @@ def test_prediction_service_falls_back_when_ml_task_times_out(monkeypatch) -> No
     )
 
     def slow_train_and_predict(**_):
-        time.sleep(0.05)
+        time.sleep(0.08)
         return (
             _forecast_result(),
             BacktestMetrics(
@@ -304,47 +298,13 @@ def test_prediction_service_falls_back_when_ml_task_times_out(monkeypatch) -> No
 
     response = _run_prediction(
         PredictRequest(symbol="AAPL", horizon=30, engine="ml", asset_type="stock"),
-        settings=replace(_settings(), blocking_task_timeout_seconds=0.01),
+        settings=replace(_settings(), blocking_task_timeout_seconds=0.03),
     )
 
     assert response.engine_used == "stat_fallback"
     assert response.degraded is True
     assert response.degradation_code == "ml_engine_timeout"
     assert response.degradation_message == "ML engine timed out. Fell back to statistical forecast."
-    assert response.source.forecast == "stat_fallback"
-    assert response.source.analysis is None
-    assert response.explanation is None
-
-
-def test_prediction_service_falls_back_to_stat_when_ai_provider_fails(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "backend.services.prediction.fetch_close_prices",
-        lambda **_: _market_series(symbol="BTC-USD"),
-    )
-
-    def raise_ai_failure(*_, **__):
-        raise ServiceError(
-            status_code=502,
-            code="provider_unavailable",
-            message="OpenAI service unreachable.",
-            provider="openai",
-            retryable=True,
-        )
-
-    monkeypatch.setattr("backend.services.prediction.build_ai_forecast", raise_ai_failure)
-
-    response = _run_prediction(
-        PredictRequest(symbol="BTC", horizon=30, engine="ai", asset_type="crypto")
-    )
-
-    assert response.engine_requested == "ai"
-    assert response.engine_used == "stat_fallback"
-    assert response.degraded is True
-    assert response.degradation_code == "ai_provider_unavailable"
-    assert (
-        response.degradation_message
-        == "AI provider is temporarily unavailable. Fell back to statistical forecast."
-    )
     assert response.source.forecast == "stat_fallback"
     assert response.source.analysis is None
     assert response.explanation is None

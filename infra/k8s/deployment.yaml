@@ -35,11 +35,6 @@ spec:
                 secretKeyRef:
                   name: aurion-secrets
                   key: REDIS_URL
-            - name: OPENAI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: aurion-secrets
-                  key: OPENAI_API_KEY
           livenessProbe:
             httpGet:
               path: /api/health

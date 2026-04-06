@@ -17,8 +17,8 @@ type Props = NativeStackScreenProps<RootStackParamList, "AssetDetail">;
 
 const CURRENCY_STORAGE_KEY = "aurion-currency";
 const CURRENCIES: SupportedCurrency[] = ["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD"];
-const ENGINES: ForecastEngine[] = ["ml", "stat", "ai"];
-const ENGINE_LABELS: Record<ForecastEngine, string> = { ml: "ML", stat: "Stat", ai: "AI" };
+const ENGINES: ForecastEngine[] = ["ml", "stat"];
+const ENGINE_LABELS: Record<ForecastEngine, string> = { ml: "ML", stat: "Stat" };
 const MIN_HORIZON = 7;
 const MAX_HORIZON = 45;
 

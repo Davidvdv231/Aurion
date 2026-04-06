@@ -7,7 +7,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
-Aurion is a multi-engine market forecasting system that combines statistical baselines, ML pattern matching, and AI-assisted prediction — with explicit quality gating and transparent degradation. When a model underperforms its benchmark, the system falls back honestly and tells you why. Built for trust under imperfect conditions, not prediction theater.
+Aurion is a multi-engine market forecasting system that combines statistical baselines and ML pattern matching with explicit quality gating and transparent degradation. When a model underperforms its benchmark, the system falls back honestly and tells you why. Built for trust under imperfect conditions, not prediction theater.
 
 ## Architecture
 
@@ -21,10 +21,8 @@ flowchart TD
 
     PO --> |"engine=stat"| STAT["Statistical Baseline"]
     PO --> |"engine=ml"| ML["ML Analog Forecaster (k-NN)"]
-    PO --> |"engine=ai"| AI["AI Provider (OpenAI / Custom)"]
 
     ML --> QG{"Quality Gate"}
-    AI --> QG
     QG --> |"passes"| RES["Response with engine_used"]
     QG --> |"fails"| FB["Fallback to Statistical"]
     FB --> DEG["Response with degraded=true + degradation_code"]
@@ -45,7 +43,6 @@ flowchart TD
 | Frontend framework | Vanilla JS PWA | Zero build step, instant deployment, but no component reuse |
 | Rate limiting | Redis-backed with Lua atomic ops | Fail-closed in production protects infra, but Redis failure = 503 |
 | Caching | Dual-layer (memory + Redis) | Fast reads with persistence, but cache invalidation complexity |
-| AI integration | External provider with fallback | Leverages LLM capability, but black-box dependency |
 | Currency conversion | Server-side via yfinance forex pairs | Real-time rates with 1-hour cache, supports USD/EUR/GBP/JPY/CHF/CAD/AUD |
 | Request tracing | Request-ID middleware with sanitization | Every request gets a traceable ID in logs and response headers |
 
@@ -60,9 +57,6 @@ flowchart TD
 | ML requested, MAPE > baseline MAPE | `stat_fallback` | `true` | `model_baseline_underperforming` |
 | ML requested, training timeout (>15s) | `stat_fallback` | `true` | `ml_engine_timeout` |
 | ML requested, exception during training | `stat_fallback` | `true` | `ml_engine_unavailable` |
-| AI requested, provider timeout | `stat_fallback` | `true` | `ai_provider_timeout` |
-| AI requested, provider error | `stat_fallback` | `true` | `ai_provider_unavailable` |
-| AI requested, no API keys configured | `stat_fallback` | `true` | `not_configured` |
 
 ## Example API Responses
 
@@ -214,7 +208,6 @@ ruff check backend/ tests/
 |-------|-----------|---------|
 | API | FastAPI 0.115 / Python 3.12 | Async API with validation |
 | ML | scikit-learn / NumPy / pandas | k-NN analog pattern forecaster |
-| AI | OpenAI API / Custom LLM | AI-assisted forecasting (fallback) |
 | Cache | Redis 7 + in-memory TTL | Dual-layer with configurable TTLs |
 | Web | Vanilla JS PWA | Zero-dependency frontend with service worker |
 | Mobile | React Native / Expo 54 | Cross-platform mobile client |
@@ -227,7 +220,6 @@ ruff check backend/ tests/
 - **ML model is k-NN analog** — simple by design, not a deep learning system. Effective for pattern matching, limited for complex market dynamics.
 - **Market data via yfinance** — free and functional, but not a production-grade feed. Rate limits and data gaps may occur.
 - **No persistent storage** — models and cache reset on container restart. No user database.
-- **AI path requires external API keys** — not self-contained. Depends on OpenAI or custom LLM availability.
 - **No user authentication** — stateless API, no multi-tenancy or user sessions.
 - **Mobile chart is a visual placeholder** — forecast cards work, but no charting library integrated yet.
 - **Single-process deployment** — no horizontal scaling or distributed training.
