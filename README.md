@@ -9,6 +9,20 @@
 
 Aurion is a multi-engine market forecasting system that combines statistical baselines and ML pattern matching with explicit quality gating and transparent degradation. When a model underperforms its benchmark, the system falls back honestly and tells you why. Built for trust under imperfect conditions, not prediction theater.
 
+## Screenshots
+
+**Statistical forecast with chart and signal card:**
+
+![Desktop forecast](docs/screenshots/aurion-desktop-forecast.png)
+
+**ML prediction with quality gate fallback and pattern explanation:**
+
+![ML prediction with degradation](docs/screenshots/aurion-ml-prediction.png)
+
+**Responsive mobile layout:**
+
+![Mobile view](docs/screenshots/aurion-mobile-forecast.png)
+
 ## Architecture
 
 ```mermaid
@@ -145,11 +159,12 @@ flowchart TD
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/api/health` | GET | Liveness check — status, Redis health, cache size, uptime |
-| `/api/health/ready` | GET | Readiness check — validates all dependencies |
-| `/api/metrics` | GET | Prediction metrics snapshot (counts, latency, fallback rates) |
+| `/api/health/ready` | GET | Readiness check — returns 503 when dependencies are down |
+| `/api/metrics` | GET | Prediction metrics snapshot (protected by `METRICS_TOKEN` when set) |
 | `/api/tickers` | GET | Search tickers by query (1-50 results) |
 | `/api/top-assets` | GET | Trending assets by type, cached 15 min |
-| `/api/metrics/prometheus` | GET | Prometheus exposition format metrics |
+| `/api/metrics/prometheus` | GET | Prometheus exposition format (protected by `METRICS_TOKEN` when set) |
+| `/api/validation-summary` | GET | ML quality-gate thresholds and latest evaluation (protected) |
 | `/api/predict` | POST | Multi-engine prediction with quality gating and degradation |
 
 ## Quick Start
@@ -200,7 +215,7 @@ mypy backend/ --strict
 ruff check backend/ tests/
 ```
 
-63 tests covering: API contracts, prediction orchestration, ML pipeline, rate limiting, market data integrity, configuration, smoke integration, and frontend E2E (Playwright).
+78 tests covering: API contracts, prediction orchestration, ML pipeline, rate limiting, market data integrity, exchange rates, configuration, smoke integration, and frontend E2E (Playwright).
 
 ## Tech Stack
 
@@ -220,7 +235,7 @@ ruff check backend/ tests/
 - **ML model is k-NN analog** — simple by design, not a deep learning system. Effective for pattern matching, limited for complex market dynamics.
 - **Market data via yfinance** — free and functional, but not a production-grade feed. Rate limits and data gaps may occur.
 - **No persistent storage** — models and cache reset on container restart. No user database.
-- **No user authentication** — stateless API, no multi-tenancy or user sessions.
+- **No user authentication** — stateless API, no multi-tenancy or user sessions. Operational endpoints (`/api/metrics`, `/api/validation-summary`) can be protected via the `METRICS_TOKEN` env var.
 - **Mobile chart is a visual placeholder** — forecast cards work, but no charting library integrated yet.
 - **Single-process deployment** — no horizontal scaling or distributed training.
 
@@ -237,7 +252,7 @@ ruff check backend/ tests/
 
 Aurion is a solo-built MVP. The prediction orchestration, degradation semantics, currency conversion, and web PWA are production-quality. Observability covers request tracing, Prometheus metrics, and structured JSON logging. The ML model is functional but would benefit from deeper validation. The mobile app is scaffolded and usable but secondary to the web experience.
 
-**Current focus:** ML validation depth, mobile feature parity, and deployment hardening.
+**Current focus:** Pre-launch hardening complete — XSS mitigation, endpoint protection, mobile error boundaries, automated cache versioning, and expanded test coverage (78 tests).
 
 ## License
 
