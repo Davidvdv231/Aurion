@@ -9,6 +9,17 @@
 
 Aurion is a multi-engine market forecasting system that combines statistical baselines and ML pattern matching with explicit quality gating and transparent degradation. When a model underperforms its benchmark, the system falls back honestly and tells you why. Built for trust under imperfect conditions, not prediction theater.
 
+### Why this matters
+
+Most forecasting tools either silently serve bad predictions or fail without explanation. Aurion takes a different approach: every prediction passes through a quality gate that checks directional accuracy, error margins, and validation depth. If the ML model can't beat a simple statistical baseline, the system says so explicitly — with a degradation code, a human-readable reason, and a fallback forecast. This makes the output trustworthy by default, not by assumption.
+
+### Highlights
+
+- **Multi-engine forecasting** — statistical baseline and k-NN analog pattern matching, with automatic engine selection
+- **Quality gating with transparent fallback** — ML predictions are validated against baselines; failures degrade honestly with specific codes
+- **Currency conversion** — server-side forex via yfinance, supporting 7 currencies with 1-hour cache
+- **Observability** — structured JSON logging, Prometheus metrics, request tracing, and health/readiness probes
+
 ## Screenshots
 
 **Statistical forecast with chart and signal card:**
@@ -65,7 +76,7 @@ flowchart TD
 | Condition | Engine Used | Degraded | Code |
 |-----------|------------|----------|------|
 | Stat engine requested | `stat` | `false` | — |
-| ML requested, quality passes | `ml_analog` | `false` | — |
+| ML requested, quality passes | `ml` | `false` | — |
 | ML requested, validation windows < 3 | `stat_fallback` | `true` | `model_validation_insufficient` |
 | ML requested, directional accuracy < 0.45 | `stat_fallback` | `true` | `model_quality_insufficient` |
 | ML requested, MAPE > baseline MAPE | `stat_fallback` | `true` | `model_baseline_underperforming` |
@@ -84,7 +95,8 @@ flowchart TD
   "native_currency": "USD",
   "display_currency": "USD",
   "engine_requested": "ml",
-  "engine_used": "ml_analog",
+  "engine_used": "ml",
+  "model_name": "Aurion Analog Forecaster",
   "degraded": false,
   "degradation_code": null,
   "degradation_message": null,
@@ -250,7 +262,7 @@ ruff check backend/ tests/
 
 ## Project Status
 
-Aurion is a solo-built MVP. The prediction orchestration, degradation semantics, currency conversion, and web PWA are production-quality. Observability covers request tracing, Prometheus metrics, and structured JSON logging. The ML model is functional but would benefit from deeper validation. The mobile app is scaffolded and usable but secondary to the web experience.
+Aurion is a solo-built MVP. The prediction orchestration, degradation semantics, currency conversion, and web PWA are production-minded — designed with real deployment patterns (rate limiting, health probes, structured logging, security headers) but scoped as a portfolio-grade MVP, not a scaled production system. The ML model is functional but would benefit from deeper validation on more volatile assets. The mobile app (React Native/Expo) covers core functionality — predictions, watchlist, currency selection, degradation badges — but does not have full feature parity with the web client: charting is placeholder-only, autocomplete uses local fallback data, and there is no offline-first sync.
 
 **Current focus:** Pre-launch hardening complete — XSS mitigation, endpoint protection, mobile error boundaries, automated cache versioning, and expanded test coverage (78 tests).
 
