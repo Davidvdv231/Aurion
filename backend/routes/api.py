@@ -106,9 +106,7 @@ async def health_ready(request: FastAPIRequest) -> JSONResponse:
     # Redis check
     cache = _cache_backend(request)
     try:
-        redis_status = await asyncio.get_running_loop().run_in_executor(
-            None, cache.redis_ping
-        )
+        redis_status = await asyncio.get_running_loop().run_in_executor(None, cache.redis_ping)
         checks["redis"] = redis_status
         if redis_status == "unavailable":
             ready = False
