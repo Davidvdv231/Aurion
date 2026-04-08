@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from threading import Lock
 
 _logger = logging.getLogger("stock_predictor.exchange_rates")
 
@@ -21,22 +22,25 @@ _FOREX_PAIRS = {
 }
 
 _rate_cache: dict[str, tuple[float, float]] = {}  # key -> (rate, timestamp)
+_rate_lock = Lock()
 _CACHE_TTL_SECONDS = 3600  # 1 hour
 
 
 def _get_cached_rate(from_cur: str, to_cur: str) -> float | None:
     """Return cached rate if fresh, else None."""
     key = f"{from_cur}_{to_cur}"
-    if key in _rate_cache:
-        rate, ts = _rate_cache[key]
-        if time.monotonic() - ts < _CACHE_TTL_SECONDS:
-            return rate
+    with _rate_lock:
+        if key in _rate_cache:
+            rate, ts = _rate_cache[key]
+            if time.monotonic() - ts < _CACHE_TTL_SECONDS:
+                return rate
     return None
 
 
 def _set_cached_rate(from_cur: str, to_cur: str, rate: float) -> None:
     key = f"{from_cur}_{to_cur}"
-    _rate_cache[key] = (rate, time.monotonic())
+    with _rate_lock:
+        _rate_cache[key] = (rate, time.monotonic())
 
 
 def get_exchange_rate(from_currency: str, to_currency: str) -> float:

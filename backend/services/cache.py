@@ -86,6 +86,16 @@ class CacheBackend:
     def memory_size(self) -> int:
         return len(self._memory)
 
+    def redis_ping(self) -> str:
+        """Check Redis connectivity. Returns 'connected', 'unavailable', or 'not_configured'."""
+        if self._redis is None:
+            return "not_configured"
+        try:
+            self._redis.ping()
+            return "connected"
+        except Exception:
+            return "unavailable"
+
     def _namespaced(self, key: str) -> str:
         return f"{self._prefix}:cache:{key}"
 

@@ -66,7 +66,7 @@ flowchart TD
 | Forecasting approach | Multi-engine with quality gating | More complex orchestration, but honest about prediction quality |
 | ML model | k-NN analog pattern matching | Simple and interpretable, but limited expressiveness vs. deep learning |
 | Frontend framework | Vanilla JS PWA | Zero build step, instant deployment, but no component reuse |
-| Rate limiting | Redis-backed with Lua atomic ops | Fail-closed in production protects infra, but Redis failure = 503 |
+| Rate limiting | Redis-backed with Lua atomic ops | Fail-closed in production (Redis failure = 503), fail-open in development (no limiting) |
 | Caching | Dual-layer (memory + Redis) | Fast reads with persistence, but cache invalidation complexity |
 | Currency conversion | Server-side via yfinance forex pairs | Real-time rates with 1-hour cache, supports USD/EUR/GBP/JPY/CHF/CAD/AUD |
 | Request tracing | Request-ID middleware with sanitization | Every request gets a traceable ID in logs and response headers |
@@ -138,7 +138,13 @@ flowchart TD
     "confidence_tier": "low",
     "signal": "Bearish Outlook"
   },
-  "evaluation": null,
+  "evaluation": {
+    "mae": 1.85,
+    "rmse": 2.34,
+    "mape": 6.8,
+    "directional_accuracy": null,
+    "validation_windows": null
+  },
   "forecast": [
     {"date": "2026-04-07", "predicted": 27.42, "lower": 25.80, "upper": 29.04}
   ]
@@ -234,7 +240,7 @@ ruff check backend/ tests/
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
 | API | FastAPI 0.115 / Python 3.12 | Async API with validation |
-| ML | scikit-learn / NumPy / pandas | k-NN analog pattern forecaster |
+| ML | NumPy / pandas | k-NN analog pattern forecaster |
 | Cache | Redis 7 + in-memory TTL | Dual-layer with configurable TTLs |
 | Web | Vanilla JS PWA | Zero-dependency frontend with service worker |
 | Mobile | React Native / Expo 54 | Cross-platform mobile client |

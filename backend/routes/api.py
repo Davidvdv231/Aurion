@@ -88,19 +88,10 @@ def health(request: FastAPIRequest) -> HealthResponse:
     cache = _cache_backend(request)
     uptime = int(time.monotonic() - request.app.state.boot_time)
 
-    # Check Redis connectivity
-    redis_status = "not_configured"
-    if cache._redis is not None:
-        try:
-            cache._redis.ping()
-            redis_status = "connected"
-        except Exception:
-            redis_status = "unavailable"
-
     return HealthResponse(
         status="ok",
         timestamp=datetime.now(timezone.utc).isoformat(),
-        redis=redis_status,
+        redis=cache.redis_ping(),
         cache_size=cache.memory_size,
         uptime_seconds=uptime,
     )
@@ -115,11 +106,12 @@ async def health_ready(request: FastAPIRequest) -> JSONResponse:
     # Redis check
     cache = _cache_backend(request)
     try:
-        if hasattr(cache, "_redis") and cache._redis is not None:
-            await asyncio.get_event_loop().run_in_executor(None, cache._redis.ping)
-            checks["redis"] = "connected"
-        else:
-            checks["redis"] = "not_configured"
+        redis_status = await asyncio.get_running_loop().run_in_executor(
+            None, cache.redis_ping
+        )
+        checks["redis"] = redis_status
+        if redis_status == "unavailable":
+            ready = False
     except Exception:
         checks["redis"] = "unavailable"
         ready = False

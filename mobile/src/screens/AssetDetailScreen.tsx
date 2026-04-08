@@ -52,8 +52,8 @@ function ChartPlaceholder({ points }: { points: PredictResponse["history"] }) {
 
 function formatSignalLabel(signal: PredictResponse["summary"]["signal"]) {
   return signal
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .split(/[\s_]+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
     .join(" ");
 }
 

@@ -541,6 +541,13 @@ async def build_prediction_response(
                 stats["last_close"] = round(stats["last_close"] * rate, 6)
             # Rebuild summary with converted prices
             summary = _build_summary(forecast, stats, evaluation)
+        else:
+            # rate == 1.0 means forex lookup failed — prices are shown in native currency
+            source.data_warnings.append(
+                f"Currency conversion from {native_currency} to {display_currency} "
+                f"unavailable; prices shown in {native_currency}."
+            )
+            display_currency = native_currency
         response_currency = display_currency
     else:
         response_currency = native_currency

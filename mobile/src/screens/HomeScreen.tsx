@@ -9,18 +9,24 @@ import {
   View,
 } from "react-native";
 
+import type { CompositeScreenProps } from "@react-navigation/native";
+import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+
 import type { AssetType, ForecastEngine, TickerItem } from "@/api/types";
 import { demoMarketCards, demoTickers } from "@/data/demoAssets";
 import { MarketCard } from "@/components/MarketCard";
 import { SectionHeader } from "@/components/SectionHeader";
 import { theme } from "@/theme/theme";
 import { searchAssets } from "@/services/marketService";
+import type { MainTabParamList, RootStackParamList } from "@/navigation/types";
 
-interface HomeScreenProps {
-  navigation: any;
-}
+type Props = CompositeScreenProps<
+  BottomTabScreenProps<MainTabParamList, "Home">,
+  NativeStackScreenProps<RootStackParamList>
+>;
 
-export function HomeScreen({ navigation }: HomeScreenProps) {
+export function HomeScreen({ navigation }: Props) {
   const [query, setQuery] = useState("");
   const [assetType, setAssetType] = useState<AssetType>("stock");
   const [engine, setEngine] = useState<ForecastEngine>("ml");

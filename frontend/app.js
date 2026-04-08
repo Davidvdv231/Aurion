@@ -238,6 +238,7 @@ function formatSourceLabel(value) {
   const labels = {
     stat: "Statistical baseline",
     stat_fallback: "Statistical fallback",
+    ml_pattern_difference: "Pattern-difference analysis",
     unknown: "Unknown",
   };
   return labels[value] || String(value || "Unknown").replace(/_/g, " ");
