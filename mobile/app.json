@@ -1,22 +1,21 @@
 {
   "expo": {
-    "name": "Stock Pulse AI",
-    "slug": "stock-pulse-ai",
+    "name": "Aurion",
+    "slug": "aurion",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "scheme": "stockpulseai",
+    "scheme": "aurion",
     "jsEngine": "hermes",
     "platforms": ["ios", "android", "web"],
     "android": {
-      "package": "com.stockpulseai.app"
+      "package": "com.aurion.app"
     },
     "ios": {
-      "bundleIdentifier": "com.stockpulseai.app"
+      "bundleIdentifier": "com.aurion.app"
     },
     "web": {
       "bundler": "metro"
     }
   }
 }
-

@@ -1,25 +1,56 @@
-import { createApiClient } from "@/api/client";
+import { ApiError, createApiClient } from "@/api/client";
 import type { AssetType, ForecastEngine, PredictResponse, SupportedCurrency, TickerItem } from "@/api/types";
-import { demoMarketCards, demoTickers, getDemoForecast } from "@/data/demoAssets";
+import { demoTickers, getDemoForecast } from "@/data/demoAssets";
 
 const api = createApiClient();
 
-export async function loadHighlights(assetType: AssetType) {
+export interface TickerListResult {
+  items: TickerItem[];
+  isDemo: boolean;
+  reason?: string;
+}
+
+function fallbackReason(error: unknown, fallback: string) {
+  if (error instanceof ApiError && error.message) {
+    return error.message;
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return fallback;
+}
+
+export async function loadHighlights(assetType: AssetType): Promise<TickerListResult> {
   try {
     const response = await api.topAssets(assetType, 8);
-    return response.items.length > 0 ? response.items : demoTickers.filter((item) => item.asset_type === assetType);
-  } catch {
-    return demoTickers.filter((item) => item.asset_type === assetType);
+    if (response.items.length > 0) {
+      return { items: response.items, isDemo: false };
+    }
+    return {
+      items: demoTickers.filter((item) => item.asset_type === assetType),
+      isDemo: true,
+      reason: "Top assets endpoint returned no items.",
+    };
+  } catch (error: unknown) {
+    return {
+      items: demoTickers.filter((item) => item.asset_type === assetType),
+      isDemo: true,
+      reason: fallbackReason(error, "Top assets endpoint is unavailable."),
+    };
   }
 }
 
-export async function searchAssets(query: string, assetType: AssetType): Promise<TickerItem[]> {
+export async function searchAssets(query: string, assetType: AssetType): Promise<TickerListResult> {
   try {
     const response = await api.searchTickers(query, assetType, 12);
-    return response.tickers;
-  } catch {
+    return { items: response.tickers, isDemo: false };
+  } catch (error: unknown) {
     const needle = query.toUpperCase();
-    return demoTickers.filter((item) => item.asset_type === assetType && item.symbol.includes(needle));
+    return {
+      items: demoTickers.filter((item) => item.asset_type === assetType && item.symbol.includes(needle)),
+      isDemo: true,
+      reason: fallbackReason(error, "Search endpoint is unavailable."),
+    };
   }
 }
 
@@ -32,6 +63,7 @@ export interface ForecastOptions {
 export interface ForecastResult {
   data: PredictResponse;
   isDemo: boolean;
+  reason?: string;
 }
 
 export async function loadForecast(
@@ -42,12 +74,11 @@ export async function loadForecast(
   const { horizon = 7, engine = "ml", displayCurrency } = options;
   try {
     return { data: await api.predict(symbol, assetType, horizon, engine, displayCurrency), isDemo: false };
-  } catch {
-    return { data: getDemoForecast(symbol, assetType), isDemo: true };
+  } catch (error: unknown) {
+    return {
+      data: getDemoForecast(symbol, assetType, displayCurrency, engine),
+      isDemo: true,
+      reason: fallbackReason(error, "Forecast endpoint is unavailable."),
+    };
   }
 }
-
-export function findDemoCard(symbol: string) {
-  return demoMarketCards.find((item) => item.symbol === symbol.toUpperCase()) ?? demoMarketCards[0];
-}
-

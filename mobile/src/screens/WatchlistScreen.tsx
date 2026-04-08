@@ -15,7 +15,14 @@ export function WatchlistScreen() {
         ...item,
         match:
           demoMarketCards.find((card) => card.symbol === item.symbol) ||
-          ({ symbol: item.symbol, name: item.name, price: 0, changePct: 0, confidence: 0.5, trend: "neutral" } as const),
+          ({
+            symbol: item.symbol,
+            name: item.name,
+            assetType: item.assetType,
+            exchange: "Watchlist",
+            region: "LOCAL",
+            source: "demo",
+          } as const),
       })),
     [items],
   );
@@ -41,18 +48,18 @@ export function WatchlistScreen() {
         </View>
       ) : (
         hydrated.map((entry) => (
-          <View key={entry.symbol} style={styles.row}>
-            <View>
-              <Text style={styles.symbol}>{entry.symbol}</Text>
-              <Text style={styles.name}>{entry.name}</Text>
+            <View key={entry.symbol} style={styles.row}>
+              <View>
+                <Text style={styles.symbol}>{entry.symbol}</Text>
+                <Text style={styles.name}>{entry.name}</Text>
+              </View>
+              <View style={styles.rowActions}>
+                <Text style={styles.meta}>{entry.match.assetType}</Text>
+                <Pressable onPress={() => remove(entry.symbol)} style={styles.removeButton}>
+                  <Text style={styles.removeText}>Remove</Text>
+                </Pressable>
+              </View>
             </View>
-            <View style={styles.rowActions}>
-              <Text style={styles.meta}>{entry.match.trend}</Text>
-              <Pressable onPress={() => remove(entry.symbol)} style={styles.removeButton}>
-                <Text style={styles.removeText}>Remove</Text>
-              </Pressable>
-            </View>
-          </View>
         ))
       )}
     </ScrollView>
@@ -137,4 +144,3 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
-

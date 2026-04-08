@@ -75,6 +75,17 @@ def test_fetch_close_prices_preserves_cached_quality_metadata() -> None:
                 {"date": idx.date().isoformat(), "close": float(value)}
                 for idx, value in close.items()
             ],
+            "ohlcv": [
+                {
+                    "date": idx.date().isoformat(),
+                    "open": float(value - 1),
+                    "high": float(value + 1),
+                    "low": float(value - 2),
+                    "close": float(value),
+                    "volume": 1000.0,
+                }
+                for idx, value in close.items()
+            ],
         },
         settings.history_cache_ttl_seconds,
     )
@@ -89,6 +100,8 @@ def test_fetch_close_prices_preserves_cached_quality_metadata() -> None:
     assert result.source == "cache:yfinance"
     assert result.data_quality == "degraded"
     assert "Gap detected in source data." in result.data_warnings
+    assert result.ohlcv is not None
+    assert list(result.ohlcv.columns) == ["Open", "High", "Low", "Close", "Volume"]
 
 
 def test_in_memory_ttl_cache_evicts_oldest_entries() -> None:

@@ -12,14 +12,16 @@ class PredictionMetrics:
         self._lock = threading.Lock()
         self.predictions_total = 0
         self.predictions_by_engine: dict[str, int] = defaultdict(int)
+        self.predictions_by_requested_engine: dict[str, int] = defaultdict(int)
+        self.predictions_by_engine_status: dict[tuple[str, str, str], int] = defaultdict(int)
         self.fallbacks_total = 0
         self.fallbacks_by_code: dict[str, int] = defaultdict(int)
-        self.predictions_degraded: dict[str, int] = defaultdict(int)
         self.rate_limit_429_total = 0
         self._latencies: list[float] = []
 
     def record_prediction(
         self,
+        engine_requested: str,
         engine_used: str,
         total_ms: float,
         degraded: bool = False,
@@ -28,10 +30,10 @@ class PredictionMetrics:
         with self._lock:
             self.predictions_total += 1
             self.predictions_by_engine[engine_used] += 1
+            self.predictions_by_requested_engine[engine_requested] += 1
+            degraded_label = "true" if degraded else "false"
+            self.predictions_by_engine_status[(engine_requested, engine_used, degraded_label)] += 1
             if degraded:
-                self.predictions_degraded[engine_used] = (
-                    self.predictions_degraded.get(engine_used, 0) + 1
-                )
                 if degradation_code:
                     self.fallbacks_total += 1
                     self.fallbacks_by_code[degradation_code] += 1
@@ -64,6 +66,7 @@ class PredictionMetrics:
             return {
                 "predictions_total": self.predictions_total,
                 "predictions_by_engine": dict(self.predictions_by_engine),
+                "predictions_by_requested_engine": dict(self.predictions_by_requested_engine),
                 "fallbacks_total": self.fallbacks_total,
                 "fallbacks_by_code": dict(self.fallbacks_by_code),
                 "rate_limit_429_total": self.rate_limit_429_total,
@@ -79,12 +82,13 @@ class PredictionMetrics:
             # --- predictions total (per engine) ---
             lines.append("# HELP aurion_predictions_total Total predictions served")
             lines.append("# TYPE aurion_predictions_total counter")
-            if self.predictions_by_engine:
-                for engine, count in self.predictions_by_engine.items():
-                    degraded = "true" if engine in self.predictions_degraded else "false"
+            if self.predictions_by_engine_status:
+                for (engine_requested, engine_used, degraded), count in sorted(
+                    self.predictions_by_engine_status.items()
+                ):
                     lines.append(
-                        f'aurion_predictions_total{{engine_requested="{engine}",'
-                        f'engine_used="{engine}",degraded="{degraded}"}} {count}'
+                        f'aurion_predictions_total{{engine_requested="{engine_requested}",'
+                        f'engine_used="{engine_used}",degraded="{degraded}"}} {count}'
                     )
             else:
                 lines.append(

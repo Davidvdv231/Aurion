@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type { ForecastEngine, PredictResponse, SupportedCurrency } from "@/api/types";
+import { ForecastChart } from "@/components/ForecastChart";
 import { getDemoForecast } from "@/data/demoAssets";
 import { ConfidenceMeter } from "@/components/ConfidenceMeter";
 import { ForecastCard } from "@/components/ForecastCard";
@@ -12,6 +12,7 @@ import { useWatchlist } from "@/context/WatchlistContext";
 import { theme } from "@/theme/theme";
 import type { RootStackParamList } from "@/navigation/types";
 import { loadForecast } from "@/services/marketService";
+import { createAsyncStorageAdapter } from "@/storage/storage";
 
 type Props = NativeStackScreenProps<RootStackParamList, "AssetDetail">;
 
@@ -21,34 +22,7 @@ const ENGINES: ForecastEngine[] = ["ml", "stat"];
 const ENGINE_LABELS: Record<ForecastEngine, string> = { ml: "ML", stat: "Stat" };
 const MIN_HORIZON = 7;
 const MAX_HORIZON = 45;
-
-function ChartPlaceholder({ points }: { points: PredictResponse["history"] }) {
-  const recent = points.slice(-10);
-  return (
-    <View style={styles.chart}>
-      <View style={styles.chartGrid}>
-        {Array.from({ length: 5 }).map((_, index) => (
-          <View key={index} style={styles.chartGridLine} />
-        ))}
-      </View>
-      <View style={styles.chartBars}>
-        {recent.map((point, index) => (
-          <View
-            key={point.date}
-            style={[
-              styles.bar,
-              {
-                height: 36 + ((point.close % 11) * 4),
-                opacity: 0.35 + index * 0.06,
-              },
-            ]}
-          />
-        ))}
-      </View>
-      <Text style={styles.chartCaption}>Chart placeholder. Replace with a real library later.</Text>
-    </View>
-  );
-}
+const storage = createAsyncStorageAdapter();
 
 function formatSignalLabel(signal: PredictResponse["summary"]["signal"]) {
   return signal
@@ -212,8 +186,11 @@ function EvaluationMetrics({ evaluation }: { evaluation: PredictResponse["evalua
 export function AssetDetailScreen({ route, navigation }: Props) {
   const { symbol, assetType, name, engine: initialEngine } = route.params;
   const { isSaved, toggle } = useWatchlist();
-  const [data, setData] = useState<PredictResponse>(() => getDemoForecast(symbol, assetType));
+  const [data, setData] = useState<PredictResponse>(() =>
+    getDemoForecast(symbol, assetType, "USD", initialEngine ?? "ml"),
+  );
   const [isDemo, setIsDemo] = useState(false);
+  const [demoReason, setDemoReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [currency, setCurrency] = useState<SupportedCurrency>("USD");
@@ -222,7 +199,7 @@ export function AssetDetailScreen({ route, navigation }: Props) {
 
   // Load persisted currency preference on mount
   useEffect(() => {
-    AsyncStorage.getItem(CURRENCY_STORAGE_KEY).then((stored) => {
+    storage.getItem(CURRENCY_STORAGE_KEY).then((stored) => {
       if (stored && CURRENCIES.includes(stored as SupportedCurrency)) {
         setCurrency(stored as SupportedCurrency);
       }
@@ -232,7 +209,7 @@ export function AssetDetailScreen({ route, navigation }: Props) {
   // Persist currency whenever it changes
   const handleCurrencyChange = useCallback((value: SupportedCurrency) => {
     setCurrency(value);
-    AsyncStorage.setItem(CURRENCY_STORAGE_KEY, value);
+    void storage.setItem(CURRENCY_STORAGE_KEY, value);
   }, []);
 
   // Fetch forecast whenever inputs change
@@ -249,12 +226,14 @@ export function AssetDetailScreen({ route, navigation }: Props) {
         if (mounted) {
           setData(result.data);
           setIsDemo(result.isDemo);
+          setDemoReason(result.reason ?? null);
         }
       })
       .catch(() => {
         if (mounted) {
-          setData(getDemoForecast(symbol, assetType));
+          setData(getDemoForecast(symbol, assetType, currency, engine));
           setIsDemo(true);
+          setDemoReason("The live forecast endpoint is unavailable.");
         }
       })
       .finally(() => {
@@ -286,7 +265,9 @@ export function AssetDetailScreen({ route, navigation }: Props) {
 
       {isDemo && (
         <View style={styles.demoBanner}>
-          <Text style={styles.demoBannerText}>Demo data — could not reach the server</Text>
+          <Text style={styles.demoBannerText}>
+            Demo data — {demoReason || "the live API is unavailable."}
+          </Text>
         </View>
       )}
 
@@ -335,7 +316,7 @@ export function AssetDetailScreen({ route, navigation }: Props) {
         ) : null}
       </View>
 
-      <ChartPlaceholder points={data.history} />
+      <ForecastChart history={data.history} forecast={data.forecast} currency={data.currency} />
 
       {/* ── Prediction bands ──────────────────────────────────────── */}
       <View style={styles.card}>
@@ -368,6 +349,11 @@ export function AssetDetailScreen({ route, navigation }: Props) {
           This MVP exposes trend direction, banded forecast and confidence. No guarantee, no advice.
         </Text>
         {data.degraded && data.degradation_message ? <Text style={styles.warning}>{data.degradation_message}</Text> : null}
+        {data.source.data_warnings.map((warning) => (
+          <Text key={warning} style={styles.warning}>
+            {warning}
+          </Text>
+        ))}
         <Text style={styles.note}>
           Source {data.source.market_data} / {data.source.forecast}
         </Text>
@@ -480,46 +466,6 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontSize: theme.fontSizes.xs,
     lineHeight: 18,
-  },
-  chart: {
-    minHeight: 220,
-    borderRadius: theme.radius.xl,
-    padding: theme.space.md,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    justifyContent: "space-between",
-    overflow: "hidden",
-  },
-  chartGrid: {
-    position: "absolute",
-    left: theme.space.md,
-    right: theme.space.md,
-    top: theme.space.md,
-    bottom: 44,
-    justifyContent: "space-between",
-  },
-  chartGridLine: {
-    height: 1,
-    backgroundColor: theme.colors.border,
-    opacity: 0.7,
-  },
-  chartBars: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 8,
-    paddingTop: 16,
-    paddingBottom: 32,
-  },
-  bar: {
-    flex: 1,
-    borderRadius: 999,
-    backgroundColor: theme.colors.accent,
-  },
-  chartCaption: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.xs,
   },
   forecastRow: {
     gap: theme.space.md,

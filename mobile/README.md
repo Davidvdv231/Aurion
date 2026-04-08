@@ -1,42 +1,35 @@
-# Stock Pulse AI Mobile
+# Aurion Mobile
 
-Expo/React Native MVP voor een publieke forecasting app. Dit is de mobiele laag die praat met de bestaande FastAPI-backend via een kleine API-client en fallback demo-data.
+Expo/React Native client for Aurion. The mobile app talks to the FastAPI backend through a small typed API client and falls back to clearly labeled demo data when the live API is unavailable.
 
-## Wat zit erin
-- Splash/guest flow zonder misleading fake-auth
-- Home met markt-highlights, zoekfunctie en navigatie naar asset detail
-- Asset detail met forecast cards, confidence indicator en chart placeholder
-- Watchlist met lokale opslag
-- Gescheiden API-client, service layer, auth state en storage abstraction
-- Production-minded theming en folderstructuur voor later uitbreiden
+## Included
+- Guest flow without fake authentication
+- Home screen with API-first highlights, symbol search, and asset navigation
+- Asset detail view with a lightweight native chart, forecast cards, confidence meter, explanation card, and explicit demo fallback banner
+- Local watchlist persistence
+- Separated API client, service layer, auth state, and storage abstraction
 
 ## Run
-1. Ga naar `mobile/`
-2. Installeer dependencies met `npm install`
-3. Doe een lokale sanity-check met `npm run typecheck`
-4. Start de app met `npm run start`
-5. Zet optioneel de backend URL via `EXPO_PUBLIC_API_BASE_URL`
+1. `cd mobile`
+2. `npm install`
+3. `npm run typecheck`
+4. `npm run start`
 
-Voorbeeld:
+Use `EXPO_PUBLIC_API_BASE_URL` for any non-local build. In local development, the app falls back to `http://127.0.0.1:8000`.
 
 ```bash
 EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run start
 ```
 
-Voor een snelle readiness-check zonder simulator:
+## Structure
+- `src/api`: HTTP client and API contract types
+- `src/services`: API-first data loading with explicit demo fallback handling
+- `src/context`: onboarding and watchlist state
+- `src/screens`: welcome, home, detail, splash, and watchlist views
+- `src/components`: reusable mobile UI blocks
+- `src/theme`: colors, spacing, typography, and radii
+- `src/storage`: local storage abstraction
 
-```bash
-npm run typecheck
-```
-
-## Architectuur
-- `src/api`: HTTP-client en API-types
-- `src/services`: domeinlogica met fallback naar demo-data
-- `src/context`: auth- en watchlist-state
-- `src/screens`: login, home, detail en watchlist
-- `src/components`: herbruikbare UI-blokken
-- `src/theme`: kleuren, spacing, typografie en radii
-- `src/storage`: lokale opslag-abstrahering
-
-## Opmerking
-De app moet niet worden gepresenteerd als financieel advies. Voorspellingen zijn probabilistisch en afhankelijk van data-kwaliteit, netwerk en backend-beschikbaarheid.
+## Notes
+- Demo data is a fallback path, not a production data source.
+- Predictions are probabilistic estimates and not financial advice.

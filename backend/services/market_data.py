@@ -48,6 +48,7 @@ class MarketSeries:
     resolved_symbol: str
     currency: str
     source: str
+    ohlcv: pd.DataFrame | None = None
     data_quality: DataQuality = "clean"
     data_warnings: list[str] = field(default_factory=list)
     stale: bool = False
@@ -173,6 +174,70 @@ def _deserialize_close_series(points: list[dict[str, Any]]) -> pd.Series:
     return pd.Series(values, index=dates, dtype=float)
 
 
+def _coerce_ohlcv_frame(frame: pd.DataFrame) -> pd.DataFrame | None:
+    columns: dict[str, pd.Series] = {}
+    for name in ("Open", "High", "Low", "Close", "Volume"):
+        if name not in frame:
+            continue
+        column = frame[name]
+        series = column.iloc[:, 0] if isinstance(column, pd.DataFrame) else column
+        columns[name] = pd.to_numeric(series, errors="coerce")
+
+    if "Close" not in columns:
+        return None
+
+    ohlcv = pd.DataFrame(columns).sort_index()
+    ohlcv = ohlcv[~ohlcv.index.duplicated(keep="last")]
+    close = ohlcv["Close"].dropna()
+    if close.empty:
+        return None
+
+    ohlcv = ohlcv.reindex(close.index)
+    ohlcv["Close"] = close.astype(float)
+    for name in ("Open", "High", "Low"):
+        if name in ohlcv:
+            ohlcv[name] = pd.to_numeric(ohlcv[name], errors="coerce").fillna(close).astype(float)
+        else:
+            ohlcv[name] = close.astype(float)
+    if "Volume" in ohlcv:
+        ohlcv["Volume"] = pd.to_numeric(ohlcv["Volume"], errors="coerce").fillna(0.0).astype(float)
+    else:
+        ohlcv["Volume"] = 0.0
+
+    return ohlcv[["Open", "High", "Low", "Close", "Volume"]]
+
+
+def _serialize_ohlcv_frame(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for idx, row in frame.iterrows():
+        rows.append(
+            {
+                "date": idx.date().isoformat(),
+                "open": round(float(row["Open"]), 6),
+                "high": round(float(row["High"]), 6),
+                "low": round(float(row["Low"]), 6),
+                "close": round(float(row["Close"]), 6),
+                "volume": round(float(row["Volume"]), 6),
+            }
+        )
+    return rows
+
+
+def _deserialize_ohlcv_frame(points: list[dict[str, Any]]) -> pd.DataFrame:
+    index = [pd.Timestamp(row["date"]) for row in points]
+    return pd.DataFrame(
+        {
+            "Open": [float(row["open"]) for row in points],
+            "High": [float(row["high"]) for row in points],
+            "Low": [float(row["low"]) for row in points],
+            "Close": [float(row["close"]) for row in points],
+            "Volume": [float(row["volume"]) for row in points],
+        },
+        index=index,
+        dtype=float,
+    )
+
+
 def fetch_close_prices(
     symbol: str,
     asset_type: AssetType,
@@ -183,6 +248,7 @@ def fetch_close_prices(
     cached_payload = cache_backend.get_json(cache_key)
     if isinstance(cached_payload, dict):
         points = cached_payload.get("points")
+        ohlcv_points = cached_payload.get("ohlcv")
         resolved_symbol = cached_payload.get("resolved_symbol")
         currency = cached_payload.get("currency")
         provider = cached_payload.get("provider", "yfinance")
@@ -195,12 +261,18 @@ def fetch_close_prices(
             and isinstance(currency, str)
         ):
             close = _deserialize_close_series(points)
+            ohlcv = (
+                _deserialize_ohlcv_frame(ohlcv_points)
+                if isinstance(ohlcv_points, list) and ohlcv_points
+                else pd.DataFrame({"Close": close}, index=close.index, dtype=float)
+            )
             stale = _check_staleness(close, asset_type)
             warnings = list(data_warnings) if isinstance(data_warnings, list) else []
             if stale and "Data may be stale (last point >3 trading days old)." not in warnings:
                 warnings.append("Data may be stale (last point >3 trading days old).")
             return MarketSeries(
                 close=close,
+                ohlcv=ohlcv,
                 resolved_symbol=resolved_symbol,
                 currency=currency,
                 source=f"cache:{provider}",
@@ -240,8 +312,10 @@ def fetch_close_prices(
         if frame.empty or "Close" not in frame:
             continue
 
-        close_column = frame["Close"]
-        close = close_column.iloc[:, 0] if isinstance(close_column, pd.DataFrame) else close_column
+        ohlcv = _coerce_ohlcv_frame(frame)
+        if ohlcv is None:
+            continue
+        close = ohlcv["Close"]
         close = close.dropna()
 
         if len(close) < 60:
@@ -249,6 +323,11 @@ def fetch_close_prices(
             continue
 
         close, data_quality, data_warnings = _check_ohlcv_integrity(close, candidate)
+        ohlcv = ohlcv.reindex(close.index).copy()
+        ohlcv["Close"] = close
+        for name in ("Open", "High", "Low"):
+            ohlcv[name] = pd.to_numeric(ohlcv[name], errors="coerce").fillna(close).astype(float)
+        ohlcv["Volume"] = pd.to_numeric(ohlcv["Volume"], errors="coerce").fillna(0.0).astype(float)
         stale = _check_staleness(close, asset_type)
         if stale:
             data_warnings.append("Data may be stale (last point >3 trading days old).")
@@ -267,12 +346,14 @@ def fetch_close_prices(
             "data_quality": data_quality,
             "data_warnings": data_warnings,
             "points": _serialize_close_series(close),
+            "ohlcv": _serialize_ohlcv_frame(ohlcv),
             "stale": stale,
         }
         cache_backend.set_json(cache_key, serialized, settings.history_cache_ttl_seconds)
 
         return MarketSeries(
             close=close,
+            ohlcv=ohlcv,
             resolved_symbol=candidate,
             currency=currency,
             source="yfinance",

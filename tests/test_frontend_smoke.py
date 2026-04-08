@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 from urllib.request import urlopen
@@ -11,7 +12,7 @@ import pytest
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
-PYTHON_EXE = ROOT / ".venv" / "Scripts" / "python.exe"
+PYTHON_EXE = os.environ.get("PYTHON", sys.executable)
 BASE_URL = "http://127.0.0.1:8765"
 
 SUCCESS_PREDICTION = {
@@ -19,6 +20,8 @@ SUCCESS_PREDICTION = {
     "requested_symbol": "AAPL",
     "asset_type": "stock",
     "currency": "USD",
+    "native_currency": "USD",
+    "display_currency": "USD",
     "generated_at": "2026-03-10T12:00:00+00:00",
     "horizon_days": 30,
     "engine_requested": "stat",
@@ -122,7 +125,7 @@ def live_server() -> str:
     env["APP_ENV"] = "development"
     process = subprocess.Popen(
         [
-            str(PYTHON_EXE),
+            PYTHON_EXE,
             "-m",
             "uvicorn",
             "backend.app:app",

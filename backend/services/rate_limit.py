@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 import time
 from collections import defaultdict, deque
@@ -80,13 +81,35 @@ class RateLimiter:
     def _should_fail_open(self) -> bool:
         return self._settings.rate_limit_fail_open and not self._settings.is_production
 
+    def _is_trusted_proxy(self, client_host: str) -> bool:
+        try:
+            client_ip = ipaddress.ip_address(client_host)
+        except ValueError:
+            return client_host in self._settings.trusted_proxy_ips
+
+        for raw_entry in self._settings.trusted_proxy_ips:
+            entry = raw_entry.strip()
+            if not entry:
+                continue
+            try:
+                if "/" in entry:
+                    if client_ip in ipaddress.ip_network(entry, strict=False):
+                        return True
+                    continue
+                if client_ip == ipaddress.ip_address(entry):
+                    return True
+            except ValueError:
+                if client_host == entry:
+                    return True
+        return False
+
     def _client_identifier(self, request: FastAPIRequest) -> str:
         direct_client = request.client.host if request.client else "unknown"
 
         if not self._settings.use_trusted_proxy_headers:
             return direct_client
 
-        if direct_client not in self._settings.trusted_proxy_ips:
+        if not self._is_trusted_proxy(direct_client):
             return direct_client
 
         forwarded_for = request.headers.get("x-forwarded-for", "")

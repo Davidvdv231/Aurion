@@ -14,11 +14,10 @@ import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type { AssetType, ForecastEngine, TickerItem } from "@/api/types";
-import { demoMarketCards, demoTickers } from "@/data/demoAssets";
 import { MarketCard } from "@/components/MarketCard";
 import { SectionHeader } from "@/components/SectionHeader";
 import { theme } from "@/theme/theme";
-import { searchAssets } from "@/services/marketService";
+import { loadHighlights, searchAssets } from "@/services/marketService";
 import type { MainTabParamList, RootStackParamList } from "@/navigation/types";
 
 type Props = CompositeScreenProps<
@@ -31,7 +30,12 @@ export function HomeScreen({ navigation }: Props) {
   const [assetType, setAssetType] = useState<AssetType>("stock");
   const [engine, setEngine] = useState<ForecastEngine>("ml");
   const [results, setResults] = useState<TickerItem[]>([]);
+  const [topAssets, setTopAssets] = useState<TickerItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [resultsFallback, setResultsFallback] = useState(false);
+  const [resultsMessage, setResultsMessage] = useState("");
+  const [highlightsFallback, setHighlightsFallback] = useState(false);
+  const [highlightsMessage, setHighlightsMessage] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -44,17 +48,18 @@ export function HomeScreen({ navigation }: Props) {
     setLoading(true);
     const timer = setTimeout(() => {
       searchAssets(query.trim(), assetType)
-        .then((items) => {
+        .then((result) => {
           if (mounted) {
-            setResults(items);
+            setResults(result.items);
+            setResultsFallback(result.isDemo);
+            setResultsMessage(result.reason ?? "");
           }
         })
         .catch(() => {
           if (mounted) {
-            const needle = query.trim().toUpperCase();
-            setResults(
-              demoTickers.filter((item) => item.asset_type === assetType && item.symbol.includes(needle)),
-            );
+            setResults([]);
+            setResultsFallback(false);
+            setResultsMessage("Search is currently unavailable.");
           }
         })
         .finally(() => {
@@ -70,7 +75,32 @@ export function HomeScreen({ navigation }: Props) {
     };
   }, [assetType, query]);
 
-  const topCards = demoMarketCards.filter((item) => item.assetType === assetType);
+  useEffect(() => {
+    let mounted = true;
+
+    loadHighlights(assetType)
+      .then((result) => {
+        if (!mounted) {
+          return;
+        }
+        setTopAssets(result.items);
+        setHighlightsFallback(result.isDemo);
+        setHighlightsMessage(result.reason ?? "");
+      })
+      .catch(() => {
+        if (!mounted) {
+          return;
+        }
+        setTopAssets([]);
+        setHighlightsFallback(false);
+        setHighlightsMessage("Top assets are currently unavailable.");
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [assetType]);
+
   const openAsset = (symbol: string, name: string) => {
     const payload = { symbol, assetType, name, engine };
     const parentNavigation = navigation.getParent?.();
@@ -133,27 +163,36 @@ export function HomeScreen({ navigation }: Props) {
               placeholderTextColor={theme.colors.textMuted}
               style={styles.searchInput}
             />
-            <Text style={styles.searchHint}>{loading ? "Searching backend..." : "Live API first, demo fallback second."}</Text>
+            <Text style={styles.searchHint}>
+              {loading
+                ? "Searching the live API..."
+                : resultsFallback
+                  ? `Showing demo search results. ${resultsMessage}`.trim()
+                  : "Search runs against the live API. Demo fallback is explicitly marked if used."}
+            </Text>
           </View>
 
           <SectionHeader
             title="Market highlights"
-            subtitle="Handpicked cards that work as the first navigation surface."
+            subtitle={
+              highlightsFallback
+                ? `Showing demo highlights. ${highlightsMessage}`.trim()
+                : "Live top assets from the API."
+            }
           />
           <FlatList
             horizontal
             showsHorizontalScrollIndicator={false}
-            data={topCards}
+            data={topAssets}
             keyExtractor={(item) => item.symbol}
             contentContainerStyle={styles.horizontalList}
             renderItem={({ item }) => (
               <MarketCard
                 symbol={item.symbol}
                 name={item.name}
-                price={`$${item.price.toFixed(2)}`}
-                change={`${item.changePct > 0 ? "+" : ""}${item.changePct.toFixed(2)}%`}
-                confidence={`${Math.round(item.confidence * 100)}% confidence`}
-                tone={item.trend}
+                badge={item.asset_type}
+                meta={item.exchange}
+                detail={highlightsFallback ? "Demo fallback highlight" : `Source: ${item.source || "live"}`}
                 onPress={() => openAsset(item.symbol, item.name)}
               />
             )}
@@ -172,7 +211,11 @@ export function HomeScreen({ navigation }: Props) {
         </Pressable>
       )}
       ListEmptyComponent={
-        query.trim() ? <Text style={styles.empty}>No matches. Try another symbol or switch asset class.</Text> : null
+        query.trim() ? (
+          <Text style={styles.empty}>
+            No matches. Try another symbol or switch asset class.
+          </Text>
+        ) : null
       }
       refreshControl={
         <RefreshControl

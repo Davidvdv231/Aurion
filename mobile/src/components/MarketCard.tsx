@@ -6,35 +6,25 @@ import { theme } from "@/theme/theme";
 interface MarketCardProps {
   symbol: string;
   name: string;
-  price: string;
-  change: string;
-  confidence: string;
-  tone: "bullish" | "bearish" | "neutral";
+  badge: string;
+  meta: string;
+  detail: string;
   onPress: () => void;
 }
 
-export function MarketCard({ symbol, name, price, change, confidence, tone, onPress }: MarketCardProps) {
+export function MarketCard({ symbol, name, badge, meta, detail, onPress }: MarketCardProps) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
       <View style={styles.headerRow}>
         <Text style={styles.symbol}>{symbol}</Text>
-        <Text style={[styles.badge, toneStyles[tone]]}>{tone}</Text>
+        <Text style={styles.badge}>{badge}</Text>
       </View>
       <Text style={styles.name}>{name}</Text>
-      <Text style={styles.price}>{price}</Text>
-      <View style={styles.footerRow}>
-        <Text style={styles.change}>{change}</Text>
-        <Text style={styles.confidence}>{confidence}</Text>
-      </View>
+      <Text style={styles.meta}>{meta}</Text>
+      <Text style={styles.detail}>{detail}</Text>
     </Pressable>
   );
 }
-
-const toneStyles = StyleSheet.create({
-  bullish: { color: theme.colors.success },
-  bearish: { color: theme.colors.danger },
-  neutral: { color: theme.colors.warning },
-});
 
 const styles = StyleSheet.create({
   card: {
@@ -64,28 +54,20 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSizes.xs,
     fontWeight: "700",
     textTransform: "uppercase",
+    color: theme.colors.accent,
   },
   name: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.sm,
-  },
-  price: {
     color: theme.colors.textPrimary,
-    fontSize: theme.fontSizes.xl,
-    fontWeight: "800",
-  },
-  footerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  change: {
-    color: theme.colors.textPrimary,
-    fontSize: theme.fontSizes.sm,
+    fontSize: theme.fontSizes.md,
     fontWeight: "700",
   },
-  confidence: {
+  meta: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSizes.sm,
   },
+  detail: {
+    color: theme.colors.textMuted,
+    fontSize: theme.fontSizes.sm,
+    lineHeight: 18,
+  },
 });
-

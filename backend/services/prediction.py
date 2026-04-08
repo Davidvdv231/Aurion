@@ -335,6 +335,7 @@ async def build_prediction_response(
                     train_and_predict,
                     symbol=market_series.resolved_symbol,
                     close=market_series.close,
+                    ohlcv=market_series.ohlcv,
                     horizon=payload.horizon,
                     asset_type=payload.asset_type,
                 ),
@@ -605,6 +606,7 @@ async def build_prediction_response(
     )
     if metrics is not None:
         metrics.record_prediction(
+            engine_requested=response.engine_requested,
             engine_used=response.engine_used,
             total_ms=total_ms,
             degraded=response.degraded,

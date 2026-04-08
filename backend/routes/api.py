@@ -99,7 +99,7 @@ def health(request: FastAPIRequest) -> HealthResponse:
 
 @router.get("/api/health/ready")
 async def health_ready(request: FastAPIRequest) -> JSONResponse:
-    """Readiness probe — validates all dependencies are reachable."""
+    """Readiness probe for internal dependencies and required runtime imports."""
     checks: dict[str, str] = {}
     ready = True
 

@@ -1,6 +1,14 @@
-import type { AssetType, ForecastEngine, PredictRequest, PredictResponse, SupportedCurrency, TickerSearchResponse, TopAssetsResponse } from "@/api/types";
+import type {
+  AssetType,
+  ForecastEngine,
+  PredictRequest,
+  PredictResponse,
+  SupportedCurrency,
+  TickerSearchResponse,
+  TopAssetsResponse,
+} from "@/api/types";
 
-const DEFAULT_BASE_URL = __DEV__ ? "http://127.0.0.1:8000" : "https://aurion.example.com";
+const LOCAL_DEV_BASE_URL = "http://127.0.0.1:8000";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -12,16 +20,24 @@ export class ApiError extends Error {
 }
 
 function resolveBaseUrl() {
-  return process.env.EXPO_PUBLIC_API_BASE_URL?.trim() || DEFAULT_BASE_URL;
+  const configured = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+  if (configured) {
+    return configured.replace(/\/+$/, "");
+  }
+  if (__DEV__) {
+    return LOCAL_DEV_BASE_URL;
+  }
+  throw new ApiError("EXPO_PUBLIC_API_BASE_URL is not configured for this build.", 0);
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const baseUrl = resolveBaseUrl();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   let response: Response;
   try {
-    response = await fetch(`${resolveBaseUrl()}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       headers: {
         Accept: "application/json",
         ...(init?.headers || {}),

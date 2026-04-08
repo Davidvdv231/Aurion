@@ -42,6 +42,51 @@ def test_search_limit_uses_configured_setting(monkeypatch: pytest.MonkeyPatch) -
     assert second.json()["error"]["code"] == "rate_limited"
 
 
+def test_trusted_proxy_supports_cidr_forwarded_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("TRUSTED_PROXY_IPS", "10.0.0.0/8")
+
+    with TestClient(create_app()) as client:
+        response = client.get(
+            "/api/tickers?query=AA&limit=5&asset_type=stock",
+            headers={"x-forwarded-for": "198.51.100.44"},
+        )
+
+    assert response.status_code == 200
+    assert (
+        client.app.state.rate_limiter._client_identifier(  # type: ignore[attr-defined]
+            type(
+                "_Request",
+                (),
+                {
+                    "client": type("_Client", (), {"host": "10.0.0.12"})(),
+                    "headers": {"x-forwarded-for": "198.51.100.44, 10.0.0.12"},
+                },
+            )()
+        )
+        == "198.51.100.44"
+    )
+
+
+def test_untrusted_proxy_ignores_forwarded_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("TRUSTED_PROXY_IPS", "10.0.0.1")
+
+    with TestClient(create_app()) as client:
+        identifier = client.app.state.rate_limiter._client_identifier(  # type: ignore[attr-defined]
+            type(
+                "_Request",
+                (),
+                {
+                    "client": type("_Client", (), {"host": "10.0.0.12"})(),
+                    "headers": {"x-forwarded-for": "198.51.100.44, 10.0.0.12"},
+                },
+            )()
+        )
+
+    assert identifier == "10.0.0.12"
+
+
 def test_development_runtime_redis_failure_falls_back_to_in_memory_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

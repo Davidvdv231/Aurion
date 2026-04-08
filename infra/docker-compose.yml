@@ -7,11 +7,8 @@ services:
       - ../.env
     environment:
       REDIS_URL: redis://redis:6379/0
-      ARTIFACTS_ROOT: /app/artifacts
     ports:
       - "8000:8000"
-    volumes:
-      - ../artifacts:/app/artifacts
     depends_on:
       redis:
         condition: service_healthy

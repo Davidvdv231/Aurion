@@ -7,10 +7,10 @@ export function SplashScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.logo}>
-        <Text style={styles.logoText}>SP</Text>
+        <Text style={styles.logoText}>A</Text>
       </View>
-      <Text style={styles.title}>Stock Pulse AI</Text>
-      <Text style={styles.subtitle}>Forecasting mobile app loading</Text>
+      <Text style={styles.title}>Aurion</Text>
+      <Text style={styles.subtitle}>Market intelligence loading</Text>
       <ActivityIndicator color={theme.colors.accent} />
     </View>
   );
@@ -50,4 +50,3 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSizes.md,
   },
 });
-

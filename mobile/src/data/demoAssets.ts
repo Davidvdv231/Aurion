@@ -1,16 +1,30 @@
-import type { AssetType, ConfidenceTier, ForecastPoint, HistoryPoint, PredictResponse, TickerItem } from "@/api/types";
+import type {
+  AssetType,
+  ConfidenceTier,
+  ForecastEngine,
+  ForecastPoint,
+  HistoryPoint,
+  PredictResponse,
+  SupportedCurrency,
+  TickerItem,
+} from "@/api/types";
 
 export interface DemoMarketCard {
   symbol: string;
   name: string;
   assetType: AssetType;
-  price: number;
-  changePct: number;
-  confidence: number;
-  trend: "bullish" | "bearish" | "neutral";
+  exchange: string;
+  region: string;
+  source: "demo";
 }
 
 const today = new Date();
+const DEMO_NATIVE_CURRENCY: SupportedCurrency = "USD";
+const DEMO_SYMBOL_ALIASES: Record<string, string> = {
+  BTC: "BTC-USD",
+  ETH: "ETH-USD",
+  SOL: "SOL-USD",
+};
 
 function isoDaysAhead(days: number) {
   const date = new Date(today);
@@ -54,37 +68,33 @@ export const demoMarketCards: DemoMarketCard[] = [
     symbol: "AAPL",
     name: "Apple",
     assetType: "stock",
-    price: 194.22,
-    changePct: 1.84,
-    confidence: 0.72,
-    trend: "bullish",
+    exchange: "NASDAQ",
+    region: "US",
+    source: "demo",
   },
   {
     symbol: "MSFT",
     name: "Microsoft",
     assetType: "stock",
-    price: 431.14,
-    changePct: 0.92,
-    confidence: 0.69,
-    trend: "bullish",
+    exchange: "NASDAQ",
+    region: "US",
+    source: "demo",
   },
   {
-    symbol: "BTC",
+    symbol: "BTC-USD",
     name: "Bitcoin",
     assetType: "crypto",
-    price: 68240.18,
-    changePct: -0.48,
-    confidence: 0.64,
-    trend: "neutral",
+    exchange: "Crypto",
+    region: "GLOBAL",
+    source: "demo",
   },
   {
-    symbol: "ETH",
+    symbol: "ETH-USD",
     name: "Ethereum",
     assetType: "crypto",
-    price: 3625.74,
-    changePct: 2.16,
-    confidence: 0.71,
-    trend: "bullish",
+    exchange: "Crypto",
+    region: "GLOBAL",
+    source: "demo",
   },
 ];
 
@@ -92,38 +102,100 @@ export const demoTickers: TickerItem[] = [
   { symbol: "AAPL", name: "Apple", exchange: "NASDAQ", region: "US", popularity: 1000, asset_type: "stock" },
   { symbol: "MSFT", name: "Microsoft", exchange: "NASDAQ", region: "US", popularity: 980, asset_type: "stock" },
   { symbol: "NVDA", name: "NVIDIA", exchange: "NASDAQ", region: "US", popularity: 960, asset_type: "stock" },
-  { symbol: "BTC", name: "Bitcoin", exchange: "Coinbase", region: "Global", popularity: 1000, asset_type: "crypto" },
-  { symbol: "ETH", name: "Ethereum", exchange: "Coinbase", region: "Global", popularity: 960, asset_type: "crypto" },
-  { symbol: "SOL", name: "Solana", exchange: "Coinbase", region: "Global", popularity: 890, asset_type: "crypto" },
+  { symbol: "BTC-USD", name: "Bitcoin", exchange: "Crypto", region: "GLOBAL", popularity: 1000, asset_type: "crypto" },
+  { symbol: "ETH-USD", name: "Ethereum", exchange: "Crypto", region: "GLOBAL", popularity: 960, asset_type: "crypto" },
+  { symbol: "SOL-USD", name: "Solana", exchange: "Crypto", region: "GLOBAL", popularity: 890, asset_type: "crypto" },
 ];
 
-export function getDemoForecast(symbol: string, assetType: AssetType): PredictResponse {
-  const asset = demoMarketCards.find((item) => item.symbol === symbol.toUpperCase()) ?? demoMarketCards[0];
-  const base = asset.price;
-  const drift = asset.trend === "bullish" ? 0.012 : asset.trend === "bearish" ? -0.009 : 0.004;
+function normalizeDemoSymbol(symbol: string) {
+  const normalized = symbol.trim().toUpperCase();
+  return DEMO_SYMBOL_ALIASES[normalized] ?? normalized;
+}
+
+function demoBasePrice(symbol: string) {
+  const prices: Record<string, number> = {
+    AAPL: 194.22,
+    MSFT: 431.14,
+    "BTC-USD": 68240.18,
+    "ETH-USD": 3625.74,
+  };
+  return prices[symbol] ?? 180.0;
+}
+
+function demoConfidence(symbol: string) {
+  const values: Record<string, number> = {
+    AAPL: 0.72,
+    MSFT: 0.69,
+    "BTC-USD": 0.64,
+    "ETH-USD": 0.71,
+  };
+  return values[symbol] ?? 0.55;
+}
+
+function demoTrend(symbol: string): "bullish" | "bearish" | "neutral" {
+  const values: Record<string, "bullish" | "bearish" | "neutral"> = {
+    AAPL: "bullish",
+    MSFT: "bullish",
+    "BTC-USD": "neutral",
+    "ETH-USD": "bullish",
+  };
+  return values[symbol] ?? "neutral";
+}
+
+export function getDemoForecast(
+  symbol: string,
+  assetType: AssetType,
+  displayCurrency: SupportedCurrency = DEMO_NATIVE_CURRENCY,
+  engineRequested: ForecastEngine = "ml",
+): PredictResponse {
+  const normalizedSymbol = normalizeDemoSymbol(symbol);
+  const asset =
+    demoMarketCards.find((item) => item.symbol === normalizedSymbol && item.assetType === assetType) ??
+    demoMarketCards.find((item) => item.assetType === assetType) ??
+    demoMarketCards[0];
+  const base = demoBasePrice(asset.symbol);
+  const confidence = demoConfidence(asset.symbol);
+  const trend = demoTrend(asset.symbol);
+  const drift = trend === "bullish" ? 0.012 : trend === "bearish" ? -0.009 : 0.004;
   const volatility = assetType === "crypto" ? 0.08 : 0.04;
   const forecast = buildForecast(base, drift, volatility);
   const expectedPrice = forecast[forecast.length - 1]?.predicted ?? base;
   const expectedReturnPct = ((expectedPrice / base) - 1) * 100;
   const confidenceTier: ConfidenceTier =
-    asset.confidence >= 0.67 ? "high" : asset.confidence >= 0.45 ? "medium" : "low";
+    confidence >= 0.67 ? "high" : confidence >= 0.45 ? "medium" : "low";
+  const dataWarnings =
+    displayCurrency === DEMO_NATIVE_CURRENCY
+      ? ["Demo fallback data is shown because the live API is unavailable or not configured."]
+      : [
+          "Demo fallback data is shown because the live API is unavailable or not configured.",
+          `Demo fallback prices are only available in ${DEMO_NATIVE_CURRENCY}; requested ${displayCurrency}.`,
+        ];
 
   return {
     symbol: asset.symbol,
-    requested_symbol: symbol.toUpperCase(),
+    requested_symbol: normalizedSymbol,
     asset_type: assetType,
-    currency: "USD",
+    currency: DEMO_NATIVE_CURRENCY,
+    native_currency: DEMO_NATIVE_CURRENCY,
+    display_currency: DEMO_NATIVE_CURRENCY,
     generated_at: new Date().toISOString(),
     horizon_days: 7,
-    engine_requested: "ml",
+    engine_requested: engineRequested,
     engine_used: "stat_fallback",
-    model_name: "Demo analog forecast",
-    engine_note: "Fallback-demo data while backend is unavailable.",
-    source: { market_data: "demo", forecast: "demo", analysis: null, data_quality: "clean", data_warnings: [], stale: false },
+    model_name: "Aurion demo fallback",
+    engine_note: "Demo fallback data while the live API is unavailable or not configured.",
+    source: {
+      market_data: "demo",
+      forecast: "demo",
+      analysis: null,
+      data_quality: "degraded",
+      data_warnings: dataWarnings,
+      stale: false,
+    },
     degraded: true,
     degradation_code: "demo_data_unavailable",
-    degradation_message: "Using fallback demo data while the backend is unavailable.",
-    degradation_reason: "Using fallback demo data while the backend is unavailable.",
+    degradation_message: "Using explicit demo fallback data because the live API is unavailable or not configured.",
+    degradation_reason: "Using explicit demo fallback data because the live API is unavailable or not configured.",
     history: buildHistory(base),
     forecast,
     stats: {
@@ -133,9 +205,9 @@ export function getDemoForecast(symbol: string, assetType: AssetType): PredictRe
     summary: {
       expected_price: expectedPrice,
       expected_return_pct: expectedReturnPct,
-      trend: asset.trend,
+      trend,
       confidence_tier: confidenceTier,
-      signal: buildSignal(expectedReturnPct, asset.confidence),
+      signal: buildSignal(expectedReturnPct, confidence),
     },
     evaluation: null,
     explanation: null,

@@ -7,7 +7,7 @@ metadata:
     app: aurion-api
 data:
   APP_ENV: "production"
-  CORS_ALLOW_ORIGINS: "https://aurion.example.com"
+  CORS_ALLOW_ORIGINS: "https://your-domain.example"
   EXECUTOR_MAX_WORKERS: "8"
   BLOCKING_TASK_TIMEOUT_SECONDS: "15.0"
   TOP_ASSETS_TIMEOUT_SECONDS: "8.0"
@@ -18,6 +18,7 @@ data:
   RATE_LIMIT_MAX_REQUESTS_STAT: "30"
   RATE_LIMIT_MAX_REQUESTS_SEARCH: "60"
   RATE_LIMIT_FAIL_OPEN: "false"
+  TRUSTED_PROXY_IPS: "10.0.0.0/8"
   REDIS_PREFIX: "stock-predictor"
   REDIS_SOCKET_TIMEOUT_SECONDS: "1.0"
   LOG_LEVEL: "INFO"

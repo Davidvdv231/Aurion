@@ -1,6 +1,8 @@
 import React, { Component, type ErrorInfo, type ReactNode } from "react";
 import { StyleSheet, Text, View, Pressable } from "react-native";
 
+import { theme } from "@/theme/theme";
+
 interface Props {
   children: ReactNode;
 }
@@ -29,7 +31,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <View style={styles.container}>
-          <Text style={styles.title}>Something went wrong</Text>
+          <Text style={styles.title}>Aurion hit an unexpected error</Text>
           <Text style={styles.message}>{this.state.error?.message ?? "Unknown error"}</Text>
           <Pressable onPress={this.handleReset} style={styles.button}>
             <Text style={styles.buttonText}>Try again</Text>
@@ -47,28 +49,28 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 32,
-    backgroundColor: "#0a0e1a",
+    backgroundColor: theme.colors.background,
   },
   title: {
-    color: "#fff",
+    color: theme.colors.textPrimary,
     fontSize: 20,
     fontWeight: "700",
     marginBottom: 12,
   },
   message: {
-    color: "#9ca3af",
+    color: theme.colors.textMuted,
     fontSize: 14,
     textAlign: "center",
     marginBottom: 24,
   },
   button: {
-    backgroundColor: "#6366f1",
+    backgroundColor: theme.colors.accent,
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 12,
   },
   buttonText: {
-    color: "#fff",
+    color: theme.colors.background,
     fontWeight: "700",
     fontSize: 16,
   },

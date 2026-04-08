@@ -50,6 +50,8 @@ def _assert_predict_contract(payload: dict, *, evaluation_expected: bool) -> Non
     assert payload["requested_symbol"]
     assert payload["asset_type"] in {"stock", "crypto"}
     assert payload["currency"]
+    assert payload["native_currency"]
+    assert payload["display_currency"]
     assert payload["generated_at"]
     assert isinstance(payload["horizon_days"], int)
     assert payload["engine_requested"] in {"stat", "ml"}

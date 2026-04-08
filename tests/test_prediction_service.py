@@ -51,8 +51,21 @@ def _close_series() -> pd.Series:
 
 
 def _market_series(symbol: str = "AAPL", currency: str = "USD") -> MarketSeries:
+    close = _close_series()
+    ohlcv = pd.DataFrame(
+        {
+            "Open": close - 1,
+            "High": close + 2,
+            "Low": close - 2,
+            "Close": close,
+            "Volume": 1_000_000.0,
+        },
+        index=close.index,
+        dtype=float,
+    )
     return MarketSeries(
-        close=_close_series(),
+        close=close,
+        ohlcv=ohlcv,
         resolved_symbol=symbol,
         currency=currency,
         source="yfinance",
@@ -144,8 +157,10 @@ def test_prediction_service_uses_ml_engine_when_quality_gate_passes(monkeypatch)
         "backend.services.prediction.backtest_stat_forecast",
         lambda *_, **__: {"mape": 3.5, "directional_accuracy": 0.52, "validation_windows": 5},
     )
+    captured: dict[str, object] = {}
 
     def fake_train_and_predict(**_):
+        captured.update(_)
         return (
             _forecast_result(),
             BacktestMetrics(
@@ -174,6 +189,8 @@ def test_prediction_service_uses_ml_engine_when_quality_gate_passes(monkeypatch)
     assert response.explanation.nearest_analog_date == "2024-11-08"
     assert response.explanation.top_features[0].difference_score == 0.62
     assert response.explanation.top_features[0].relation == "higher"
+    assert isinstance(captured["ohlcv"], pd.DataFrame)
+    assert list(captured["ohlcv"].columns) == ["Open", "High", "Low", "Close", "Volume"]
 
 
 def test_prediction_service_falls_back_when_validation_windows_are_insufficient(
@@ -273,9 +290,8 @@ def test_prediction_service_falls_back_to_stat_when_ml_runtime_fails(monkeypatch
 
 
 def test_prediction_service_falls_back_when_ml_task_times_out(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "backend.services.prediction.fetch_close_prices", lambda **_: _market_series()
-    )
+    market = _market_series()
+    monkeypatch.setattr("backend.services.prediction.fetch_close_prices", lambda **_: market)
     monkeypatch.setattr(
         "backend.services.prediction.backtest_stat_forecast",
         lambda *_, **__: {"mape": 3.5, "directional_accuracy": 0.52, "validation_windows": 5},
@@ -298,7 +314,7 @@ def test_prediction_service_falls_back_when_ml_task_times_out(monkeypatch) -> No
 
     response = _run_prediction(
         PredictRequest(symbol="AAPL", horizon=30, engine="ml", asset_type="stock"),
-        settings=replace(_settings(), blocking_task_timeout_seconds=0.03),
+        settings=replace(_settings(), blocking_task_timeout_seconds=0.05),
     )
 
     assert response.engine_used == "stat_fallback"

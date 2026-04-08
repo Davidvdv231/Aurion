@@ -177,7 +177,7 @@ flowchart TD
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/api/health` | GET | Liveness check — status, Redis health, cache size, uptime |
-| `/api/health/ready` | GET | Readiness check — returns 503 when dependencies are down |
+| `/api/health/ready` | GET | Readiness check — returns 503 when required internal dependencies are unavailable and reports runtime import checks |
 | `/api/metrics` | GET | Prediction metrics snapshot (protected by `METRICS_TOKEN` when set) |
 | `/api/tickers` | GET | Search tickers by query (1-50 results) |
 | `/api/top-assets` | GET | Trending assets by type, cached 15 min |
@@ -217,23 +217,35 @@ pip install -r requirements.txt
 uvicorn app:create_app --factory --reload
 ```
 
+For mobile development outside local Expo/device testing, set `EXPO_PUBLIC_API_BASE_URL` so the app can reach the deployed API. The mobile client only falls back to explicit demo data in development or when the live API is unavailable.
+
 ## Testing
 
 ```bash
-# Run all tests
-pytest tests/ -v
+# Run the backend and integration suite
+python -m pytest tests -q
 
 # Run with coverage
-pytest tests/ --cov=backend --cov-report=term-missing
+python -m pytest tests --cov=backend --cov-report=term-missing -q
 
 # Type checking
-mypy backend/ --strict
+python -m mypy backend
 
 # Linting
-ruff check backend/ tests/
+python -m ruff check backend tests
+
+# Formatting
+python -m ruff format --check backend tests
+
+# Mobile type checking
+cd mobile && npm run typecheck
+
+# Frontend smoke test (requires Playwright browser install once)
+python -m playwright install --with-deps chromium
+python -m pytest tests/test_frontend_smoke.py -q
 ```
 
-78 tests covering: API contracts, prediction orchestration, ML pipeline, rate limiting, market data integrity, exchange rates, configuration, smoke integration, and frontend E2E (Playwright).
+The test suite covers API contracts, prediction orchestration, ML pipeline behavior, rate limiting, exchange rates, config, smoke integration, and a browser-based frontend smoke path. CI also gates the Expo mobile client with `npm run typecheck`.
 
 ## Tech Stack
 
@@ -244,7 +256,7 @@ ruff check backend/ tests/
 | Cache | Redis 7 + in-memory TTL | Dual-layer with configurable TTLs |
 | Web | Vanilla JS PWA | Zero-dependency frontend with service worker |
 | Mobile | React Native / Expo 54 | Cross-platform mobile client |
-| Market Data | yfinance | OHLCV data ingestion |
+| Market Data | yfinance | Historical market data and FX rate retrieval |
 | CI/CD | GitHub Actions | Lint, type check, test, audit |
 | Deploy | Docker + Docker Compose | Containerized with health checks |
 
@@ -254,7 +266,8 @@ ruff check backend/ tests/
 - **Market data via yfinance** — free and functional, but not a production-grade feed. Rate limits and data gaps may occur.
 - **No persistent storage** — models and cache reset on container restart. No user database.
 - **No user authentication** — stateless API, no multi-tenancy or user sessions. Operational endpoints (`/api/metrics`, `/api/validation-summary`) can be protected via the `METRICS_TOKEN` env var.
-- **Mobile chart is a visual placeholder** — forecast cards work, but no charting library integrated yet.
+- **Mobile charting is lightweight** — the mobile app now renders a native forecast/history chart, but it is still less feature-rich than the web charting experience.
+- **Mobile fallback mode is demo-only** — when the live API is unavailable, the app now labels demo data explicitly instead of pretending it is live.
 - **Single-process deployment** — no horizontal scaling or distributed training.
 
 ## Engineering Trade-offs
@@ -268,9 +281,9 @@ ruff check backend/ tests/
 
 ## Project Status
 
-Aurion is a solo-built MVP. The prediction orchestration, degradation semantics, currency conversion, and web PWA are production-minded — designed with real deployment patterns (rate limiting, health probes, structured logging, security headers) but scoped as a portfolio-grade MVP, not a scaled production system. The ML model is functional but would benefit from deeper validation on more volatile assets. The mobile app (React Native/Expo) covers core functionality — predictions, watchlist, currency selection, degradation badges — but does not have full feature parity with the web client: charting is placeholder-only, autocomplete uses local fallback data, and there is no offline-first sync.
+Aurion is a solo-built MVP. The prediction orchestration, degradation semantics, currency conversion, and web PWA are production-minded — designed with real deployment patterns (rate limiting, health probes, structured logging, security headers) but scoped as a portfolio-grade MVP, not a scaled production system. The ML model is functional but would still benefit from deeper validation on more volatile assets. The mobile app (React Native/Expo) covers the core prediction flow, watchlist, currency selection, explicit degradation handling, and a native chart view, but it still does not have full feature parity with the web client and there is no offline-first sync.
 
-**Current focus:** Pre-launch hardening complete — XSS mitigation, endpoint protection, mobile error boundaries, automated cache versioning, and expanded test coverage (78 tests).
+**Current focus:** hardening cross-stack consistency — keeping backend, web, mobile, CI, and docs aligned around one honest prediction contract.
 
 ## License
 
