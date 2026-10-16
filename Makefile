@@ -2,7 +2,7 @@
 
 # Development
 dev:
-	cd backend && uvicorn app:create_app --factory --reload --port 8000
+	uvicorn backend.app:create_app --factory --reload --port 8000
 
 # Testing
 test:
