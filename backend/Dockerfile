@@ -9,8 +9,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /build
 
 # Install dependencies first (layer caching optimisation)
-COPY backend/requirements.txt /build/requirements.txt
-RUN pip install --no-cache-dir --prefix=/install -r /build/requirements.txt
+COPY backend/requirements.lock /build/requirements.lock
+RUN pip install --no-cache-dir --require-hashes --prefix=/install -r /build/requirements.lock
 
 # -- Runtime stage ----------------------------------------------------------
 FROM python:3.12-slim AS runtime
