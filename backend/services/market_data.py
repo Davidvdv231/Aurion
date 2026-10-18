@@ -41,6 +41,8 @@ SUFFIX_CURRENCY_MAP = {
 
 DataQuality = Literal["clean", "patched", "degraded"]
 
+PROVIDER_PROBE_SYMBOL = "SPY"
+
 
 @dataclass(slots=True)
 class MarketSeries:
@@ -238,6 +240,24 @@ def _deserialize_ohlcv_frame(points: list[dict[str, Any]]) -> pd.DataFrame:
     )
 
 
+def _provider_reachable() -> bool:
+    # yf.download swallows network errors and returns an empty frame, so an empty result
+    # alone cannot distinguish an unknown ticker from an unreachable provider.
+    try:
+        frame = yf.download(
+            PROVIDER_PROBE_SYMBOL,
+            period="5d",
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+            timeout=6,
+        )
+    except Exception as exc:
+        logger.warning("yfinance reachability probe failed: %s", exc)
+        return False
+    return isinstance(frame, pd.DataFrame) and not frame.empty
+
+
 def fetch_close_prices(
     symbol: str,
     asset_type: AssetType,
@@ -373,7 +393,7 @@ def fetch_close_prices(
             provider="yfinance",
         )
 
-    if provider_error is not None:
+    if provider_error is not None or not _provider_reachable():
         raise ServiceError(
             status_code=502,
             code="provider_unavailable",
