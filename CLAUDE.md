@@ -6,6 +6,8 @@ FastAPI forecasting backend (`backend/`) that also serves a no-build PWA (`front
 
 Run everything from the repo root: the code imports the `backend` package. CI and Docker use Python 3.12. In cloud sessions `.claude/hooks/session-start.sh` creates `.venv`, installs all dependencies and puts the venv on `PATH`.
 
+Hooks in `.claude/settings.json` also run in every session: edited Python files under `backend/` and `tests/` are fixed and formatted with ruff, and any lint error ruff can't fix is reported back. When a turn ends with uncommitted changes there, the backend suite runs, and a failure sends you back once to fix it or explain it.
+
 These mirror `.github/workflows/ci.yml`, and all of them must pass:
 
 ```bash
