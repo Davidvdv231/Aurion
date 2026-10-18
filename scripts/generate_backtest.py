@@ -243,6 +243,7 @@ def main() -> None:
         f.write("- **ML Beats Stat**: Whether the ML model achieved lower MAPE than the statistical baseline\n")
         f.write("- Statistical baseline uses a damped log-linear trend anchored at the last close, with volatility bands\n")
         f.write("- ML model uses k-nearest-neighbor analog pattern matching\n")
+        f.write("- Each ticker is scored on only 5 thirty-day windows (the backtest the quality gate uses), so per-ticker numbers are noisy; `scripts/evaluate_forecasts.py` runs a larger walk-forward evaluation\n")
 
     print(f"\nResults written to {output_path}")
 
