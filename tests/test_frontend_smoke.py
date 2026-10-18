@@ -13,6 +13,9 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_EXE = os.environ.get("PYTHON", sys.executable)
+# Optional override for environments whose pre-installed Chromium doesn't match
+# the pinned Playwright release (e.g. Claude Code cloud sessions).
+CHROMIUM_EXECUTABLE = os.environ.get("AURION_CHROMIUM_EXECUTABLE") or None
 BASE_URL = "http://127.0.0.1:8765"
 
 SUCCESS_PREDICTION = {
@@ -163,7 +166,7 @@ def live_server() -> str:
 @pytest.fixture
 def browser() -> object:
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        browser = playwright.chromium.launch(headless=True, executable_path=CHROMIUM_EXECUTABLE)
         try:
             yield browser
         finally:

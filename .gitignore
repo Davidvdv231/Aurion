@@ -1,5 +1,5 @@
 .venv/
-.claude/
+.claude/settings.local.json
 .claude-flow/
 .swarm/
 __pycache__/
