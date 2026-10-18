@@ -29,5 +29,10 @@
     "babel-plugin-module-resolver": "^5.0.2",
     "@types/react": "~19.1.0",
     "typescript": "^5.5.4"
+  },
+  "overrides": {
+    "@expo/metro-config": {
+      "postcss": "^8.5.30"
+    }
   }
 }
