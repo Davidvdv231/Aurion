@@ -8,6 +8,8 @@ Run everything from the repo root: the code imports the `backend` package. CI an
 
 Hooks in `.claude/settings.json` also run in every session: edited Python files under `backend/` and `tests/` are fixed and formatted with ruff, and any lint error ruff can't fix is reported back. When a turn ends with uncommitted changes, the fast checks for what changed run: mypy and the backend tests for `backend/`, the backend tests for `tests/`, and the mobile typecheck for `mobile/`. A failure sends you back once to fix it or explain it.
 
+Real `.env` files are off limits: the file tools can't read them, and shell commands that name one (`cat .env`, `source .env.production`, `cp .env.example .env`) are refused. `.env.example` is fine. If a task needs a real `.env`, ask the user. The app and tests still load `.env` themselves when one exists.
+
 These mirror `.github/workflows/ci.yml`, and all of them must pass:
 
 ```bash
