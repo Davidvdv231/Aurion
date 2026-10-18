@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Davidvdv231/Aurion/actions/workflows/ci.yml/badge.svg)](https://github.com/Davidvdv231/Aurion/actions/workflows/ci.yml)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.135-green)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
 Aurion is a multi-engine market forecasting system that combines statistical baselines and ML pattern matching with explicit quality gating and transparent degradation. When a model underperforms its benchmark, the system falls back honestly and tells you why. Built for trust under imperfect conditions, not prediction theater.
@@ -212,9 +212,9 @@ curl -X POST http://localhost:8000/api/predict \
 For local development without Docker:
 
 ```bash
-cd backend
-pip install -r requirements.txt
-uvicorn app:create_app --factory --reload
+# Run from the repository root: the code imports the `backend` package
+pip install -r backend/requirements.txt
+uvicorn backend.app:create_app --factory --reload
 ```
 
 For mobile development outside local Expo/device testing, set `EXPO_PUBLIC_API_BASE_URL` so the app can reach the deployed API. The mobile client only falls back to explicit demo data in development or when the live API is unavailable.
@@ -251,7 +251,7 @@ The test suite covers API contracts, prediction orchestration, ML pipeline behav
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| API | FastAPI 0.115 / Python 3.12 | Async API with validation |
+| API | FastAPI 0.135 / Python 3.12 | Async API with validation |
 | ML | NumPy / pandas | k-NN analog pattern forecaster |
 | Cache | Redis 7 + in-memory TTL | Dual-layer with configurable TTLs |
 | Web | Vanilla JS PWA | Zero-dependency frontend with service worker |

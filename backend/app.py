@@ -219,7 +219,8 @@ class RequestSizeLimitMiddleware:
             try:
                 return next(buffered_iter)
             except StopIteration:
-                return {"type": "http.request", "body": b"", "more_body": False}
+                # ASGI: once the body is drained, receive() must block until http.disconnect.
+                return await receive()
 
         await self.app(scope, buffered_receive, send)
 
