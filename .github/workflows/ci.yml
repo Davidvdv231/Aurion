@@ -27,12 +27,17 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
-          cache-dependency-path: requirements-dev.txt
+          cache-dependency-path: requirements-dev.lock
 
       - name: Install backend tooling and test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements-dev.txt
+          python -m pip install --require-hashes -r requirements-dev.lock
+
+      - name: Check lockfiles match the requirement files
+        run: |
+          make lock
+          git diff --exit-code backend/requirements.lock requirements-dev.lock
 
       - name: Install Playwright browser
         run: python -m playwright install --with-deps chromium
@@ -40,6 +45,12 @@ jobs:
       - name: Install mobile dependencies
         working-directory: mobile
         run: npm ci
+
+      - name: Export mobile web build
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_API_BASE_URL: http://api.aurion.test
+        run: npx expo export --platform web --output-dir ../build/mobile-web
 
       - name: Stamp service worker cache version
         run: |
@@ -64,6 +75,7 @@ jobs:
           python -m pytest
           tests
           --ignore=tests/test_frontend_smoke.py
+          --ignore=tests/test_mobile_web_smoke.py
           --cov=backend
           --cov-report=term-missing
           -q
@@ -71,5 +83,12 @@ jobs:
       - name: Run frontend smoke test
         run: python -m pytest tests/test_frontend_smoke.py -q
 
-      - name: Audit backend dependencies
-        run: python -m pip_audit -r backend/requirements.txt
+      - name: Run mobile web smoke test
+        env:
+          MOBILE_WEB_EXPORT_DIR: build/mobile-web
+        run: python -m pytest tests/test_mobile_web_smoke.py -q
+
+      - name: Audit locked dependencies
+        run: |
+          python -m pip_audit -r backend/requirements.lock --require-hashes --disable-pip
+          python -m pip_audit -r requirements-dev.lock --require-hashes --disable-pip
