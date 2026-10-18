@@ -5,9 +5,13 @@ Expo/React Native client for Aurion. The mobile app talks to the FastAPI backend
 ## Included
 - Guest flow without fake authentication
 - Home screen with API-first highlights, symbol search, and asset navigation
-- Asset detail view with a lightweight native chart, forecast cards, confidence meter, explanation card, and explicit demo fallback banner
+- Asset detail view with the expected price, a facts list, an SVG price chart (touch to read a day) with a table view, the backtest, the analog explanation, and a clearly marked demo fallback note
 - Local watchlist persistence
+- Light and dark themes that follow the system setting
 - Separated API client, service layer, auth state, and storage abstraction
+
+## Design
+The app uses the same look as the web app in `frontend/`: warm grays, hairline rules instead of cards, IBM Plex Sans and Mono, and one orange accent kept for the forecast. Colors live in `src/theme/theme.ts` and mirror the tokens in `frontend/styles.css`, so change both together. Components get themed styles through `makeStyles`, which builds one `StyleSheet` per color scheme.
 
 ## Run
 1. `cd mobile`
@@ -27,7 +31,8 @@ EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run start
 - `src/context`: onboarding and watchlist state
 - `src/screens`: welcome, home, detail, splash, and watchlist views
 - `src/components`: reusable mobile UI blocks
-- `src/theme`: colors, spacing, typography, and radii
+- `src/theme`: light and dark color tokens, fonts, spacing, and the `useTheme`/`makeStyles` hooks
+- `src/utils`: price, percent, and date formatting shared by the screens
 - `src/storage`: local storage abstraction
 
 ## Notes

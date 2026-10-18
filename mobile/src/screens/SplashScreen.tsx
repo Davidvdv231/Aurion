@@ -1,52 +1,38 @@
 import React from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 
-import { theme } from "@/theme/theme";
+import { Masthead } from "@/components/Masthead";
+import { makeStyles, useTheme } from "@/theme/theme";
 
 export function SplashScreen() {
+  const styles = useStyles();
+  const theme = useTheme();
   return (
-    <View style={styles.container}>
-      <View style={styles.logo}>
-        <Text style={styles.logoText}>A</Text>
+    <View style={styles.screen}>
+      <Masthead />
+      <View style={styles.status}>
+        <ActivityIndicator size="small" color={theme.colors.ink3} />
+        <Text style={styles.text}>Loading your settings</Text>
       </View>
-      <Text style={styles.title}>Aurion</Text>
-      <Text style={styles.subtitle}>Market intelligence loading</Text>
-      <ActivityIndicator color={theme.colors.accent} />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
+const useStyles = makeStyles((theme) => ({
+  screen: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    gap: theme.space.md,
-    backgroundColor: theme.colors.background,
-    padding: theme.space.xl,
-  },
-  logo: {
-    width: 92,
-    height: 92,
-    borderRadius: 28,
+    paddingHorizontal: theme.gutter,
     backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+  },
+  status: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: theme.space.sm,
+    paddingTop: theme.space.xxl,
   },
-  logoText: {
-    color: theme.colors.accent,
-    fontSize: 28,
-    fontWeight: "900",
+  text: {
+    ...theme.text.small,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink3,
   },
-  title: {
-    color: theme.colors.textPrimary,
-    fontSize: 28,
-    fontWeight: "900",
-  },
-  subtitle: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.md,
-  },
-});
+}));

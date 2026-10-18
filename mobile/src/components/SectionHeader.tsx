@@ -1,7 +1,7 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Text, View } from "react-native";
 
-import { theme } from "@/theme/theme";
+import { makeStyles } from "@/theme/theme";
 
 interface SectionHeaderProps {
   title: string;
@@ -10,10 +10,13 @@ interface SectionHeaderProps {
 }
 
 export function SectionHeader({ title, subtitle, action }: SectionHeaderProps) {
+  const styles = useStyles();
   return (
     <View style={styles.row}>
       <View style={styles.textWrap}>
-        <Text style={styles.title}>{title}</Text>
+        <Text style={styles.title} accessibilityRole="header">
+          {title}
+        </Text>
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       </View>
       {action}
@@ -21,26 +24,25 @@ export function SectionHeader({ title, subtitle, action }: SectionHeaderProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((theme) => ({
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-end",
-    gap: theme.space.sm,
+    gap: theme.space.md,
   },
   textWrap: {
     flex: 1,
-    gap: 4,
+    gap: 2,
   },
   title: {
-    color: theme.colors.textPrimary,
-    fontSize: theme.fontSizes.lg,
-    fontWeight: "800",
+    ...theme.text.small,
+    fontFamily: theme.fonts.sansSemiBold,
+    color: theme.colors.ink,
   },
   subtitle: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.sm,
-    lineHeight: 20,
+    ...theme.text.fine,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink3,
   },
-});
-
+}));

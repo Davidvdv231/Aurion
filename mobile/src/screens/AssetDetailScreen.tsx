@@ -1,182 +1,142 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { ForecastEngine, PredictResponse, SupportedCurrency } from "@/api/types";
-import { ForecastChart } from "@/components/ForecastChart";
-import { getDemoForecast } from "@/data/demoAssets";
 import { ConfidenceMeter } from "@/components/ConfidenceMeter";
-import { ForecastCard } from "@/components/ForecastCard";
-import { TrendChip } from "@/components/TrendChip";
+import { ForecastChart } from "@/components/ForecastChart";
+import { ForecastTable } from "@/components/ForecastTable";
+import { Note } from "@/components/Note";
+import { TextToggle } from "@/components/TextToggle";
+import { getDemoForecast } from "@/data/demoAssets";
 import { useWatchlist } from "@/context/WatchlistContext";
-import { theme } from "@/theme/theme";
 import type { RootStackParamList } from "@/navigation/types";
 import { defaultEngineFor, loadForecast } from "@/services/marketService";
 import { createAsyncStorageAdapter } from "@/storage/storage";
+import { makeStyles, useTheme } from "@/theme/theme";
+import {
+  asSentence,
+  formatDate,
+  formatDays,
+  formatDelta,
+  formatFeatureName,
+  formatPrice,
+  formatSourceLabel,
+  sentenceCase,
+} from "@/utils/format";
 
 type Props = NativeStackScreenProps<RootStackParamList, "AssetDetail">;
 
 const CURRENCY_STORAGE_KEY = "aurion-currency";
 const CURRENCIES: SupportedCurrency[] = ["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD"];
 const ENGINES: ForecastEngine[] = ["ml", "stat"];
-const ENGINE_LABELS: Record<ForecastEngine, string> = { ml: "ML", stat: "Stat" };
-const MIN_HORIZON = 7;
-const MAX_HORIZON = 45;
+const ENGINE_LABELS: Record<ForecastEngine, string> = { ml: "ML analog", stat: "Statistical" };
+const HORIZONS = ["7", "14", "21", "30", "45"] as const;
+type Horizon = (typeof HORIZONS)[number];
+const HORIZON_LABELS: Record<Horizon, string> = { "7": "7d", "14": "14d", "21": "21d", "30": "30d", "45": "45d" };
 const storage = createAsyncStorageAdapter();
 
-function formatSignalLabel(signal: PredictResponse["summary"]["signal"]) {
-  return signal
-    .split(/[\s_]+/)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join(" ");
-}
+/* ── Small building blocks ──────────────────────────────────────────── */
 
-/* ── Picker row (currency / engine) ─────────────────────────────────── */
-
-function PillPicker<T extends string>({
-  label,
-  options,
-  value,
-  labelMap,
-  onChange,
-}: {
-  label: string;
-  options: readonly T[];
-  value: T;
-  labelMap?: Record<T, string>;
-  onChange: (v: T) => void;
-}) {
+function Fact({ label, children }: { label: string; children: React.ReactNode }) {
+  const styles = useStyles();
   return (
-    <View style={styles.pickerRow}>
-      <Text style={styles.pickerLabel}>{label}</Text>
-      <View style={styles.pillGroup}>
-        {options.map((opt) => (
-          <Pressable
-            key={opt}
-            onPress={() => onChange(opt)}
-            style={[styles.pill, opt === value && styles.pillActive]}
-          >
-            <Text style={[styles.pillText, opt === value && styles.pillTextActive]}>
-              {labelMap ? labelMap[opt] : opt}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+    <View style={styles.fact}>
+      <Text style={styles.factLabel}>{label}</Text>
+      <View style={styles.factValue}>{children}</View>
     </View>
   );
 }
 
-/* ── Horizon slider (pure RN, no external lib) ──────────────────────── */
-
-function HorizonSlider({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  const step = 1;
-  const range = MAX_HORIZON - MIN_HORIZON;
-  const pct = ((value - MIN_HORIZON) / range) * 100;
-
-  const decrement = () => onChange(Math.max(MIN_HORIZON, value - step));
-  const increment = () => onChange(Math.min(MAX_HORIZON, value + step));
-
-  return (
-    <View style={styles.sliderCard}>
-      <View style={styles.sliderHeader}>
-        <Text style={styles.pickerLabel}>Horizon</Text>
-        <Text style={styles.sliderValue}>{value} days</Text>
-      </View>
-      <View style={styles.sliderTrackContainer}>
-        <Pressable onPress={decrement} style={styles.sliderButton}>
-          <Text style={styles.sliderButtonText}>-</Text>
-        </Pressable>
-        <View style={styles.sliderTrack}>
-          <View style={[styles.sliderFill, { width: `${pct}%` }]} />
-        </View>
-        <Pressable onPress={increment} style={styles.sliderButton}>
-          <Text style={styles.sliderButtonText}>+</Text>
-        </Pressable>
-      </View>
-      <View style={styles.sliderLabels}>
-        <Text style={styles.sliderLabelText}>{MIN_HORIZON}d</Text>
-        <Text style={styles.sliderLabelText}>{MAX_HORIZON}d</Text>
-      </View>
-    </View>
-  );
-}
-
-/* ── Explanation card ───────────────────────────────────────────────── */
-
-function ExplanationCard({ explanation }: { explanation: PredictResponse["explanation"] }) {
-  if (!explanation) return null;
-
-  return (
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>Explanation</Text>
-      <Text style={styles.note}>{explanation.narrative}</Text>
-
-      {explanation.top_features.length > 0 && (
-        <View style={styles.featureList}>
-          <Text style={styles.featureHeading}>Top features</Text>
-          {explanation.top_features.map((feat) => (
-            <View key={feat.feature} style={styles.featureRow}>
-              <Text style={styles.featureName}>{feat.feature}</Text>
-              <View
-                style={[
-                  styles.relationBadge,
-                  feat.relation === "higher"
-                    ? styles.relationHigher
-                    : feat.relation === "lower"
-                      ? styles.relationLower
-                      : styles.relationSimilar,
-                ]}
-              >
-                <Text style={styles.relationText}>{feat.relation}</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      )}
-
-      {explanation.nearest_analog_date ? (
-        <Text style={styles.note}>
-          Nearest analog: {explanation.nearest_analog_date}
-        </Text>
-      ) : null}
-    </View>
-  );
-}
-
-/* ── Evaluation metrics row ─────────────────────────────────────────── */
-
-function EvaluationMetrics({ evaluation }: { evaluation: PredictResponse["evaluation"] }) {
+function Backtest({ evaluation }: { evaluation: PredictResponse["evaluation"] }) {
+  const styles = useStyles();
   if (!evaluation) return null;
 
-  const metrics: { label: string; value: string | null }[] = [
-    { label: "MAE", value: evaluation.mae != null ? evaluation.mae.toFixed(2) : null },
-    { label: "MAPE", value: evaluation.mape != null ? `${evaluation.mape.toFixed(1)}%` : null },
-    {
-      label: "Dir. Acc.",
-      value: evaluation.directional_accuracy != null ? `${(evaluation.directional_accuracy * 100).toFixed(0)}%` : null,
-    },
+  const rows: [string, string][] = [
+    [
+      "Direction called correctly",
+      evaluation.directional_accuracy != null ? `${(evaluation.directional_accuracy * 100).toFixed(0)}%` : "-",
+    ],
+    ["Mean absolute error", evaluation.mae != null ? evaluation.mae.toFixed(2) : "-"],
+    ["Mean absolute % error", evaluation.mape != null ? `${evaluation.mape.toFixed(1)}%` : "-"],
+    ["Validation windows", evaluation.validation_windows != null ? String(evaluation.validation_windows) : "-"],
   ];
 
-  const visible = metrics.filter((m) => m.value !== null);
-  if (visible.length === 0) return null;
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel} accessibilityRole="header">
+        How the model did on recent history
+      </Text>
+      {rows.map(([label, value]) => (
+        <View key={label} style={styles.listRow}>
+          <Text style={styles.listLabel}>{label}</Text>
+          <Text style={styles.listValue}>{value}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function Explanation({ data }: { data: PredictResponse }) {
+  const styles = useStyles();
+  const explanation = data.explanation;
+  if (!explanation || explanation.top_features.length === 0) return null;
+
+  const maxScore = Math.max(...explanation.top_features.map((feature) => feature.difference_score), 0.01);
+  // The explanation can outlive a rejected ML forecast; say so only when the fallback is what you see.
+  const fromFallback = data.source.forecast === "stat_fallback" && Boolean(data.source.analysis);
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>Evaluation</Text>
-      <View style={styles.metricsRow}>
-        {visible.map((m) => (
-          <View key={m.label} style={styles.metricBadge}>
-            <Text style={styles.metricValue}>{m.value}</Text>
-            <Text style={styles.metricLabel}>{m.label}</Text>
-          </View>
-        ))}
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel} accessibilityRole="header">
+        How today's pattern differs from its closest analogs
+      </Text>
+      <Text style={styles.fine}>
+        Forecast source: {formatSourceLabel(data.source.forecast)}. Explanation source:{" "}
+        {formatSourceLabel(data.source.analysis)}.
+      </Text>
+      {fromFallback ? (
+        <Note>
+          Final forecast uses the statistical fallback. This explanation summarizes how the current market
+          pattern differed from the ML analog set before the quality gate rejected the forecast.
+        </Note>
+      ) : null}
+      {explanation.narrative ? <Text style={styles.narrative}>{explanation.narrative}</Text> : null}
+
+      <View style={styles.diverging}>
+        <View style={styles.nameSpacer} />
+        <Text style={[styles.divergingLabel, styles.alignRight]}>Lower</Text>
+        <Text style={styles.divergingLabel}>Higher</Text>
+        <View style={styles.dirSpacer} />
       </View>
+      {explanation.top_features.map((feature) => {
+        const width = `${Math.max(Math.round((feature.difference_score / maxScore) * 100), 2)}%` as const;
+        return (
+          <View
+            key={feature.feature}
+            style={styles.featureRow}
+            accessible
+            accessibilityLabel={`${formatFeatureName(feature.feature)}: ${feature.relation} than its analogs`}
+          >
+            <Text style={styles.featureName} numberOfLines={1}>
+              {formatFeatureName(feature.feature)}
+            </Text>
+            <View style={styles.half}>
+              {feature.relation === "lower" ? <View style={[styles.bar, styles.barLower, { width }]} /> : null}
+            </View>
+            <View style={styles.axis} />
+            <View style={styles.half}>
+              {feature.relation === "higher" ? <View style={[styles.bar, styles.barHigher, { width }]} /> : null}
+              {feature.relation === "similar" ? <View style={styles.similar} /> : null}
+            </View>
+            <Text style={styles.featureDir}>{feature.relation}</Text>
+          </View>
+        );
+      })}
+      {explanation.nearest_analog_date ? (
+        <Text style={styles.fine}>Nearest analog: {formatDate(explanation.nearest_analog_date, true)}</Text>
+      ) : null}
     </View>
   );
 }
@@ -185,19 +145,18 @@ function EvaluationMetrics({ evaluation }: { evaluation: PredictResponse["evalua
 
 export function AssetDetailScreen({ route, navigation }: Props) {
   const { symbol, assetType, name, engine: initialEngine } = route.params;
+  const theme = useTheme();
+  const styles = useStyles();
+  const insets = useSafeAreaInsets();
   const { isSaved, toggle } = useWatchlist();
-  const [data, setData] = useState<PredictResponse>(() =>
-    getDemoForecast(symbol, assetType, "USD", initialEngine ?? defaultEngineFor(assetType)),
-  );
+  const [data, setData] = useState<PredictResponse | null>(null);
   const [isDemo, setIsDemo] = useState(false);
   const [demoReason, setDemoReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [currency, setCurrency] = useState<SupportedCurrency>("USD");
-  const [engine, setEngine] = useState<ForecastEngine>(
-    initialEngine ?? defaultEngineFor(assetType),
-  );
-  const [horizon, setHorizon] = useState(7);
+  const [engine, setEngine] = useState<ForecastEngine>(initialEngine ?? defaultEngineFor(assetType));
+  const [horizon, setHorizon] = useState<Horizon>("7");
 
   // Load persisted currency preference on mount
   useEffect(() => {
@@ -214,13 +173,13 @@ export function AssetDetailScreen({ route, navigation }: Props) {
     void storage.setItem(CURRENCY_STORAGE_KEY, value);
   }, []);
 
-  // Fetch forecast whenever inputs change
+  // Fetch forecast whenever inputs change; the previous result stays on screen, dimmed, until the new one lands.
   useEffect(() => {
     let mounted = true;
     setLoading(true);
 
     loadForecast(symbol, assetType, {
-      horizon,
+      horizon: Number(horizon),
       engine,
       displayCurrency: currency,
     })
@@ -250,389 +209,465 @@ export function AssetDetailScreen({ route, navigation }: Props) {
   }, [assetType, symbol, horizon, engine, currency]);
 
   const saved = isSaved(symbol);
+  const displayCurrency = data ? data.display_currency || data.currency : currency;
+  const delta = data ? formatDelta(data.summary.expected_return_pct) : null;
+  const subtitle = [name || data?.requested_symbol, data?.model_name, assetType === "crypto" ? "Crypto" : "Stock"]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={[styles.content, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 48 }]}
+    >
       <View style={styles.topRow}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Text style={styles.backText}>Back</Text>
+        <Pressable
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          hitSlop={8}
+          style={({ pressed }) => [styles.back, pressed && styles.pressed]}
+        >
+          <Text style={styles.backText}>{"←"} Back</Text>
         </Pressable>
         <Pressable
           onPress={() => toggle({ symbol, name: name || symbol, assetType })}
-          style={[styles.watchButton, saved && styles.watchButtonActive]}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.quietButton, pressed && styles.pressed]}
         >
-          <Text style={styles.watchButtonText}>{saved ? "Saved" : "Save"}</Text>
+          <Text style={styles.quietText}>{saved ? "Remove from watchlist" : "Add to watchlist"}</Text>
         </Pressable>
       </View>
 
-      {isDemo && (
-        <View style={styles.demoBanner}>
-          <Text style={styles.demoBannerText}>
-            Demo data — {demoReason || "the live API is unavailable."}
+      <View style={styles.head}>
+        <Text style={styles.symbol} accessibilityRole="header">
+          {data?.symbol ?? symbol}
+        </Text>
+        <Text style={styles.model}>{subtitle}</Text>
+      </View>
+
+      <View style={styles.controls}>
+        <View style={styles.controlRow}>
+          <Text style={styles.controlLabel}>Horizon</Text>
+          <TextToggle
+            options={HORIZONS}
+            value={horizon}
+            labels={HORIZON_LABELS}
+            onChange={setHorizon}
+            accessibilityLabel="Forecast horizon"
+          />
+        </View>
+        <View style={styles.controlRow}>
+          <Text style={styles.controlLabel}>Model</Text>
+          <TextToggle
+            options={ENGINES}
+            value={engine}
+            labels={ENGINE_LABELS}
+            onChange={setEngine}
+            accessibilityLabel="Forecast model"
+          />
+        </View>
+        <View style={styles.controlRow}>
+          <Text style={styles.controlLabel}>Currency</Text>
+          <View style={styles.controlValue}>
+            <TextToggle
+              options={CURRENCIES}
+              value={currency}
+              onChange={handleCurrencyChange}
+              accessibilityLabel="Display currency"
+              size="small"
+            />
+          </View>
+        </View>
+      </View>
+
+      {!data ? (
+        <View style={styles.loading} accessibilityLiveRegion="polite">
+          <ActivityIndicator size="small" color={theme.colors.ink3} />
+          <Text style={styles.loadingText}>Running the forecast for {symbol}...</Text>
+        </View>
+      ) : (
+        <View style={[styles.result, loading && styles.refreshing]}>
+          <Text style={styles.status} accessibilityLiveRegion="polite">
+            {loading ? "Updating..." : " "}
+          </Text>
+
+          {isDemo ? (
+            <Note tone="warning" lead="Demo data.">
+              {asSentence(demoReason || "The live API is unavailable")} The numbers below are illustrative.
+            </Note>
+          ) : null}
+          {/* Demo data is flagged as degraded too; the demo note above already says so. */}
+          {data.degraded && !isDemo ? (
+            <Note tone="warning" lead="Statistical fallback in use.">
+              {data.degradation_message ||
+                "The ML model did not pass its quality gate, so this is the statistical baseline."}
+            </Note>
+          ) : null}
+
+          <View style={styles.hero}>
+            <Text style={styles.heroLabel}>Expected price in {formatDays(data.horizon_days)}</Text>
+            <Text style={styles.heroValue} adjustsFontSizeToFit numberOfLines={1}>
+              {formatPrice(data.summary.expected_price, displayCurrency)}
+            </Text>
+            <View style={styles.heroDelta}>
+              {delta ? (
+                <Text style={[styles.delta, delta.tone === "up" && styles.up, delta.tone === "down" && styles.down]}>
+                  {delta.text}
+                </Text>
+              ) : null}
+              <Text style={styles.heroFrom}>
+                from the last close of {formatPrice(data.stats.last_close, displayCurrency)}{" "}
+                <Text style={styles.currencyTag}>{displayCurrency}</Text>
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.facts}>
+            <Fact label="Outlook">
+              <Text style={styles.factText}>{sentenceCase(data.summary.signal)}</Text>
+            </Fact>
+            <Fact label="Trend">
+              <Text style={styles.factText}>{sentenceCase(data.summary.trend)}</Text>
+            </Fact>
+            <Fact label="Confidence">
+              <ConfidenceMeter tier={data.summary.confidence_tier} />
+            </Fact>
+            <Fact label="Data and model">
+              <Text style={styles.factMono}>
+                {data.source.market_data} / {data.source.forecast}
+              </Text>
+            </Fact>
+          </View>
+
+          {data.source.data_warnings.map((warning) => (
+            <Note key={warning} tone="warning">
+              {warning}
+            </Note>
+          ))}
+
+          <View style={styles.chart}>
+            <ForecastChart
+              history={data.history}
+              forecast={data.forecast}
+              currency={displayCurrency}
+              horizonDays={data.horizon_days}
+            />
+            <ForecastTable forecast={data.forecast} currency={displayCurrency} />
+          </View>
+
+          <Backtest evaluation={data.evaluation} />
+          <Explanation data={data} />
+
+          <Text style={[styles.fine, styles.disclaimer]}>
+            {`${data.disclaimer || ""} ${data.engine_note || ""}`.trim()}
           </Text>
         </View>
       )}
-
-      <View style={styles.hero}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.symbol}>{data.symbol}</Text>
-          <Text style={styles.name}>{name || data.requested_symbol}</Text>
-        </View>
-        <TrendChip trend={data.summary.trend} />
-      </View>
-
-      {/* ── Controls card ──────────────────────────────────────────── */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Settings</Text>
-        <PillPicker
-          label="Currency"
-          options={CURRENCIES}
-          value={currency}
-          onChange={handleCurrencyChange}
-        />
-        <PillPicker
-          label="Engine"
-          options={ENGINES}
-          value={engine}
-          labelMap={ENGINE_LABELS}
-          onChange={setEngine}
-        />
-        <HorizonSlider value={horizon} onChange={setHorizon} />
-      </View>
-
-      {/* ── Forecast summary ──────────────────────────────────────── */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>{loading ? "Loading forecast..." : "Forecast summary"}</Text>
-        <Text style={styles.stat}>
-          Last close {data.currency} {data.stats.last_close.toFixed(2)}
-        </Text>
-        <Text style={styles.stat}>
-          Expected {data.currency} {data.summary.expected_price.toFixed(2)} ({data.summary.expected_return_pct.toFixed(2)}%)
-        </Text>
-        <Text style={styles.stat}>
-          Outlook {formatSignalLabel(data.summary.signal)}
-        </Text>
-        <Text style={styles.note}>{data.engine_note}</Text>
-        {data.evaluation?.validation_windows != null ? (
-          <Text style={styles.note}>Validated on {data.evaluation.validation_windows} windows.</Text>
-        ) : null}
-      </View>
-
-      <ForecastChart history={data.history} forecast={data.forecast} currency={data.currency} />
-
-      {/* ── Prediction bands ──────────────────────────────────────── */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Prediction bands</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.forecastRow}>
-          {data.forecast.map((point) => (
-            <ForecastCard key={point.date} {...point} />
-          ))}
-        </ScrollView>
-      </View>
-
-      {/* ── Confidence ────────────────────────────────────────────── */}
-      <View style={styles.card}>
-        <ConfidenceMeter
-          tier={data.summary.confidence_tier}
-          degraded={data.degraded}
-        />
-      </View>
-
-      {/* ── Explanation (if available) ────────────────────────────── */}
-      <ExplanationCard explanation={data.explanation} />
-
-      {/* ── Evaluation metrics (if available) ─────────────────────── */}
-      <EvaluationMetrics evaluation={data.evaluation} />
-
-      {/* ── Model output footer ───────────────────────────────────── */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Model output</Text>
-        <Text style={styles.note}>
-          This MVP exposes trend direction, banded forecast and confidence. No guarantee, no advice.
-        </Text>
-        {data.degraded && data.degradation_message ? <Text style={styles.warning}>{data.degradation_message}</Text> : null}
-        {data.source.data_warnings.map((warning) => (
-          <Text key={warning} style={styles.warning}>
-            {warning}
-          </Text>
-        ))}
-        <Text style={styles.note}>
-          Source {data.source.market_data} / {data.source.forecast}
-        </Text>
-        <Text style={styles.footerText}>{data.disclaimer}</Text>
-      </View>
     </ScrollView>
   );
 }
 
 /* ── Styles ─────────────────────────────────────────────────────────── */
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((theme) => ({
   screen: {
     flex: 1,
-    backgroundColor: theme.colors.background,
+    backgroundColor: theme.colors.surface,
   },
   content: {
-    padding: theme.space.xl,
-    gap: theme.space.lg,
-    paddingBottom: 48,
+    paddingHorizontal: theme.gutter,
+  },
+  pressed: {
+    opacity: 0.6,
   },
   topRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    minHeight: 44,
   },
-  backButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  backText: {
-    color: theme.colors.textPrimary,
-    fontWeight: "700",
-  },
-  watchButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-    backgroundColor: theme.colors.accentSoft,
-  },
-  watchButtonActive: {
-    backgroundColor: theme.colors.successSoft,
-  },
-  watchButtonText: {
-    color: theme.colors.textPrimary,
-    fontWeight: "800",
-  },
-  demoBanner: {
-    backgroundColor: "#5c3d00",
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: theme.radius.md,
-    alignItems: "center",
-  },
-  demoBannerText: {
-    color: "#ffc107",
-    fontWeight: "700",
-    fontSize: theme.fontSizes.sm,
-  },
-  hero: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: theme.space.md,
-  },
-  symbol: {
-    color: theme.colors.textPrimary,
-    fontSize: 36,
-    fontWeight: "900",
-  },
-  name: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.md,
-    marginTop: 4,
-  },
-  card: {
-    gap: theme.space.sm,
-    padding: theme.space.md,
-    borderRadius: theme.radius.xl,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  cardTitle: {
-    color: theme.colors.textPrimary,
-    fontSize: theme.fontSizes.lg,
-    fontWeight: "800",
-  },
-  stat: {
-    color: theme.colors.textPrimary,
-    fontSize: theme.fontSizes.md,
-    fontWeight: "600",
-  },
-  note: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.sm,
-    lineHeight: 20,
-  },
-  warning: {
-    color: theme.colors.warning,
-    fontSize: theme.fontSizes.sm,
-    lineHeight: 20,
-    fontWeight: "600",
-  },
-  footerText: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.xs,
-    lineHeight: 18,
-  },
-  forecastRow: {
-    gap: theme.space.md,
+  back: {
     paddingVertical: theme.space.sm,
   },
-
-  /* ── Picker / pill styles ──────────────────────────────────────── */
-  pickerRow: {
-    gap: theme.space.xs,
+  backText: {
+    ...theme.text.small,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink2,
   },
-  pickerLabel: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.sm,
-    fontWeight: "700",
-  },
-  pillGroup: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: theme.space.xs,
-  },
-  pill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: theme.colors.surfaceElevated,
+  quietButton: {
+    minHeight: 36,
+    justifyContent: "center",
+    paddingHorizontal: theme.space.md,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: theme.colors.rule,
+    borderRadius: theme.radius,
   },
-  pillActive: {
-    backgroundColor: theme.colors.accentSoft,
-    borderColor: theme.colors.accent,
+  quietText: {
+    ...theme.text.small,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink2,
   },
-  pillText: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.xs,
-    fontWeight: "700",
+  head: {
+    paddingTop: theme.space.lg,
+    paddingBottom: theme.space.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.grid,
   },
-  pillTextActive: {
-    color: theme.colors.accent,
+  symbol: {
+    fontSize: 28,
+    lineHeight: 34,
+    letterSpacing: -0.3,
+    fontFamily: theme.fonts.monoMedium,
+    color: theme.colors.ink,
   },
-
-  /* ── Horizon slider styles ─────────────────────────────────────── */
-  sliderCard: {
-    gap: theme.space.xs,
+  model: {
+    ...theme.text.small,
+    marginTop: 2,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink3,
   },
-  sliderHeader: {
+  controls: {
+    paddingVertical: theme.space.md,
+    gap: theme.space.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.grid,
+  },
+  controlRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    gap: theme.space.lg,
   },
-  sliderValue: {
-    color: theme.colors.accent,
-    fontSize: theme.fontSizes.sm,
-    fontWeight: "800",
+  controlLabel: {
+    ...theme.text.fine,
+    width: 64,
+    fontFamily: theme.fonts.sansMedium,
+    color: theme.colors.ink3,
   },
-  sliderTrackContainer: {
+  controlValue: {
+    flex: 1,
+  },
+  loading: {
     flexDirection: "row",
     alignItems: "center",
     gap: theme.space.sm,
+    paddingVertical: theme.space.xxl,
   },
-  sliderButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 999,
-    backgroundColor: theme.colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    justifyContent: "center",
-    alignItems: "center",
+  loadingText: {
+    ...theme.text.small,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink3,
   },
-  sliderButtonText: {
-    color: theme.colors.textPrimary,
-    fontSize: theme.fontSizes.lg,
-    fontWeight: "800",
-    lineHeight: 20,
+  result: {
+    gap: theme.space.md,
   },
-  sliderTrack: {
-    flex: 1,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: theme.colors.surfaceElevated,
-    overflow: "hidden",
+  refreshing: {
+    opacity: 0.45,
   },
-  sliderFill: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: theme.colors.accent,
+  status: {
+    ...theme.text.fine,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink3,
+    marginTop: theme.space.sm,
   },
-  sliderLabels: {
+  hero: {
+    marginTop: theme.space.sm,
+  },
+  heroLabel: {
+    ...theme.text.small,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink2,
+  },
+  heroValue: {
+    fontSize: 46,
+    lineHeight: 54,
+    letterSpacing: -1.2,
+    fontFamily: theme.fonts.sansSemiBold,
+    color: theme.colors.ink,
+    marginTop: 2,
+    marginBottom: 6,
+  },
+  heroDelta: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "baseline",
+    columnGap: 10,
+    rowGap: 2,
+  },
+  delta: {
+    ...theme.text.lead,
+    fontFamily: theme.fonts.sansSemiBold,
+    color: theme.colors.ink2,
+  },
+  up: {
+    color: theme.colors.up,
+  },
+  down: {
+    color: theme.colors.down,
+  },
+  heroFrom: {
+    ...theme.text.small,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink2,
+  },
+  currencyTag: {
+    ...theme.text.fine,
+    fontFamily: theme.fonts.mono,
+    color: theme.colors.ink3,
+  },
+  facts: {
+    marginTop: theme.space.lg,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.ink,
+  },
+  fact: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingHorizontal: 42,
+    alignItems: "center",
+    gap: theme.space.lg,
+    minHeight: 44,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.grid,
   },
-  sliderLabelText: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.xs,
+  factLabel: {
+    ...theme.text.small,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink3,
   },
-
-  /* ── Explanation card styles ───────────────────────────────────── */
-  featureList: {
-    gap: theme.space.xs,
-    marginTop: theme.space.xs,
+  factValue: {
+    flexShrink: 1,
+    alignItems: "flex-end",
   },
-  featureHeading: {
-    color: theme.colors.textPrimary,
-    fontSize: theme.fontSizes.sm,
-    fontWeight: "700",
+  factText: {
+    ...theme.text.body,
+    fontFamily: theme.fonts.sansMedium,
+    color: theme.colors.ink,
+    textAlign: "right",
+  },
+  factMono: {
+    ...theme.text.small,
+    fontFamily: theme.fonts.mono,
+    color: theme.colors.ink,
+    textAlign: "right",
+  },
+  chart: {
+    marginTop: theme.space.xxl,
+    gap: theme.space.sm,
+  },
+  section: {
+    marginTop: theme.space.xl,
+    paddingTop: theme.space.xl,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.grid,
+    gap: theme.space.sm,
+  },
+  sectionLabel: {
+    ...theme.text.small,
+    fontFamily: theme.fonts.sansSemiBold,
+    color: theme.colors.ink,
+    marginBottom: theme.space.xs,
+  },
+  listRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: theme.space.lg,
+    paddingVertical: theme.space.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.grid,
+  },
+  listLabel: {
+    ...theme.text.small,
+    flexShrink: 1,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink2,
+  },
+  listValue: {
+    ...theme.text.small,
+    fontFamily: theme.fonts.sansMedium,
+    color: theme.colors.ink,
+    fontVariant: ["tabular-nums"],
+  },
+  narrative: {
+    ...theme.text.body,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink2,
+  },
+  diverging: {
+    flexDirection: "row",
+    marginTop: theme.space.sm,
+  },
+  divergingLabel: {
+    ...theme.text.fine,
+    flex: 1,
+    fontSize: 12,
+    paddingHorizontal: theme.space.sm,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink3,
+  },
+  alignRight: {
+    textAlign: "right",
+  },
+  nameSpacer: {
+    width: 104,
+  },
+  dirSpacer: {
+    width: 56,
   },
   featureRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 4,
+    minHeight: 28,
   },
   featureName: {
-    color: theme.colors.textPrimary,
-    fontSize: theme.fontSizes.sm,
+    ...theme.text.fine,
+    width: 104,
+    paddingRight: theme.space.sm,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink2,
+  },
+  half: {
     flex: 1,
-  },
-  relationBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-  },
-  relationHigher: {
-    backgroundColor: theme.colors.successSoft,
-  },
-  relationLower: {
-    backgroundColor: theme.colors.dangerSoft,
-  },
-  relationSimilar: {
-    backgroundColor: theme.colors.surfaceElevated,
-  },
-  relationText: {
-    fontSize: theme.fontSizes.xs,
-    fontWeight: "700",
-    color: theme.colors.textPrimary,
-  },
-
-  /* ── Evaluation metrics styles ─────────────────────────────────── */
-  metricsRow: {
+    height: 10,
     flexDirection: "row",
-    gap: theme.space.sm,
-    flexWrap: "wrap",
   },
-  metricBadge: {
-    flex: 1,
-    minWidth: 80,
-    alignItems: "center",
-    paddingVertical: theme.space.sm,
-    paddingHorizontal: theme.space.sm,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+  axis: {
+    width: 1,
+    alignSelf: "stretch",
+    backgroundColor: theme.colors.rule,
   },
-  metricValue: {
-    color: theme.colors.textPrimary,
-    fontSize: theme.fontSizes.md,
-    fontWeight: "800",
+  bar: {
+    height: 10,
+    backgroundColor: theme.colors.ink2,
   },
-  metricLabel: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.xs,
-    fontWeight: "600",
-    marginTop: 2,
+  barLower: {
+    marginLeft: "auto",
+    borderTopLeftRadius: 4,
+    borderBottomLeftRadius: 4,
   },
-});
+  barHigher: {
+    borderTopRightRadius: 4,
+    borderBottomRightRadius: 4,
+  },
+  similar: {
+    width: 3,
+    height: 10,
+    borderRadius: 2,
+    backgroundColor: theme.colors.ink2,
+  },
+  featureDir: {
+    ...theme.text.fine,
+    width: 56,
+    paddingLeft: theme.space.sm,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink3,
+  },
+  fine: {
+    ...theme.text.fine,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink3,
+  },
+  disclaimer: {
+    marginTop: theme.space.xxl,
+  },
+}));
