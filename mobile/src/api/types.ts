@@ -60,6 +60,9 @@ export interface PredictionEvaluation {
   mape: number | null;
   directional_accuracy: number | null;
   validation_windows: number | null;
+  /** MAPE of holding the last close flat over the same backtest windows. */
+  no_change_mape: number | null;
+  beats_no_change: boolean | null;
 }
 
 export interface ExplanationFeature {

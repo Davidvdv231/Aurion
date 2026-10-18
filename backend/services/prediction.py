@@ -224,6 +224,45 @@ async def _run_blocking(
     return await blocking_runner.run(func, timeout_seconds=timeout_seconds)
 
 
+def _make_evaluation(
+    *,
+    mae: float | None,
+    rmse: float | None,
+    mape: float | None,
+    directional_accuracy: float | None,
+    validation_windows: int | None,
+    no_change_mape: float | None,
+) -> PredictionEvaluation:
+    beats_no_change = (
+        mape < no_change_mape
+        if mape is not None and no_change_mape is not None and no_change_mape > 0
+        else None
+    )
+    return PredictionEvaluation(
+        mae=mae,
+        rmse=rmse,
+        mape=mape,
+        directional_accuracy=directional_accuracy,
+        validation_windows=validation_windows,
+        no_change_mape=no_change_mape,
+        beats_no_change=beats_no_change,
+    )
+
+
+def _stat_evaluation(stat_backtest: dict[str, float | int]) -> PredictionEvaluation | None:
+    validation_windows = int(stat_backtest.get("validation_windows", 0))
+    if validation_windows <= 0:
+        return None
+    return _make_evaluation(
+        mae=stat_backtest.get("mae"),
+        rmse=stat_backtest.get("rmse"),
+        mape=stat_backtest.get("mape"),
+        directional_accuracy=stat_backtest.get("directional_accuracy"),
+        validation_windows=validation_windows,
+        no_change_mape=stat_backtest.get("no_change_mape"),
+    )
+
+
 def _ml_quality_failure(
     evaluation: PredictionEvaluation,
     stat_baseline: dict[str, float | int],
@@ -254,6 +293,17 @@ def _ml_quality_failure(
         return (
             "model_baseline_underperforming",
             "ML error quality did not beat the statistical baseline. Returned the statistical fallback forecast instead.",
+        )
+    no_change_mape = evaluation.no_change_mape
+    if (
+        mape is not None
+        and no_change_mape is not None
+        and no_change_mape > 0
+        and mape > no_change_mape * settings.ml_max_mape_vs_baseline
+    ):
+        return (
+            "model_baseline_underperforming",
+            "ML error quality did not beat a no-change forecast that holds the last close. Returned the statistical fallback forecast instead.",
         )
     return None
 
@@ -323,19 +373,21 @@ async def build_prediction_response(
     degraded, degradation_code, degradation_message, degradation_reason = _degradation_fields(
         degraded=False,
     )
-    evaluation = None
+    # The evaluation always describes the forecast that is returned, so it starts as the
+    # statistical backtest and is replaced only when the ML forecast is served.
+    stat_baseline = backtest_stat_forecast(
+        market_series.close,
+        payload.horizon,
+        payload.asset_type,
+        n_folds=5,
+    )
+    evaluation = _stat_evaluation(stat_baseline)
     explanation = None
     ml_explanation_meta: dict | None = None
     ml_analysis_summary: PredictionSummary | None = None
     model_ms: float | None = None
 
     if payload.engine == "ml":
-        stat_baseline = backtest_stat_forecast(
-            market_series.close,
-            payload.horizon,
-            payload.asset_type,
-            n_folds=5,
-        )
         try:
             from backend.ml.service import train_and_predict
 
@@ -367,14 +419,15 @@ async def build_prediction_response(
                     f"ML forecast horizon mismatch: expected {payload.horizon}, got {len(ml_forecast)}"
                 )
 
-            evaluation = PredictionEvaluation(
+            ml_evaluation = _make_evaluation(
                 mae=ml_metrics.mae,
                 rmse=ml_metrics.rmse,
                 mape=ml_metrics.mape,
                 directional_accuracy=ml_metrics.directional_accuracy,
                 validation_windows=ml_metrics.validation_windows,
+                no_change_mape=ml_metrics.no_change_mape,
             )
-            ml_analysis_summary = _build_summary(ml_forecast, stats, evaluation)
+            ml_analysis_summary = _build_summary(ml_forecast, stats, ml_evaluation)
             ml_explanation_meta = {
                 "neighbors_used": ml_result.neighbors_used,
                 "avg_neighbor_distance": ml_result.avg_neighbor_distance,
@@ -400,10 +453,11 @@ async def build_prediction_response(
                 directional_accuracy=round(ml_metrics.directional_accuracy, 4),
                 validation_windows=ml_metrics.validation_windows,
                 mape=round(ml_metrics.mape, 2) if ml_metrics.mape else None,
+                no_change_mape=ml_metrics.no_change_mape,
                 baseline_mape=stat_baseline.get("mape"),
                 baseline_windows=stat_baseline.get("validation_windows"),
             )
-            quality_failure = _ml_quality_failure(evaluation, stat_baseline, settings)
+            quality_failure = _ml_quality_failure(ml_evaluation, stat_baseline, settings)
             if quality_failure is not None:
                 degradation_code, degradation_message = quality_failure
                 _log_prediction_event(
@@ -443,6 +497,7 @@ async def build_prediction_response(
                 )
             else:
                 engine_used = "ml"
+                evaluation = ml_evaluation
                 model_name = "Aurion Analog Forecaster"
                 engine_note = (
                     f"Pattern-matching ML model using {ml_result.neighbors_used} nearest historical analogs "

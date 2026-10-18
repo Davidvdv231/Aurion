@@ -104,7 +104,15 @@ PREDICTION = {
         "confidence_tier": "medium",
         "signal": "Neutral",
     },
-    "evaluation": None,
+    "evaluation": {
+        "mae": 1650.0,
+        "rmse": 2100.0,
+        "mape": 2.2,
+        "directional_accuracy": 0.5,
+        "validation_windows": 5,
+        "no_change_mape": 2.0,
+        "beats_no_change": False,
+    },
     "explanation": None,
     "disclaimer": "This is an estimate, not financial advice.",
 }
@@ -195,6 +203,8 @@ def test_guest_opens_crypto_forecast_from_live_api(mobile_web_url: str) -> None:
             assert predict_bodies[-1]["asset_type"] == "crypto"
             assert predict_bodies[-1]["engine"] == "stat"
             assert page.get_by_text("Demo data", exact=False).count() == 0
+            page.get_by_text("Beats a no-change guess").wait_for()
+            assert page.get_by_text("missed by more than simply assuming", exact=False).is_visible()
         finally:
             browser.close()
 

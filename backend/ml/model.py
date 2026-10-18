@@ -62,6 +62,8 @@ class BacktestMetrics:
     validation_windows: int
     coverage_80: float | None = None
     mean_error: float | None = None
+    # MAPE of holding the last close flat over the same windows: the bar a forecast has to clear.
+    no_change_mape: float | None = None
 
 
 @dataclass
@@ -352,6 +354,7 @@ class AnalogForecastModel:
         fold_size = max(self.horizon, (n - min_train) // max(n_folds, 1))
 
         all_errors = []
+        all_no_change_errors: list[float] = []
         all_actuals = []
         all_directions = []
         all_signed_errors: list[float] = []
@@ -390,6 +393,7 @@ class AnalogForecastModel:
             upper = result.upper[:actual_len]
             errors = np.abs(pred - act)
             all_errors.extend(errors.tolist())
+            all_no_change_errors.extend(np.abs(float(train_close.iloc[-1]) - act).tolist())
             all_actuals.extend(act.tolist())
             all_signed_errors.extend((pred - act).tolist())
 
@@ -421,6 +425,12 @@ class AnalogForecastModel:
             if np.any(nonzero)
             else 0.0
         )
+        no_change_arr = np.array(all_no_change_errors)
+        no_change_mape = (
+            float(np.mean(no_change_arr[nonzero] / np.abs(actuals_arr[nonzero]))) * 100
+            if np.any(nonzero)
+            else 0.0
+        )
 
         dir_acc = float(np.mean(all_directions)) if all_directions else 0.5
 
@@ -437,6 +447,7 @@ class AnalogForecastModel:
             validation_windows=len(all_directions),
             coverage_80=coverage_80,
             mean_error=mean_error,
+            no_change_mape=round(no_change_mape, 2),
         )
 
 

@@ -60,13 +60,21 @@ function Backtest({ evaluation }: { evaluation: PredictResponse["evaluation"] })
     ],
     ["Mean absolute error", evaluation.mae != null ? evaluation.mae.toFixed(2) : "-"],
     ["Mean absolute % error", evaluation.mape != null ? `${evaluation.mape.toFixed(1)}%` : "-"],
+    [
+      "% error of a no-change guess",
+      evaluation.no_change_mape != null ? `${evaluation.no_change_mape.toFixed(1)}%` : "-",
+    ],
+    [
+      "Beats a no-change guess",
+      evaluation.beats_no_change === true ? "Yes" : evaluation.beats_no_change === false ? "No" : "-",
+    ],
     ["Validation windows", evaluation.validation_windows != null ? String(evaluation.validation_windows) : "-"],
   ];
 
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel} accessibilityRole="header">
-        How the model did on recent history
+        How this forecast did on recent history
       </Text>
       {rows.map(([label, value]) => (
         <View key={label} style={styles.listRow}>
@@ -74,6 +82,14 @@ function Backtest({ evaluation }: { evaluation: PredictResponse["evaluation"] })
           <Text style={styles.listValue}>{value}</Text>
         </View>
       ))}
+      {evaluation.beats_no_change === false ? (
+        <View style={styles.backtestNote}>
+          <Note>
+            On recent history this forecast missed by more than simply assuming the price stays where it
+            is. Read its direction as a guess and lean on the range.
+          </Note>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -587,6 +603,9 @@ const useStyles = makeStyles((theme) => ({
     fontFamily: theme.fonts.sansMedium,
     color: theme.colors.ink,
     fontVariant: ["tabular-nums"],
+  },
+  backtestNote: {
+    marginTop: theme.space.sm,
   },
   narrative: {
     ...theme.text.body,

@@ -201,13 +201,19 @@
 
         <div class="notes">
           <section id="eval-row" class="backtest" data-testid="evaluation-row" aria-labelledby="backtest-heading" hidden>
-            <h3 id="backtest-heading" class="section-label">How the model did on recent history</h3>
+            <h3 id="backtest-heading" class="section-label">How this forecast did on recent history</h3>
             <dl class="backtest-list">
               <div><dt>Direction called correctly</dt><dd id="eval-dir">-</dd></div>
               <div><dt>Mean absolute error</dt><dd id="eval-mae">-</dd></div>
               <div><dt>Mean absolute % error</dt><dd id="eval-mape">-</dd></div>
+              <div><dt>% error of a no-change guess</dt><dd id="eval-no-change">-</dd></div>
+              <div><dt>Beats a no-change guess</dt><dd id="eval-beats" data-testid="eval-beats">-</dd></div>
               <div><dt>Validation windows</dt><dd id="eval-windows">-</dd></div>
             </dl>
+            <p id="eval-note" class="note eval-note" data-testid="eval-note" hidden>
+              On recent history this forecast missed by more than simply assuming the price stays where
+              it is. Read its direction as a guess and lean on the range.
+            </p>
           </section>
 
           <section id="explanation-card" class="explanation" data-testid="explanation-card" hidden>

@@ -51,6 +51,9 @@ const explanationToggle = document.getElementById("explanation-toggle");
 const resultsNode = document.getElementById("results");
 const heroHorizon = document.getElementById("hero-horizon");
 const evalWindows = document.getElementById("eval-windows");
+const evalNoChange = document.getElementById("eval-no-change");
+const evalBeats = document.getElementById("eval-beats");
+const evalNote = document.getElementById("eval-note");
 
 // Chart
 const chartFigure = document.getElementById("chart-figure");
@@ -1025,6 +1028,9 @@ function updateSignalCard(data) {
     evalMae.textContent = ev.mae != null ? ev.mae.toFixed(2) : "-";
     evalMape.textContent = ev.mape != null ? `${ev.mape.toFixed(1)}%` : "-";
     evalWindows.textContent = ev.validation_windows != null ? String(ev.validation_windows) : "-";
+    evalNoChange.textContent = ev.no_change_mape != null ? `${ev.no_change_mape.toFixed(1)}%` : "-";
+    evalBeats.textContent = ev.beats_no_change === true ? "Yes" : ev.beats_no_change === false ? "No" : "-";
+    evalNote.hidden = ev.beats_no_change !== false;
   } else {
     evalRow.hidden = true;
   }
