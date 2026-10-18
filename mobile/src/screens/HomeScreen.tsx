@@ -17,7 +17,7 @@ import type { AssetType, ForecastEngine, TickerItem } from "@/api/types";
 import { MarketCard } from "@/components/MarketCard";
 import { SectionHeader } from "@/components/SectionHeader";
 import { theme } from "@/theme/theme";
-import { loadHighlights, searchAssets } from "@/services/marketService";
+import { defaultEngineFor, loadHighlights, searchAssets } from "@/services/marketService";
 import type { MainTabParamList, RootStackParamList } from "@/navigation/types";
 
 type Props = CompositeScreenProps<
@@ -28,7 +28,7 @@ type Props = CompositeScreenProps<
 export function HomeScreen({ navigation }: Props) {
   const [query, setQuery] = useState("");
   const [assetType, setAssetType] = useState<AssetType>("stock");
-  const [engine, setEngine] = useState<ForecastEngine>("ml");
+  const [engine, setEngine] = useState<ForecastEngine>(defaultEngineFor("stock"));
   const [results, setResults] = useState<TickerItem[]>([]);
   const [topAssets, setTopAssets] = useState<TickerItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -36,6 +36,11 @@ export function HomeScreen({ navigation }: Props) {
   const [resultsMessage, setResultsMessage] = useState("");
   const [highlightsFallback, setHighlightsFallback] = useState(false);
   const [highlightsMessage, setHighlightsMessage] = useState("");
+
+  const selectAssetType = (next: AssetType) => {
+    setAssetType(next);
+    setEngine(defaultEngineFor(next));
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -127,13 +132,13 @@ export function HomeScreen({ navigation }: Props) {
 
           <View style={styles.toggleRow}>
             <Pressable
-              onPress={() => setAssetType("stock")}
+              onPress={() => selectAssetType("stock")}
               style={[styles.toggle, assetType === "stock" && styles.toggleActive]}
             >
               <Text style={styles.toggleText}>Stocks</Text>
             </Pressable>
             <Pressable
-              onPress={() => setAssetType("crypto")}
+              onPress={() => selectAssetType("crypto")}
               style={[styles.toggle, assetType === "crypto" && styles.toggleActive]}
             >
               <Text style={styles.toggleText}>Crypto</Text>

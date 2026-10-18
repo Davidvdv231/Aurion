@@ -316,3 +316,35 @@ def test_offline_shell_is_served_from_service_worker(page) -> None:
 
     assert current_page.locator("[data-testid='predict-form']").is_visible()
     assert current_page.locator("[data-testid='predict-submit']").is_visible()
+
+
+def test_switching_to_crypto_defaults_to_statistical_engine(page) -> None:
+    current_page, _ = page
+    _mock_top_assets(current_page)
+    sent: list[dict] = []
+
+    def fulfill_predict(route) -> None:
+        sent.append(json.loads(route.request.post_data or "{}"))
+        route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(SUCCESS_PREDICTION)
+        )
+
+    current_page.route("**/api/predict", fulfill_predict)
+    current_page.goto("/", wait_until="domcontentloaded")
+
+    current_page.click("#asset-type-control .seg-btn[data-value='crypto']")
+    assert current_page.locator("#engine").input_value() == "stat"
+    assert (
+        current_page.locator("#engine-control .seg-btn[data-value='stat']").get_attribute(
+            "aria-pressed"
+        )
+        == "true"
+    )
+
+    current_page.click("[data-testid='predict-submit']")
+    current_page.wait_for_selector("[data-testid='signal-card']:not([hidden])")
+    assert sent[-1]["asset_type"] == "crypto"
+    assert sent[-1]["engine"] == "stat"
+
+    current_page.click("#asset-type-control .seg-btn[data-value='stock']")
+    assert current_page.locator("#engine").input_value() == "ml"

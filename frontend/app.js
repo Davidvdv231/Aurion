@@ -173,11 +173,20 @@ function rerenderChart() {
 function initSegmentedControls() {
   setupSegmented(assetTypeControl, assetTypeInput, () => {
     applyAssetTypeUi();
+    applyEngineDefault();
     hideSuggestions();
     clearResults();
     loadTopAssets();
   });
   setupSegmented(engineControl, engineInput);
+}
+
+function applyEngineDefault() {
+  const isCrypto = currentAssetType() === "crypto";
+  selectSegment(engineControl, engineInput, isCrypto ? "stat" : "ml");
+  if (isCrypto) {
+    setStatus("Crypto uses the statistical model by default: the ML model showed no edge on crypto in backtests. You can still pick ML.");
+  }
 }
 
 function selectSegment(control, hiddenInput, value) {
@@ -548,7 +557,10 @@ function renderWatchlist() {
       const typeChanged = currentAssetType() !== nextType;
       selectSegment(assetTypeControl, assetTypeInput, nextType);
       applyAssetTypeUi();
-      if (typeChanged) loadTopAssets();
+      if (typeChanged) {
+        applyEngineDefault();
+        loadTopAssets();
+      }
       symbolInput.value = item.symbol;
       hideSuggestions();
       form.requestSubmit();
