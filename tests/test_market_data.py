@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from backend.config import Settings
+from backend.errors import ServiceError
 from backend.services.cache import CacheBackend, InMemoryTTLCache
-from backend.services.market_data import candidate_symbols, fetch_close_prices, infer_currency
+from backend.services.market_data import (
+    PROVIDER_PROBE_SYMBOL,
+    candidate_symbols,
+    fetch_close_prices,
+    infer_currency,
+)
 
 
 def _settings() -> Settings:
@@ -102,6 +109,61 @@ def test_fetch_close_prices_preserves_cached_quality_metadata() -> None:
     assert "Gap detected in source data." in result.data_warnings
     assert result.ohlcv is not None
     assert list(result.ohlcv.columns) == ["Open", "High", "Low", "Close", "Volume"]
+
+
+def _download_returning_empty_except_probe(probe_frame: pd.DataFrame, calls: list[str]):
+    def fake_download(ticker, *args, **kwargs):
+        calls.append(ticker)
+        return probe_frame if ticker == PROVIDER_PROBE_SYMBOL else pd.DataFrame()
+
+    return fake_download
+
+
+def test_fetch_close_prices_reports_not_found_when_provider_is_reachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings()
+    calls: list[str] = []
+    probe_frame = pd.DataFrame({"Close": [500.0]}, index=pd.to_datetime(["2026-10-16"]))
+    monkeypatch.setattr(
+        "backend.services.market_data.yf.download",
+        _download_returning_empty_except_probe(probe_frame, calls),
+    )
+
+    with pytest.raises(ServiceError) as exc_info:
+        fetch_close_prices(
+            symbol="ZZZZQ",
+            asset_type="stock",
+            cache_backend=CacheBackend(settings),
+            settings=settings,
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.code == "not_found"
+    assert calls[-1] == PROVIDER_PROBE_SYMBOL
+
+
+def test_fetch_close_prices_reports_provider_unavailable_when_yahoo_is_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings()
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "backend.services.market_data.yf.download",
+        _download_returning_empty_except_probe(pd.DataFrame(), calls),
+    )
+
+    with pytest.raises(ServiceError) as exc_info:
+        fetch_close_prices(
+            symbol="AAPL",
+            asset_type="stock",
+            cache_backend=CacheBackend(settings),
+            settings=settings,
+        )
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.code == "provider_unavailable"
+    assert exc_info.value.retryable is True
 
 
 def test_in_memory_ttl_cache_evicts_oldest_entries() -> None:
