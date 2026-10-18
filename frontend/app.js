@@ -279,6 +279,7 @@ function formatPercent(value) {
 
 function formatSourceLabel(value) {
   const labels = {
+    ml_analog: "ML analog",
     stat: "Statistical baseline",
     stat_fallback: "Statistical fallback",
     ml_pattern_difference: "Pattern-difference analysis",
@@ -934,7 +935,7 @@ function renderExplanation(data) {
 
   explanationCard.hidden = false;
   explanationSource.textContent = `Forecast source: ${formatSourceLabel(data.source.forecast)}. Explanation source: ${formatSourceLabel(data.source.analysis)}.`;
-  if (data.source.analysis && data.source.analysis !== data.source.forecast) {
+  if (data.source.forecast === "stat_fallback" && data.source.analysis) {
     explanationNote.hidden = false;
     explanationNote.textContent = "Final forecast uses the statistical fallback. This explanation summarizes how the current market pattern differed from the ML analog set before the quality gate rejected the forecast.";
   } else {

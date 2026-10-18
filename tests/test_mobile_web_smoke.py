@@ -184,7 +184,7 @@ def test_guest_opens_crypto_forecast_from_live_api(mobile_web_url: str) -> None:
 
             page.get_by_text("Crypto", exact=True).click()
             page.get_by_text("Bitcoin").click()
-            page.get_by_text("Forecast summary").wait_for()
+            page.get_by_text("Expected price in 7 days").wait_for()
             page.wait_for_function(
                 "() => document.body.innerText.includes('82,960') || "
                 "document.body.innerText.includes('82960')"

@@ -1,7 +1,7 @@
 import React, { Component, type ErrorInfo, type ReactNode } from "react";
-import { StyleSheet, Text, View, Pressable } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
-import { theme } from "@/theme/theme";
+import { makeStyles } from "@/theme/theme";
 
 interface Props {
   children: ReactNode;
@@ -29,49 +29,58 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
-      return (
-        <View style={styles.container}>
-          <Text style={styles.title}>Aurion hit an unexpected error</Text>
-          <Text style={styles.message}>{this.state.error?.message ?? "Unknown error"}</Text>
-          <Pressable onPress={this.handleReset} style={styles.button}>
-            <Text style={styles.buttonText}>Try again</Text>
-          </Pressable>
-        </View>
-      );
+      return <ErrorFallback message={this.state.error?.message ?? "Unknown error"} onReset={this.handleReset} />;
     }
     return this.props.children;
   }
 }
 
-const styles = StyleSheet.create({
+function ErrorFallback({ message, onReset }: { message: string; onReset: () => void }) {
+  const styles = useStyles();
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Aurion hit an unexpected error</Text>
+      <Text style={styles.message}>{message}</Text>
+      <Pressable onPress={onReset} accessibilityRole="button" style={({ pressed }) => [styles.button, pressed && styles.pressed]}>
+        <Text style={styles.buttonText}>Try again</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const useStyles = makeStyles((theme) => ({
   container: {
     flex: 1,
     justifyContent: "center",
-    alignItems: "center",
     padding: 32,
-    backgroundColor: theme.colors.background,
+    gap: theme.space.md,
+    backgroundColor: theme.colors.surface,
   },
   title: {
-    color: theme.colors.textPrimary,
-    fontSize: 20,
-    fontWeight: "700",
-    marginBottom: 12,
+    ...theme.text.lead,
+    fontFamily: theme.fonts.sansSemiBold,
+    color: theme.colors.ink,
   },
   message: {
-    color: theme.colors.textMuted,
-    fontSize: 14,
-    textAlign: "center",
-    marginBottom: 24,
+    ...theme.text.small,
+    fontFamily: theme.fonts.mono,
+    color: theme.colors.ink2,
   },
   button: {
-    backgroundColor: theme.colors.accent,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 12,
+    alignSelf: "flex-start",
+    marginTop: theme.space.md,
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 22,
+    borderRadius: theme.radius,
+    backgroundColor: theme.colors.buttonBg,
+  },
+  pressed: {
+    opacity: 0.85,
   },
   buttonText: {
-    color: theme.colors.background,
-    fontWeight: "700",
-    fontSize: 16,
+    ...theme.text.body,
+    fontFamily: theme.fonts.sansSemiBold,
+    color: theme.colors.buttonFg,
   },
-});
+}));

@@ -1,77 +1,49 @@
 import React from "react";
-import { type DimensionValue, StyleSheet, Text, View } from "react-native";
+import { Text, View } from "react-native";
 
 import type { ConfidenceTier } from "@/api/types";
-import { theme } from "@/theme/theme";
+import { makeStyles } from "@/theme/theme";
 
-interface ConfidenceMeterProps {
-  tier: ConfidenceTier;
-  degraded?: boolean;
-}
+const TIER_LEVELS: Record<ConfidenceTier, number> = { low: 1, medium: 2, high: 3 };
+const TIER_LABELS: Record<ConfidenceTier, string> = { low: "Low", medium: "Medium", high: "High" };
 
-const tierWidths: Record<ConfidenceTier, DimensionValue> = {
-  low: "30%",
-  medium: "60%",
-  high: "90%",
-};
-
-const tierLabels: Record<ConfidenceTier, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-};
-
-export function ConfidenceMeter({ tier, degraded = false }: ConfidenceMeterProps) {
-  const caption = degraded
-    ? "Fallback conditions applied. Confidence tier reflects forecast band width and validation quality."
-    : "Confidence tier reflects forecast band width and validation quality.";
-
+// Three blocks and a word, the same reading as the web app's facts list.
+export function ConfidenceMeter({ tier }: { tier: ConfidenceTier }) {
+  const styles = useStyles();
+  const level = TIER_LEVELS[tier] ?? 1;
   return (
-    <View style={styles.container}>
-      <View style={styles.labelRow}>
-        <Text style={styles.label}>Confidence</Text>
-        <Text style={styles.value}>{tierLabels[tier]}</Text>
+    <View style={styles.row}>
+      <View style={styles.meter} aria-hidden>
+        {[1, 2, 3].map((step) => (
+          <View key={step} style={[styles.block, step <= level && styles.filled]} />
+        ))}
       </View>
-      <View style={styles.track}>
-        <View style={[styles.fill, { width: tierWidths[tier] }]} />
-      </View>
-      <Text style={styles.caption}>{caption}</Text>
+      <Text style={styles.value}>{TIER_LABELS[tier] ?? tier}</Text>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    gap: theme.space.sm,
-  },
-  labelRow: {
+const useStyles = makeStyles((theme) => ({
+  row: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
   },
-  label: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.sm,
-    fontWeight: "600",
+  meter: {
+    flexDirection: "row",
+    gap: 2,
+  },
+  block: {
+    width: 16,
+    height: 8,
+    backgroundColor: theme.colors.grid,
+  },
+  filled: {
+    backgroundColor: theme.colors.ink2,
   },
   value: {
-    color: theme.colors.textPrimary,
-    fontSize: theme.fontSizes.sm,
-    fontWeight: "700",
+    ...theme.text.body,
+    fontFamily: theme.fonts.sansMedium,
+    color: theme.colors.ink,
   },
-  track: {
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: theme.colors.surfaceElevated,
-    overflow: "hidden",
-  },
-  fill: {
-    height: "100%",
-    borderRadius: 999,
-    backgroundColor: theme.colors.accent,
-  },
-  caption: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.xs,
-    lineHeight: 18,
-  },
-});
+}));

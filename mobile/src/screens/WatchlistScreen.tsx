@@ -1,146 +1,128 @@
-import React, { useMemo } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React from "react";
+import { Pressable, ScrollView, Text, View } from "react-native";
+import type { CompositeScreenProps } from "@react-navigation/native";
+import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
-import { demoMarketCards } from "@/data/demoAssets";
-import { useWatchlist } from "@/context/WatchlistContext";
-import { theme } from "@/theme/theme";
+import { AssetRow } from "@/components/AssetRow";
+import { Masthead } from "@/components/Masthead";
 import { SectionHeader } from "@/components/SectionHeader";
+import { useWatchlist } from "@/context/WatchlistContext";
+import type { MainTabParamList, RootStackParamList } from "@/navigation/types";
+import { defaultEngineFor } from "@/services/marketService";
+import { makeStyles } from "@/theme/theme";
 
-export function WatchlistScreen() {
+type Props = CompositeScreenProps<
+  BottomTabScreenProps<MainTabParamList, "Watchlist">,
+  NativeStackScreenProps<RootStackParamList>
+>;
+
+export function WatchlistScreen({ navigation }: Props) {
   const { items, clear, remove, ready } = useWatchlist();
-
-  const hydrated = useMemo(
-    () =>
-      items.map((item) => ({
-        ...item,
-        match:
-          demoMarketCards.find((card) => card.symbol === item.symbol) ||
-          ({
-            symbol: item.symbol,
-            name: item.name,
-            assetType: item.assetType,
-            exchange: "Watchlist",
-            region: "LOCAL",
-            source: "demo",
-          } as const),
-      })),
-    [items],
-  );
+  const styles = useStyles();
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <SectionHeader
-        title="Watchlist"
-        subtitle={ready ? "Locally stored favorites for quick access." : "Loading local storage..."}
-        action={
-          <Pressable onPress={clear} style={styles.clearButton}>
-            <Text style={styles.clearText}>Clear</Text>
-          </Pressable>
-        }
-      />
+      <Masthead />
 
-      {hydrated.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyTitle}>No favorites yet</Text>
-          <Text style={styles.emptyText}>
-            Save assets from the detail screen to build a local watchlist. This abstraction can later be synced.
-          </Text>
+      <View style={styles.section}>
+        <SectionHeader
+          title="Watchlist"
+          subtitle={ready ? "Saved on this device." : "Loading saved assets..."}
+          action={
+            items.length > 0 ? (
+              <Pressable onPress={clear} accessibilityRole="button" hitSlop={8} style={styles.quietButton}>
+                <Text style={styles.quietText}>Clear all</Text>
+              </Pressable>
+            ) : undefined
+          }
+        />
+
+        <View style={styles.list}>
+          {items.length === 0 ? (
+            <Text style={styles.empty}>
+              Nothing saved yet. Open a forecast and choose Add to watchlist.
+            </Text>
+          ) : (
+            items.map((item) => (
+              <AssetRow
+                key={item.symbol}
+                symbol={item.symbol}
+                name={item.name}
+                meta={item.assetType === "crypto" ? "Crypto" : "Stock"}
+                onPress={() =>
+                  navigation.navigate("AssetDetail", {
+                    symbol: item.symbol,
+                    assetType: item.assetType,
+                    name: item.name,
+                    engine: defaultEngineFor(item.assetType),
+                  })
+                }
+                trailing={
+                  <Pressable
+                    onPress={() => remove(item.symbol)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${item.symbol} from the watchlist`}
+                    hitSlop={8}
+                    style={styles.remove}
+                  >
+                    <Text style={styles.removeText}>Remove</Text>
+                  </Pressable>
+                }
+              />
+            ))
+          )}
         </View>
-      ) : (
-        hydrated.map((entry) => (
-            <View key={entry.symbol} style={styles.row}>
-              <View>
-                <Text style={styles.symbol}>{entry.symbol}</Text>
-                <Text style={styles.name}>{entry.name}</Text>
-              </View>
-              <View style={styles.rowActions}>
-                <Text style={styles.meta}>{entry.match.assetType}</Text>
-                <Pressable onPress={() => remove(entry.symbol)} style={styles.removeButton}>
-                  <Text style={styles.removeText}>Remove</Text>
-                </Pressable>
-              </View>
-            </View>
-        ))
-      )}
+      </View>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((theme) => ({
   screen: {
     flex: 1,
-    backgroundColor: theme.colors.background,
+    backgroundColor: theme.colors.surface,
   },
   content: {
-    padding: theme.space.xl,
-    gap: theme.space.lg,
+    paddingHorizontal: theme.gutter,
     paddingBottom: 48,
   },
-  clearButton: {
-    paddingHorizontal: theme.space.md,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+  section: {
+    paddingTop: theme.space.xl,
+    gap: theme.space.md,
   },
-  clearText: {
-    color: theme.colors.textPrimary,
-    fontWeight: "700",
+  list: {
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.ink,
   },
-  emptyCard: {
-    gap: theme.space.sm,
-    padding: theme.space.lg,
-    borderRadius: theme.radius.xl,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  emptyTitle: {
-    color: theme.colors.textPrimary,
-    fontSize: theme.fontSizes.lg,
-    fontWeight: "800",
-  },
-  emptyText: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.sm,
-    lineHeight: 20,
-  },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  empty: {
+    ...theme.text.small,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink3,
     paddingVertical: theme.space.md,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
   },
-  symbol: {
-    color: theme.colors.textPrimary,
-    fontSize: theme.fontSizes.md,
-    fontWeight: "800",
-  },
-  name: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.sm,
-  },
-  rowActions: {
-    alignItems: "flex-end",
-    gap: 8,
-  },
-  meta: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.sm,
-    textTransform: "uppercase",
-    fontWeight: "700",
-  },
-  removeButton: {
+  quietButton: {
+    minHeight: 36,
+    justifyContent: "center",
     paddingHorizontal: theme.space.md,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: theme.colors.dangerSoft,
+    borderWidth: 1,
+    borderColor: theme.colors.rule,
+    borderRadius: theme.radius,
+  },
+  quietText: {
+    ...theme.text.small,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink2,
+  },
+  remove: {
+    paddingVertical: theme.space.sm,
+    paddingLeft: theme.space.md,
   },
   removeText: {
-    color: theme.colors.textPrimary,
-    fontWeight: "700",
+    ...theme.text.fine,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink3,
+    textDecorationLine: "underline",
+    textDecorationColor: theme.colors.rule,
   },
-});
+}));

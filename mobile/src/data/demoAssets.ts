@@ -48,7 +48,8 @@ function buildForecast(base: number, drift: number, volatility: number): Forecas
 function buildHistory(base: number): HistoryPoint[] {
   return Array.from({ length: 30 }, (_, index) => ({
     date: isoDaysAhead(-(30 - index)),
-    close: base * (1 + index * 0.002),
+    // Ends exactly at the base price, which the demo forecast treats as the last close.
+    close: base * (1 - (29 - index) * 0.002),
   }));
 }
 
@@ -163,13 +164,11 @@ export function getDemoForecast(
   const expectedReturnPct = ((expectedPrice / base) - 1) * 100;
   const confidenceTier: ConfidenceTier =
     confidence >= 0.67 ? "high" : confidence >= 0.45 ? "medium" : "low";
+  // The detail screen already labels demo data, so only the currency mismatch needs its own warning.
   const dataWarnings =
     displayCurrency === DEMO_NATIVE_CURRENCY
-      ? ["Demo fallback data is shown because the live API is unavailable or not configured."]
-      : [
-          "Demo fallback data is shown because the live API is unavailable or not configured.",
-          `Demo fallback prices are only available in ${DEMO_NATIVE_CURRENCY}; requested ${displayCurrency}.`,
-        ];
+      ? []
+      : [`Demo fallback prices are only available in ${DEMO_NATIVE_CURRENCY}; requested ${displayCurrency}.`];
 
   return {
     symbol: asset.symbol,

@@ -308,6 +308,40 @@ def test_fallback_explanation_is_visible_and_honestly_labeled(page) -> None:
     )
 
 
+def test_ml_forecast_explanation_has_no_fallback_note(page) -> None:
+    current_page, _ = page
+    _mock_top_assets(current_page)
+    ml_prediction = {
+        **FALLBACK_EXPLANATION_PREDICTION,
+        "engine_used": "ml",
+        "model_name": "ML Analog",
+        "source": {
+            **FALLBACK_EXPLANATION_PREDICTION["source"],
+            "forecast": "ml_analog",
+        },
+        "degraded": False,
+        "degradation_code": None,
+        "degradation_message": None,
+        "degradation_reason": None,
+    }
+    current_page.route(
+        "**/api/predict",
+        lambda route: route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(ml_prediction)
+        ),
+    )
+
+    current_page.goto("/", wait_until="domcontentloaded")
+    current_page.click("[data-testid='predict-submit']")
+
+    current_page.wait_for_selector("[data-testid='explanation-card']:not([hidden])")
+    assert (
+        "Forecast source: ML analog."
+        in current_page.locator("[data-testid='explanation-source']").text_content()
+    )
+    assert current_page.locator("[data-testid='explanation-note']").is_hidden()
+
+
 def test_offline_shell_is_served_from_service_worker(page) -> None:
     current_page, context = page
     _mock_top_assets(current_page)

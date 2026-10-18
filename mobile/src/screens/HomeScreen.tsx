@@ -1,23 +1,19 @@
 import React, { useEffect, useState } from "react";
-import {
-  FlatList,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { FlatList, RefreshControl, Text, TextInput, View } from "react-native";
 
 import type { CompositeScreenProps } from "@react-navigation/native";
 import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type { AssetType, ForecastEngine, TickerItem } from "@/api/types";
-import { MarketCard } from "@/components/MarketCard";
+import { AssetRow } from "@/components/AssetRow";
+import { Masthead } from "@/components/Masthead";
+import { Note } from "@/components/Note";
 import { SectionHeader } from "@/components/SectionHeader";
-import { theme } from "@/theme/theme";
+import { TextToggle } from "@/components/TextToggle";
+import { makeStyles, useTheme } from "@/theme/theme";
 import { defaultEngineFor, loadHighlights, searchAssets } from "@/services/marketService";
+import { asSentence } from "@/utils/format";
 import type { MainTabParamList, RootStackParamList } from "@/navigation/types";
 
 type Props = CompositeScreenProps<
@@ -25,13 +21,22 @@ type Props = CompositeScreenProps<
   NativeStackScreenProps<RootStackParamList>
 >;
 
+const ASSET_TYPES: AssetType[] = ["stock", "crypto"];
+const ASSET_LABELS: Record<AssetType, string> = { stock: "Stocks", crypto: "Crypto" };
+const ENGINES: ForecastEngine[] = ["ml", "stat"];
+const ENGINE_LABELS: Record<ForecastEngine, string> = { ml: "ML analog", stat: "Statistical" };
+
 export function HomeScreen({ navigation }: Props) {
+  const theme = useTheme();
+  const styles = useStyles();
   const [query, setQuery] = useState("");
   const [assetType, setAssetType] = useState<AssetType>("stock");
   const [engine, setEngine] = useState<ForecastEngine>(defaultEngineFor("stock"));
   const [results, setResults] = useState<TickerItem[]>([]);
   const [topAssets, setTopAssets] = useState<TickerItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [resultsFallback, setResultsFallback] = useState(false);
   const [resultsMessage, setResultsMessage] = useState("");
   const [highlightsFallback, setHighlightsFallback] = useState(false);
@@ -47,6 +52,8 @@ export function HomeScreen({ navigation }: Props) {
 
     if (!query.trim()) {
       setResults([]);
+      setResultsFallback(false);
+      setLoading(false);
       return;
     }
 
@@ -99,12 +106,17 @@ export function HomeScreen({ navigation }: Props) {
         setTopAssets([]);
         setHighlightsFallback(false);
         setHighlightsMessage("Top assets are currently unavailable.");
+      })
+      .finally(() => {
+        if (mounted) {
+          setRefreshing(false);
+        }
       });
 
     return () => {
       mounted = false;
     };
-  }, [assetType]);
+  }, [assetType, reloadKey]);
 
   const openAsset = (symbol: string, name: string) => {
     const payload = { symbol, assetType, name, engine };
@@ -116,233 +128,166 @@ export function HomeScreen({ navigation }: Props) {
     navigation.navigate("AssetDetail", payload);
   };
 
+  const searching = query.trim().length > 0;
+  const listTitle = searching ? "Search results" : assetType === "stock" ? "Trending stocks" : "Trending crypto";
+  const fallbackNote = searching
+    ? resultsFallback
+      ? `Showing demo search results. ${asSentence(resultsMessage)}`.trim()
+      : resultsMessage && results.length === 0 && !loading
+        ? resultsMessage
+        : ""
+    : highlightsFallback
+      ? `Showing demo highlights. ${asSentence(highlightsMessage)}`.trim()
+      : highlightsMessage && topAssets.length === 0
+        ? highlightsMessage
+        : "";
+
   return (
     <FlatList
       style={styles.screen}
       contentContainerStyle={styles.content}
-      data={results}
+      data={searching ? results : topAssets}
       keyExtractor={(item) => item.symbol}
+      keyboardShouldPersistTaps="handled"
       ListHeaderComponent={
-        <View style={styles.header}>
-          <Text style={styles.kicker}>Guest mode</Text>
-          <Text style={styles.title}>Forecast markets with a modern mobile workflow.</Text>
-          <Text style={styles.subtitle}>
-            Short-term forecasts, trend indication and confidence scores. No certainty claims.
-          </Text>
+        <View>
+          <Masthead />
 
-          <View style={styles.toggleRow}>
-            <Pressable
-              onPress={() => selectAssetType("stock")}
-              style={[styles.toggle, assetType === "stock" && styles.toggleActive]}
-            >
-              <Text style={styles.toggleText}>Stocks</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => selectAssetType("crypto")}
-              style={[styles.toggle, assetType === "crypto" && styles.toggleActive]}
-            >
-              <Text style={styles.toggleText}>Crypto</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.toggleRow}>
-            {(["ml", "stat"] as const).map((eng) => (
-              <Pressable
-                key={eng}
-                onPress={() => setEngine(eng)}
-                style={[styles.toggle, engine === eng && styles.toggleActive]}
-              >
-                <Text style={styles.toggleText}>
-                  {eng === "ml" ? "ML" : "Stat"}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <View style={styles.searchCard}>
-            <Text style={styles.searchLabel}>Search symbol</Text>
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder={assetType === "stock" ? "AAPL, MSFT, NVDA" : "BTC, ETH, SOL"}
-              placeholderTextColor={theme.colors.textMuted}
-              style={styles.searchInput}
-            />
-            <Text style={styles.searchHint}>
-              {loading
-                ? "Searching the live API..."
-                : resultsFallback
-                  ? `Showing demo search results. ${resultsMessage}`.trim()
-                  : "Search runs against the live API. Demo fallback is explicitly marked if used."}
-            </Text>
-          </View>
-
-          <SectionHeader
-            title="Market highlights"
-            subtitle={
-              highlightsFallback
-                ? `Showing demo highlights. ${highlightsMessage}`.trim()
-                : "Live top assets from the API."
-            }
-          />
-          <FlatList
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            data={topAssets}
-            keyExtractor={(item) => item.symbol}
-            contentContainerStyle={styles.horizontalList}
-            renderItem={({ item }) => (
-              <MarketCard
-                symbol={item.symbol}
-                name={item.name}
-                badge={item.asset_type}
-                meta={item.exchange}
-                detail={highlightsFallback ? "Demo fallback highlight" : `Source: ${item.source || "live"}`}
-                onPress={() => openAsset(item.symbol, item.name)}
+          <View style={styles.query}>
+            <View style={styles.controlRow}>
+              <Text style={styles.controlLabel}>Market</Text>
+              <TextToggle
+                options={ASSET_TYPES}
+                value={assetType}
+                labels={ASSET_LABELS}
+                onChange={selectAssetType}
+                accessibilityLabel="Market"
               />
-            )}
-          />
+            </View>
+            <View style={styles.controlRow}>
+              <Text style={styles.controlLabel}>Model</Text>
+              <TextToggle
+                options={ENGINES}
+                value={engine}
+                labels={ENGINE_LABELS}
+                onChange={setEngine}
+                accessibilityLabel="Forecast model"
+              />
+            </View>
 
-          <SectionHeader title="Search results" subtitle="Tap an asset to open the detail page." />
+            <View style={styles.searchBlock}>
+              <Text style={styles.controlLabel}>Symbol</Text>
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder={assetType === "stock" ? "e.g. NVDA" : "e.g. BTC"}
+                placeholderTextColor={theme.colors.ink3}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                returnKeyType="search"
+                accessibilityLabel="Search by symbol"
+                style={styles.searchInput}
+              />
+              <Text style={styles.searchStatus}>{loading ? "Searching..." : " "}</Text>
+            </View>
+          </View>
+
+          <View style={styles.listHead}>
+            <SectionHeader title={listTitle} />
+          </View>
+          {fallbackNote ? (
+            <View style={styles.noteWrap}>
+              <Note tone="warning">{fallbackNote}</Note>
+            </View>
+          ) : null}
         </View>
       }
       renderItem={({ item }) => (
-        <Pressable onPress={() => openAsset(item.symbol, item.name)} style={({ pressed }) => [styles.resultRow, pressed && styles.resultPressed]}>
-          <View>
-            <Text style={styles.resultSymbol}>{item.symbol}</Text>
-            <Text style={styles.resultName}>{item.name}</Text>
-          </View>
-          <Text style={styles.resultMeta}>{item.exchange}</Text>
-        </Pressable>
+        <AssetRow
+          symbol={item.symbol}
+          name={item.name}
+          meta={item.exchange}
+          onPress={() => openAsset(item.symbol, item.name)}
+        />
       )}
       ListEmptyComponent={
-        query.trim() ? (
-          <Text style={styles.empty}>
-            No matches. Try another symbol or switch asset class.
-          </Text>
+        searching && !loading ? (
+          <Text style={styles.empty}>No matches. Try another symbol or switch market.</Text>
         ) : undefined
       }
       refreshControl={
         <RefreshControl
-          refreshing={false}
+          refreshing={refreshing}
           onRefresh={() => {
+            setRefreshing(true);
             setQuery("");
+            setReloadKey((key) => key + 1);
           }}
-          tintColor={theme.colors.accent}
+          tintColor={theme.colors.ink3}
+          colors={[theme.colors.ink2]}
         />
       }
     />
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((theme) => ({
   screen: {
     flex: 1,
-    backgroundColor: theme.colors.background,
+    backgroundColor: theme.colors.surface,
   },
   content: {
-    padding: theme.space.xl,
-    gap: theme.space.lg,
-    paddingBottom: 40,
+    paddingHorizontal: theme.gutter,
+    paddingBottom: 48,
   },
-  header: {
-    gap: theme.space.lg,
+  query: {
+    paddingTop: theme.space.xl,
+    paddingBottom: theme.space.lg,
+    gap: theme.space.md,
   },
-  kicker: {
-    color: theme.colors.accent,
-    fontSize: theme.fontSizes.sm,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    letterSpacing: 1.2,
-  },
-  title: {
-    color: theme.colors.textPrimary,
-    fontSize: 32,
-    fontWeight: "900",
-    lineHeight: 38,
-  },
-  subtitle: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.md,
-    lineHeight: 22,
-  },
-  toggleRow: {
+  controlRow: {
     flexDirection: "row",
-    gap: theme.space.sm,
-    flexWrap: "wrap",
+    alignItems: "center",
+    gap: theme.space.lg,
   },
-  toggle: {
-    borderRadius: 999,
-    paddingHorizontal: theme.space.md,
-    paddingVertical: 10,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+  controlLabel: {
+    ...theme.text.fine,
+    width: 64,
+    fontFamily: theme.fonts.sansMedium,
+    color: theme.colors.ink3,
   },
-  toggleActive: {
-    backgroundColor: theme.colors.accentSoft,
-  },
-  toggleText: {
-    color: theme.colors.textPrimary,
-    fontWeight: "700",
-  },
-  searchCard: {
-    gap: theme.space.sm,
-    padding: theme.space.md,
-    borderRadius: theme.radius.xl,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  searchLabel: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.sm,
-    fontWeight: "700",
+  searchBlock: {
+    marginTop: theme.space.md,
+    gap: theme.space.xs,
   },
   searchInput: {
-    backgroundColor: theme.colors.surfaceElevated,
-    color: theme.colors.textPrimary,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: theme.space.md,
-    paddingVertical: 14,
+    fontSize: 22,
+    lineHeight: 30,
+    fontFamily: theme.fonts.monoMedium,
+    color: theme.colors.ink,
+    paddingVertical: theme.space.xs,
+    paddingHorizontal: 0,
+    borderBottomWidth: 2,
+    borderBottomColor: theme.colors.ink,
   },
-  searchHint: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.xs,
+  searchStatus: {
+    ...theme.text.fine,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink3,
   },
-  horizontalList: {
-    gap: theme.space.md,
-    paddingVertical: theme.space.sm,
-  },
-  resultRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: theme.space.md,
+  listHead: {
+    paddingTop: theme.space.sm,
+    paddingBottom: theme.space.sm,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: theme.colors.ink,
   },
-  resultPressed: {
-    opacity: 0.72,
-  },
-  resultSymbol: {
-    color: theme.colors.textPrimary,
-    fontWeight: "800",
-    fontSize: theme.fontSizes.md,
-  },
-  resultName: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.sm,
-  },
-  resultMeta: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.sm,
+  noteWrap: {
+    paddingVertical: theme.space.md,
   },
   empty: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSizes.sm,
-    paddingVertical: theme.space.sm,
+    ...theme.text.small,
+    fontFamily: theme.fonts.sans,
+    color: theme.colors.ink3,
+    paddingVertical: theme.space.lg,
   },
-});
+}));

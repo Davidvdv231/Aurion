@@ -9,24 +9,14 @@ import { WatchlistScreen } from "@/screens/WatchlistScreen";
 import { SplashScreen } from "@/screens/SplashScreen";
 import { useAuth } from "@/context/AuthContext";
 import type { MainTabParamList, RootStackParamList } from "@/navigation/types";
-import { theme } from "@/theme/theme";
+import { TabBar } from "@/components/TabBar";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 
 function MainTabs() {
   return (
-    <Tabs.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: theme.colors.accent,
-        tabBarInactiveTintColor: theme.colors.textMuted,
-        tabBarStyle: {
-          backgroundColor: theme.colors.surface,
-          borderTopColor: theme.colors.border,
-        },
-      }}
-    >
+    <Tabs.Navigator screenOptions={{ headerShown: false }} tabBar={(props) => <TabBar {...props} />}>
       <Tabs.Screen name="Home" component={HomeScreen} />
       <Tabs.Screen name="Watchlist" component={WatchlistScreen} />
     </Tabs.Navigator>
