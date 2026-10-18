@@ -239,9 +239,9 @@ def main() -> None:
         f.write("\n\n## Notes\n\n")
         f.write("- **ML MAE**: Mean Absolute Error of the ML analog forecaster\n")
         f.write("- **MAPE**: Mean Absolute Percentage Error (lower is better)\n")
-        f.write("- **Dir.Acc**: Directional accuracy -- fraction of days where predicted direction matched actual\n")
+        f.write("- **Dir.Acc**: Directional accuracy -- share of forecast days where the forecast was on the correct side of the starting price (a flat forecast counts as half)\n")
         f.write("- **ML Beats Stat**: Whether the ML model achieved lower MAPE than the statistical baseline\n")
-        f.write("- Statistical baseline uses log-linear trend extrapolation with cross-validation\n")
+        f.write("- Statistical baseline uses a damped log-linear trend anchored at the last close, with volatility bands\n")
         f.write("- ML model uses k-nearest-neighbor analog pattern matching\n")
 
     print(f"\nResults written to {output_path}")

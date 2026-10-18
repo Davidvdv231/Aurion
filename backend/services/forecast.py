@@ -3,7 +3,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from backend.ml.model import directional_hit_rate
 from backend.ticker_catalog import AssetType
+
+TREND_DAMPING = 0.5
+VOLATILITY_WINDOW = 60
+Z_SCORE_80 = 1.2816
 
 
 def backtest_stat_forecast(
@@ -39,10 +44,7 @@ def backtest_stat_forecast(
         errors = np.abs(pred - act)
         all_errors.extend(errors.tolist())
         all_actuals.extend(np.abs(act).tolist())
-        if actual_len > 1:
-            pred_steps = np.sign(np.diff(pred))
-            actual_steps = np.sign(np.diff(act))
-            fold_direction_scores.append(float(np.mean(pred_steps == actual_steps)))
+        fold_direction_scores.append(directional_hit_rate(pred, act, float(train_close.iloc[-1])))
 
     if not all_errors:
         return {"mape": 0.0, "directional_accuracy": 0.5, "validation_windows": 0}
@@ -74,20 +76,21 @@ def build_stat_forecast(
     log_values = np.log(values)
 
     x = np.arange(len(log_values), dtype=float)
-    slope, intercept = np.polyfit(x, log_values, 1)
+    slope, _ = np.polyfit(x, log_values, 1)
 
-    fitted = intercept + (slope * x)
-    residuals = log_values - fitted
-    sigma = float(np.std(residuals, ddof=1)) if len(residuals) > 1 else 0.01
-    sigma = max(sigma, 0.01)
+    # Start from the last close; extrapolating the fitted line itself starts the forecast off-level.
+    steps = np.arange(1, horizon + 1, dtype=float)
+    future_log = log_values[-1] + TREND_DAMPING * slope * steps
 
-    future_x = np.arange(len(log_values), len(log_values) + horizon, dtype=float)
-    future_log = intercept + (slope * future_x)
+    recent_log_returns = np.diff(log_values)[-VOLATILITY_WINDOW:]
+    daily_volatility = (
+        float(np.std(recent_log_returns, ddof=1)) if len(recent_log_returns) > 1 else 0.01
+    )
+    half_width = Z_SCORE_80 * max(daily_volatility, 1e-4) * np.sqrt(steps)
 
-    z_score_80 = 1.28
     predicted = np.exp(future_log)
-    lower = np.exp(future_log - z_score_80 * sigma)
-    upper = np.exp(future_log + z_score_80 * sigma)
+    lower = np.exp(future_log - half_width)
+    upper = np.exp(future_log + half_width)
 
     history_window = close.tail(365 if asset_type == "crypto" else 260)
     history = [

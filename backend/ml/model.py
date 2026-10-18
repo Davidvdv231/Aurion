@@ -9,6 +9,27 @@ import pandas as pd
 
 from backend.ml.features import FEATURE_COLUMNS, compute_features
 
+_Z80 = 1.2816
+_VOLATILITY_FEATURE = FEATURE_COLUMNS.index("volatility_20")
+
+
+def directional_hit_rate(predicted: np.ndarray, actual: np.ndarray, origin: float) -> float:
+    """Share of forecast days on the correct side of the origin price; a flat call counts as half."""
+    predicted_side = np.sign(np.asarray(predicted, dtype=np.float64) - origin)
+    actual_side = np.sign(np.asarray(actual, dtype=np.float64) - origin)
+    hits = np.where(predicted_side == 0, 0.5, (predicted_side == actual_side).astype(np.float64))
+    return float(np.mean(hits))
+
+
+def _shrink_toward_no_change(
+    log_returns: np.ndarray, weights: np.ndarray, mean: np.ndarray
+) -> np.ndarray:
+    """Positive-part James-Stein: keep the analog mean only where it stands out from its own noise."""
+    effective_n = 1.0 / np.sum(weights**2)
+    variance = np.average((log_returns - mean) ** 2, axis=0, weights=weights)
+    factor = np.clip(1.0 - (variance / effective_n) / np.maximum(mean**2, 1e-12), 0.0, 1.0)
+    return factor * mean
+
 
 @dataclass(slots=True)
 class FeatureDifference:
@@ -28,6 +49,8 @@ class ForecastResult:
     top_features: list[FeatureDifference] = field(default_factory=list)
     avg_neighbor_distance: float = 0.0
     nearest_analog_date: str = ""
+    analog_mean_return_pct: float = 0.0
+    shrunk_toward_no_change: bool = False
 
 
 @dataclass(slots=True)
@@ -48,6 +71,8 @@ class AnalogForecastModel:
     lookback: int = 60
     horizon: int = 30
     n_neighbors: int = 24
+    # Keeps analogs distinct episodes (adjacent windows overlap); 15 tested best for 7-45 days.
+    min_separation: int = 15
     _feature_mean: np.ndarray = field(default_factory=lambda: np.array([]))
     _feature_std: np.ndarray = field(default_factory=lambda: np.array([]))
     _feature_raw_std: np.ndarray = field(default_factory=lambda: np.array([]))
@@ -78,6 +103,7 @@ class AnalogForecastModel:
             "lookback": self.lookback,
             "horizon": self.horizon,
             "n_neighbors": self.n_neighbors,
+            "min_separation": self.min_separation,
             "feature_mean": self._feature_mean,
             "feature_std": self._feature_std,
             "feature_raw_std": self._feature_raw_std,
@@ -94,6 +120,7 @@ class AnalogForecastModel:
             lookback=int(state["lookback"]),
             horizon=int(state["horizon"]),
             n_neighbors=int(state.get("n_neighbors", state.get("top_k", 24))),
+            min_separation=int(state.get("min_separation", 15)),
         )
         model._feature_mean = np.asarray(state["feature_mean"])
         model._feature_std = np.asarray(state["feature_std"])
@@ -197,8 +224,8 @@ class AnalogForecastModel:
 
         diffs = self._windows - query
         distances = np.sqrt(np.sum(diffs**2, axis=1))
-        k = min(self.n_neighbors, len(distances))
-        nearest_idx = np.argpartition(distances, k - 1)[:k]
+        nearest_idx = self._select_neighbors(distances)
+        k = len(nearest_idx)
         nearest_distances = distances[nearest_idx]
         nearest_returns = self._future_returns[nearest_idx]
 
@@ -253,18 +280,28 @@ class AnalogForecastModel:
                 f"Requested horizon {horizon} exceeds trained horizon {nearest_returns.shape[1]}"
             )
 
-        weighted_returns = np.average(nearest_returns, axis=0, weights=weights)
-        lower_returns = np.array(
-            [_weighted_quantile(nearest_returns[:, t], weights, 0.10) for t in range(horizon)]
+        log_returns = np.log1p(nearest_returns)
+        mean_log = np.average(log_returns, axis=0, weights=weights)
+        center = _shrink_toward_no_change(log_returns, weights, mean_log)
+        analog_low = (
+            np.array([_weighted_quantile(log_returns[:, t], weights, 0.10) for t in range(horizon)])
+            - mean_log
         )
-        upper_returns = np.array(
-            [_weighted_quantile(nearest_returns[:, t], weights, 0.90) for t in range(horizon)]
+        analog_high = (
+            np.array([_weighted_quantile(log_returns[:, t], weights, 0.90) for t in range(horizon)])
+            - mean_log
         )
+        steps = np.arange(1, horizon + 1, dtype=np.float64)
+        current_volatility = max(float(feat_matrix[-1, _VOLATILITY_FEATURE]), 0.0)
+        volatility_half_width = _Z80 * current_volatility * np.sqrt(steps)
+        # The analogs' own spread under-covers on its own, so average it with a volatility band.
+        lower_log = np.minimum(center + 0.5 * (analog_low - volatility_half_width), center)
+        upper_log = np.maximum(center + 0.5 * (analog_high + volatility_half_width), center)
 
         base_price = float(close.iloc[-1])
-        predicted = base_price * (1.0 + weighted_returns)
-        lower = base_price * (1.0 + lower_returns)
-        upper = base_price * (1.0 + upper_returns)
+        predicted = base_price * np.exp(center)
+        lower = base_price * np.exp(lower_log)
+        upper = base_price * np.exp(upper_log)
 
         last_date = close.index[-1]
         if asset_type == "crypto":
@@ -281,7 +318,26 @@ class AnalogForecastModel:
             top_features=top_features,
             avg_neighbor_distance=round(avg_neighbor_distance, 4),
             nearest_analog_date=nearest_analog_date,
+            analog_mean_return_pct=round(float(np.expm1(mean_log[-1])) * 100, 2),
+            shrunk_toward_no_change=bool(abs(center[-1]) < 0.5 * abs(mean_log[-1])),
         )
+
+    def _select_neighbors(self, distances: np.ndarray) -> np.ndarray:
+        """Nearest windows whose end rows are at least `min_separation` apart."""
+        order = np.argsort(distances, kind="stable")
+        positions = self._window_end_positions
+        if len(positions) != len(distances):
+            return order[: self.n_neighbors]
+
+        separation = max(1, self.min_separation)
+        chosen: list[int] = []
+        for idx in order:
+            position = int(positions[idx])
+            if all(abs(position - int(positions[c])) >= separation for c in chosen):
+                chosen.append(int(idx))
+                if len(chosen) == self.n_neighbors:
+                    break
+        return np.array(chosen, dtype=np.int64)
 
     def backtest(
         self, close: pd.Series, ohlcv: pd.DataFrame | None, n_folds: int = 5
@@ -314,6 +370,7 @@ class AnalogForecastModel:
                 lookback=self.lookback,
                 horizon=self.horizon,
                 n_neighbors=self.n_neighbors,
+                min_separation=self.min_separation,
             )
 
             try:
@@ -339,10 +396,7 @@ class AnalogForecastModel:
             for i in range(actual_len):
                 all_within_band.append(bool(lower[i] <= act[i] <= upper[i]))
 
-            if actual_len > 1:
-                pred_steps = np.sign(np.diff(pred))
-                actual_steps = np.sign(np.diff(act))
-                all_directions.append(float(np.mean(pred_steps == actual_steps)))
+            all_directions.append(directional_hit_rate(pred, act, float(train_close.iloc[-1])))
 
         if not all_errors:
             return BacktestMetrics(
