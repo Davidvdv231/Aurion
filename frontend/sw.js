@@ -1,6 +1,6 @@
 // Cache version — updated automatically by CI or pre-commit hook.
 // To bump manually: change the date suffix below.
-const CACHE_VERSION = "aurion-v0.5.0";
+const CACHE_VERSION = "aurion-v0.6.0";
 const ASSETS = [
   "/",
   "/index.html",

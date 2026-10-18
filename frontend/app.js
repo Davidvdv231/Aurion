@@ -48,15 +48,19 @@ const explanationFeatures = document.getElementById("explanation-features");
 const explanationAnalog = document.getElementById("explanation-analog");
 const explanationToggle = document.getElementById("explanation-toggle");
 
-// Disclaimer banner
-const disclaimerBanner = document.getElementById("disclaimer-banner");
+const resultsNode = document.getElementById("results");
+const heroHorizon = document.getElementById("hero-horizon");
+const evalWindows = document.getElementById("eval-windows");
 
 // Chart
-const chartHeader = document.getElementById("chart-header");
+const chartFigure = document.getElementById("chart-figure");
 const chartTitle = document.getElementById("chart-title");
 const chartSubtitle = document.getElementById("chart-subtitle");
 const chartEmpty = document.getElementById("chart-empty");
 const chartCanvas = document.getElementById("stock-chart");
+const chartTooltip = document.getElementById("chart-tooltip");
+const rangeControl = document.getElementById("range-control");
+const forecastTableBody = document.getElementById("forecast-table-body");
 const chartFallbackNode = document.getElementById("chart-fallback");
 const disclaimerNode = document.getElementById("disclaimer");
 
@@ -84,25 +88,46 @@ const state = {
   activePredictionController: undefined,
   lastPrediction: null,
   activeSuggestionIndex: -1,
+  chartRange: "6m",
 };
 
 // =============================================
 // THEME
 // =============================================
+const prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
+
+function readSavedTheme() {
+  try {
+    const saved = localStorage.getItem("aurion-theme");
+    return saved === "light" || saved === "dark" ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+function effectiveTheme() {
+  const explicit = document.documentElement.getAttribute("data-theme");
+  if (explicit === "light" || explicit === "dark") return explicit;
+  return prefersDark.matches ? "dark" : "light";
+}
+
 function initTheme() {
-  const saved = localStorage.getItem("aurion-theme");
-  const theme = saved || "dark";
-  document.documentElement.setAttribute("data-theme", theme);
-  updateThemeIcons(theme);
+  const saved = readSavedTheme();
+  if (saved) document.documentElement.setAttribute("data-theme", saved);
+  updateThemeIcons(effectiveTheme());
+  prefersDark.addEventListener("change", () => {
+    if (readSavedTheme()) return;
+    updateThemeIcons(effectiveTheme());
+    rerenderChart();
+  });
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute("data-theme");
-  const next = current === "dark" ? "light" : "dark";
+  const next = effectiveTheme() === "dark" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", next);
-  localStorage.setItem("aurion-theme", next);
+  try { localStorage.setItem("aurion-theme", next); } catch { /* storage unavailable */ }
   updateThemeIcons(next);
-  if (state.chart) updateChartTheme(state.chart);
+  rerenderChart();
 }
 
 // =============================================
@@ -125,27 +150,21 @@ function updateThemeIcons(theme) {
 
 function getChartColors() {
   const style = getComputedStyle(document.documentElement);
+  const read = (name) => style.getPropertyValue(name).trim();
   return {
-    history: style.getPropertyValue("--chart-history").trim(),
-    forecast: style.getPropertyValue("--chart-forecast").trim(),
-    band: style.getPropertyValue("--chart-band").trim(),
-    grid: style.getPropertyValue("--chart-grid").trim(),
-    text: style.getPropertyValue("--text-muted").trim(),
+    history: read("--chart-history"),
+    forecast: read("--chart-forecast"),
+    band: read("--chart-band"),
+    grid: read("--chart-grid"),
+    rule: read("--chart-rule"),
+    surface: read("--surface"),
+    text: read("--ink-3"),
+    fontFamily: read("--font-sans"),
   };
 }
 
-function updateChartTheme(chart) {
-  const colors = getChartColors();
-  chart.options.scales.x.ticks.color = colors.text;
-  chart.options.scales.y.ticks.color = colors.text;
-  chart.options.scales.x.grid.color = colors.grid;
-  chart.options.scales.y.grid.color = colors.grid;
-  chart.data.datasets[0].borderColor = colors.history;
-  chart.data.datasets[1].borderColor = colors.forecast;
-  chart.data.datasets[2].borderColor = "transparent";
-  chart.data.datasets[2].backgroundColor = colors.band;
-  chart.data.datasets[3].borderColor = "transparent";
-  chart.update("none");
+function rerenderChart() {
+  if (state.chart && state.lastPrediction) renderChart(state.lastPrediction);
 }
 
 // =============================================
@@ -161,13 +180,20 @@ function initSegmentedControls() {
   setupSegmented(engineControl, engineInput);
 }
 
+function selectSegment(control, hiddenInput, value) {
+  control.querySelectorAll(".seg-btn").forEach((b) => {
+    const isActive = b.dataset.value === value;
+    b.classList.toggle("active", isActive);
+    b.setAttribute("aria-pressed", String(isActive));
+  });
+  hiddenInput.value = value;
+}
+
 function setupSegmented(control, hiddenInput, onChange) {
-  const buttons = control.querySelectorAll(".seg-btn");
-  buttons.forEach((btn) => {
+  control.querySelectorAll(".seg-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
-      buttons.forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      hiddenInput.value = btn.dataset.value;
+      if (hiddenInput.value === btn.dataset.value) return;
+      selectSegment(control, hiddenInput, btn.dataset.value);
       if (onChange) onChange(btn.dataset.value);
     });
   });
@@ -176,9 +202,13 @@ function setupSegmented(control, hiddenInput, onChange) {
 // =============================================
 // HORIZON SLIDER
 // =============================================
+function formatDays(days) {
+  return `${days} ${Number(days) === 1 ? "day" : "days"}`;
+}
+
 function initHorizon() {
   horizonInput.addEventListener("input", () => {
-    horizonValue.textContent = `${horizonInput.value}d`;
+    horizonValue.textContent = formatDays(horizonInput.value);
   });
 }
 
@@ -190,10 +220,10 @@ function currentAssetType() {
 }
 
 function setStatus(message, isError = false) {
+  clearTimeout(state.statusTimer);
   statusNode.textContent = message;
   statusNode.className = isError ? "global-status error" : "global-status";
-  if (message) {
-    clearTimeout(state.statusTimer);
+  if (message && !isError) {
     state.statusTimer = setTimeout(() => { statusNode.textContent = ""; }, 5000);
   }
 }
@@ -214,12 +244,16 @@ function formatApiError(payload, fallback) {
   return fallback;
 }
 
+const CURRENCY_LOCALES = { USD: "en-US", EUR: "de-DE", GBP: "en-GB", JPY: "ja-JP", CHF: "de-CH", CAD: "en-CA", AUD: "en-AU" };
+
+function localeFor(code) {
+  return CURRENCY_LOCALES[code] || "en-US";
+}
+
 function formatCurrency(value, currency) {
   const code = currency || "USD";
-  const locales = { USD: "en-US", EUR: "de-DE", GBP: "en-GB", JPY: "ja-JP", CHF: "de-CH", CAD: "en-CA", AUD: "en-AU" };
-  const locale = locales[code] || "en-US";
   try {
-    return new Intl.NumberFormat(locale, {
+    return new Intl.NumberFormat(localeFor(code), {
       style: "currency",
       currency: code,
       maximumFractionDigits: code === "JPY" ? 0 : 2,
@@ -254,18 +288,20 @@ function hideSuggestions() {
 }
 
 function clearResults() {
+  resultsNode.classList.remove("is-refreshing");
   signalCard.hidden = true;
   explanationCard.hidden = true;
-  disclaimerBanner.hidden = true;
-  chartHeader.hidden = true;
+  chartFigure.hidden = true;
   chartEmpty.hidden = false;
   chartCanvas.hidden = true;
+  chartTooltip.hidden = true;
+  forecastTableBody.textContent = "";
   chartFallbackNode.hidden = true;
   disclaimerNode.hidden = true;
-  sourceBadgeNode.hidden = true;
   degradedBadgeNode.hidden = true;
   evalRow.hidden = true;
   watchlistAddBtn.hidden = true;
+  state.lastPrediction = null;
   if (state.chart) {
     state.chart.destroy();
     state.chart = undefined;
@@ -274,7 +310,7 @@ function clearResults() {
 
 function applyAssetTypeUi() {
   const assetType = currentAssetType();
-  topTitleNode.textContent = assetType === "crypto" ? "Trending Crypto" : "Trending Stocks";
+  topTitleNode.textContent = assetType === "crypto" ? "Trending crypto" : "Trending stocks";
   const current = symbolInput.value.trim().toUpperCase();
   if (assetType === "crypto") {
     if (!current || current === "AAPL") symbolInput.value = "BTC";
@@ -473,12 +509,14 @@ function addToWatchlist(symbol, assetType) {
   list.push({ symbol, asset_type: assetType });
   saveWatchlist(list);
   renderWatchlist();
+  updateWatchlistButton();
 }
 
 function removeFromWatchlist(symbol) {
   const list = getWatchlist().filter((item) => item.symbol !== symbol);
   saveWatchlist(list);
   renderWatchlist();
+  updateWatchlistButton();
 }
 
 function renderWatchlist() {
@@ -486,76 +524,229 @@ function renderWatchlist() {
   watchlistItems.innerHTML = "";
 
   if (list.length === 0) {
-    watchlistItems.innerHTML = '<p class="empty-hint">No symbols saved yet. Generate a forecast and click + to add.</p>';
+    watchlistItems.innerHTML = '<p class="empty-hint">Nothing saved yet.</p>';
     return;
   }
 
   for (const item of list) {
+    const entry = document.createElement("span");
+    entry.className = "watchlist-entry";
+
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "chip-btn watchlist-chip";
-    const infoDiv = document.createElement("div");
+    btn.className = "chip-btn";
     const wlSym = document.createElement("span");
     wlSym.className = "chip-symbol";
     wlSym.textContent = item.symbol;
     const wlType = document.createElement("span");
     wlType.className = "chip-name";
-    wlType.textContent = item.asset_type;
-    infoDiv.appendChild(wlSym);
-    infoDiv.appendChild(wlType);
-    const removeSpan = document.createElement("span");
-    removeSpan.className = "chip-remove";
-    removeSpan.title = "Remove";
-    removeSpan.textContent = "\u00d7";
-    btn.appendChild(infoDiv);
-    btn.appendChild(removeSpan);
-
-    // Click the chip area (not the remove button) to load the symbol
-    btn.addEventListener("click", (e) => {
-      if (e.target.closest(".chip-remove")) {
-        e.stopPropagation();
-        removeFromWatchlist(item.symbol);
-        return;
-      }
-      // Set asset type
-      const segBtns = assetTypeControl.querySelectorAll(".seg-btn");
-      segBtns.forEach((b) => {
-        b.classList.toggle("active", b.dataset.value === item.asset_type);
-      });
-      assetTypeInput.value = item.asset_type;
+    wlType.textContent = item.asset_type === "crypto" ? "crypto" : "stock";
+    btn.appendChild(wlSym);
+    btn.appendChild(wlType);
+    btn.addEventListener("click", () => {
+      const nextType = item.asset_type === "crypto" ? "crypto" : "stock";
+      const typeChanged = currentAssetType() !== nextType;
+      selectSegment(assetTypeControl, assetTypeInput, nextType);
       applyAssetTypeUi();
-
+      if (typeChanged) loadTopAssets();
       symbolInput.value = item.symbol;
       hideSuggestions();
       form.requestSubmit();
     });
 
-    watchlistItems.appendChild(btn);
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "chip-remove";
+    removeBtn.setAttribute("aria-label", `Remove ${item.symbol} from watchlist`);
+    removeBtn.title = "Remove";
+    removeBtn.textContent = "\u00d7";
+    removeBtn.addEventListener("click", () => removeFromWatchlist(item.symbol));
+
+    entry.appendChild(btn);
+    entry.appendChild(removeBtn);
+    watchlistItems.appendChild(entry);
   }
 }
 
 // =============================================
 // CHART
 // =============================================
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+const RANGE_MONTHS = { "3m": 3, "6m": 6, "1y": 12 };
+
+function sliceHistory(history, range) {
+  const months = RANGE_MONTHS[range];
+  if (!months || history.length < 2) return history;
+  const cutoff = new Date(`${history[history.length - 1].date}T00:00:00Z`);
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
+  const cutoffIso = cutoff.toISOString().slice(0, 10);
+  const sliced = history.filter((row) => row.date >= cutoffIso);
+  return sliced.length >= 2 ? sliced : history;
+}
+
 function buildDatasets(history, forecast) {
-  const historyDates = history.map((r) => r.date);
-  const forecastDates = forecast.map((r) => r.date);
-  const labels = [...historyDates, ...forecastDates];
-
+  const labels = [...history.map((r) => r.date), ...forecast.map((r) => r.date)];
   const historyPrices = history.map((r) => r.close);
-  const historyData = [...historyPrices, ...Array(forecast.length).fill(null)];
   const lastPrice = historyPrices[historyPrices.length - 1];
+  const lead = Array(history.length - 1).fill(null);
 
-  const forecastLine = [
-    ...Array(history.length - 1).fill(null),
-    lastPrice,
-    ...forecast.map((r) => r.predicted),
-  ];
+  return {
+    labels,
+    junction: history.length - 1,
+    historyData: [...historyPrices, ...Array(forecast.length).fill(null)],
+    forecastLine: [...lead, lastPrice, ...forecast.map((r) => r.predicted)],
+    lowerBand: [...lead, lastPrice, ...forecast.map((r) => r.lower)],
+    upperBand: [...lead, lastPrice, ...forecast.map((r) => r.upper)],
+  };
+}
 
-  const lowerBand = [...Array(history.length - 1).fill(null), lastPrice, ...forecast.map((r) => r.lower)];
-  const upperBand = [...Array(history.length - 1).fill(null), lastPrice, ...forecast.map((r) => r.upper)];
+function parseIsoDate(iso) {
+  return new Date(`${String(iso).slice(0, 10)}T00:00:00Z`);
+}
 
-  return { labels, historyData, forecastLine, lowerBand, upperBand };
+function formatDate(iso, options) {
+  const date = parseIsoDate(iso);
+  if (Number.isNaN(date.getTime())) return String(iso);
+  return date.toLocaleDateString("en-US", { timeZone: "UTC", ...options });
+}
+
+function formatAxisPrice(value, currency) {
+  const code = currency || "USD";
+  const abs = Math.abs(value);
+  try {
+    return new Intl.NumberFormat(localeFor(code), {
+      style: "currency",
+      currency: code,
+      notation: abs >= 10000 ? "compact" : "standard",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: abs >= 100 ? 0 : 2,
+    }).format(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function renderForecastTable(forecast, currency) {
+  forecastTableBody.textContent = "";
+  for (const row of forecast) {
+    const tr = document.createElement("tr");
+    const cells = [
+      formatDate(row.date, { month: "short", day: "numeric", year: "numeric" }),
+      formatCurrency(row.predicted, currency),
+      formatCurrency(row.lower, currency),
+      formatCurrency(row.upper, currency),
+    ];
+    for (const text of cells) {
+      const td = document.createElement("td");
+      td.textContent = text;
+      tr.appendChild(td);
+    }
+    forecastTableBody.appendChild(tr);
+  }
+}
+
+function tooltipRow(keyClass, value, label) {
+  const row = document.createElement("div");
+  row.className = "tt-row";
+  const key = document.createElement("span");
+  key.className = `key tt-key ${keyClass}`;
+  const valueNode = document.createElement("span");
+  valueNode.className = "tt-value";
+  valueNode.textContent = value;
+  const labelNode = document.createElement("span");
+  labelNode.className = "tt-label";
+  labelNode.textContent = label;
+  row.append(key, valueNode, labelNode);
+  return row;
+}
+
+function renderTooltip({ chart, tooltip }, view) {
+  if (tooltip.opacity === 0 || !tooltip.dataPoints?.length) {
+    chartTooltip.hidden = true;
+    return;
+  }
+
+  const idx = tooltip.dataPoints[0].dataIndex;
+  const fmt = (value) => formatCurrency(value, view.currency);
+  chartTooltip.textContent = "";
+
+  const title = document.createElement("div");
+  title.className = "tt-title";
+  title.textContent = formatDate(view.labels[idx], { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  chartTooltip.appendChild(title);
+
+  if (view.historyData[idx] != null) {
+    chartTooltip.appendChild(tooltipRow("key--history", fmt(view.historyData[idx]), "Close"));
+  }
+  if (idx > view.junction && view.forecastLine[idx] != null) {
+    chartTooltip.appendChild(tooltipRow("key--forecast", fmt(view.forecastLine[idx]), "Forecast"));
+    if (view.lowerBand[idx] != null && view.upperBand[idx] != null) {
+      chartTooltip.appendChild(
+        tooltipRow("key--band", `${fmt(view.lowerBand[idx])} – ${fmt(view.upperBand[idx])}`, "Range"),
+      );
+    }
+  }
+
+  chartTooltip.hidden = false;
+  const gap = 12;
+  const width = chartTooltip.offsetWidth;
+  let left = tooltip.caretX + gap;
+  if (left + width > chart.width) left = tooltip.caretX - gap - width;
+  chartTooltip.style.left = `${Math.max(0, left)}px`;
+  chartTooltip.style.top = `${chart.chartArea.top}px`;
+}
+
+function annotationsPlugin(view, colors) {
+  return {
+    id: "aurionAnnotations",
+    afterDatasetsDraw(chart) {
+      const { ctx, chartArea, scales } = chart;
+      const font = `12px ${colors.fontFamily}`;
+      ctx.save();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = colors.rule;
+
+      // Where the forecast starts.
+      const startX = Math.round(scales.x.getPixelForValue(view.junction)) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(startX, chartArea.top);
+      ctx.lineTo(startX, chartArea.bottom);
+      ctx.stroke();
+      ctx.font = font;
+      ctx.fillStyle = colors.text;
+      ctx.textBaseline = "top";
+      if (chartArea.right - startX > 150) ctx.fillText("Forecast →", startX + 6, chartArea.top + 2);
+
+      // Crosshair at the hovered date.
+      const active = chart.tooltip?.getActiveElements?.() || [];
+      if (active.length) {
+        const x = Math.round(active[0].element.x) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(x, chartArea.top);
+        ctx.lineTo(x, chartArea.bottom);
+        ctx.stroke();
+      }
+
+      // Direct label on the forecast endpoint.
+      const points = chart.getDatasetMeta(1).data;
+      const end = points[points.length - 1];
+      const endValue = view.forecastLine[view.forecastLine.length - 1];
+      if (end && endValue != null && view.forecastLine.length - 1 > view.junction) {
+        const label = formatCurrency(endValue, view.currency);
+        ctx.font = `600 ${font}`;
+        ctx.textAlign = "right";
+        ctx.textBaseline = "bottom";
+        const y = Math.max(end.y - 10, chartArea.top + 16);
+        ctx.lineJoin = "round";
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = colors.surface;
+        ctx.strokeText(label, end.x - 8, y);
+        ctx.fillStyle = colors.ink;
+        ctx.fillText(label, end.x - 8, y);
+      }
+      ctx.restore();
+    },
+  };
 }
 
 function renderChart(data) {
@@ -563,53 +754,77 @@ function renderChart(data) {
     throw new Error("Chart library not loaded. Please reload the page.");
   }
 
-  const ctx = chartCanvas.getContext("2d");
   const colors = getChartColors();
-  const { labels, historyData, forecastLine, lowerBand, upperBand } = buildDatasets(data.history, data.forecast);
+  colors.ink = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim();
+  const currency = data.display_currency || data.currency || "USD";
+  const history = sliceHistory(data.history, state.chartRange);
+  const view = { ...buildDatasets(history, data.forecast), currency };
+  const lastIndex = view.labels.length - 1;
+  const spanDays = view.labels.length > 1
+    ? (parseIsoDate(view.labels[lastIndex]) - parseIsoDate(view.labels[0])) / 86400000
+    : 0;
+  const tickFormat = spanDays > 240 ? { month: "short", year: "numeric" } : { month: "short", day: "numeric" };
+
+  window.Chart.defaults.font.family = colors.fontFamily;
+  const endDot = (index) => (ctx) => (ctx.dataIndex === index ? 4 : 0);
+  const pointStyle = (color) => ({
+    pointBackgroundColor: color,
+    pointBorderColor: colors.surface,
+    pointBorderWidth: 2,
+    pointHoverRadius: 4,
+    pointHoverBackgroundColor: color,
+    pointHoverBorderColor: colors.surface,
+    pointHoverBorderWidth: 2,
+  });
 
   const config = {
     type: "line",
     data: {
-      labels,
+      labels: view.labels,
       datasets: [
         {
-          label: "Historical",
-          data: historyData,
+          label: "Daily close",
+          data: view.historyData,
           borderColor: colors.history,
           borderWidth: 2,
-          tension: 0.3,
-          pointRadius: 0,
-          pointHoverRadius: 4,
+          borderJoinStyle: "round",
+          borderCapStyle: "round",
+          tension: 0,
+          pointRadius: endDot(view.junction),
+          ...pointStyle(colors.history),
           order: 2,
         },
         {
           label: "Forecast",
-          data: forecastLine,
+          data: view.forecastLine,
           borderColor: colors.forecast,
-          borderWidth: 2.5,
+          borderWidth: 2,
           borderDash: [6, 4],
-          tension: 0.3,
-          pointRadius: 0,
-          pointHoverRadius: 4,
+          borderJoinStyle: "round",
+          tension: 0,
+          pointRadius: endDot(lastIndex),
+          ...pointStyle(colors.forecast),
           order: 1,
         },
         {
-          label: "Confidence Band",
-          data: upperBand,
+          label: "Forecast range",
+          data: view.upperBand,
           borderColor: "transparent",
           backgroundColor: colors.band,
           fill: "+1",
-          tension: 0.3,
+          tension: 0,
           pointRadius: 0,
+          pointHoverRadius: 0,
           order: 3,
         },
         {
           label: "_lower",
-          data: lowerBand,
+          data: view.lowerBand,
           borderColor: "transparent",
           backgroundColor: "transparent",
-          tension: 0.3,
+          tension: 0,
           pointRadius: 0,
+          pointHoverRadius: 0,
           order: 4,
         },
       ],
@@ -617,193 +832,195 @@ function renderChart(data) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      layout: { padding: { top: 18, right: 4 } },
       interaction: { mode: "index", intersect: false },
       scales: {
         x: {
-          ticks: { maxTicksLimit: 8, color: colors.text, font: { size: 11 } },
-          grid: { color: colors.grid },
-          border: { display: false },
+          ticks: {
+            color: colors.text,
+            maxRotation: 0,
+            autoSkip: true,
+            autoSkipPadding: 28,
+            font: { size: 12 },
+            callback(value) {
+              return formatDate(this.getLabelForValue(value), tickFormat);
+            },
+          },
+          grid: { display: false },
+          border: { display: true, color: colors.rule },
         },
         y: {
-          ticks: { color: colors.text, font: { size: 11 } },
-          grid: { color: colors.grid },
+          position: "right",
+          ticks: {
+            color: colors.text,
+            maxTicksLimit: 6,
+            font: { size: 12 },
+            callback: (value) => formatAxisPrice(value, currency),
+          },
+          grid: { color: colors.grid, lineWidth: 1 },
           border: { display: false },
         },
       },
       plugins: {
-        legend: {
-          display: true,
-          position: "bottom",
-          labels: {
-            color: colors.text,
-            usePointStyle: true,
-            pointStyle: "circle",
-            padding: 16,
-            font: { size: 11 },
-            filter: (item) => !item.text.startsWith("_"),
-          },
-        },
-        tooltip: {
-          backgroundColor: "rgba(0,0,0,0.85)",
-          titleFont: { size: 12 },
-          bodyFont: { size: 12 },
-          padding: 12,
-          cornerRadius: 8,
-          displayColors: false,
-          callbacks: {
-            label: (ctx) => {
-              if (ctx.dataset.label?.startsWith("_")) return null;
-              if (ctx.dataset.label === "Confidence Band") return null;
-              const val = ctx.parsed.y;
-              if (val === null) return null;
-              return `${ctx.dataset.label}: ${val.toFixed(2)}`;
-            },
-            afterBody: (items) => {
-              if (!items.length) return "";
-              const idx = items[0].dataIndex;
-              const upper = upperBand[idx];
-              const lower = lowerBand[idx];
-              if (upper != null && lower != null) {
-                return `Band: ${lower.toFixed(2)} \u2013 ${upper.toFixed(2)}`;
-              }
-              return "";
-            },
-          },
-        },
+        legend: { display: false },
+        tooltip: { enabled: false, external: (context) => renderTooltip(context, view) },
       },
-      animation: { duration: 600, easing: "easeOutCubic" },
+      animation: reducedMotion.matches ? false : { duration: 300, easing: "easeOutCubic" },
     },
+    plugins: [annotationsPlugin(view, colors)],
   };
 
   if (state.chart) state.chart.destroy();
-  state.chart = new window.Chart(ctx, config);
+  chartTooltip.hidden = true;
+  state.chart = new window.Chart(chartCanvas.getContext("2d"), config);
 }
 
 // =============================================
 // SIGNAL CARD
 // =============================================
-function updateSignalCard(data) {
-  signalCard.hidden = false;
-  disclaimerBanner.hidden = false;
-  state.lastPrediction = data;
+const FEATURE_ACRONYMS = new Set(["sma", "ema", "rsi", "macd", "bb"]);
 
-  const summary = data.summary;
-  const signalLabels = {
-    "Strongly Bullish": "Strongly Bullish",
-    "Bullish Outlook": "Bullish Outlook",
-    "Neutral": "Neutral",
-    "Bearish Outlook": "Bearish Outlook",
-    "Strongly Bearish": "Strongly Bearish",
-  };
-  signalBadge.textContent = signalLabels[summary.signal] || summary.signal;
-  signalBadge.setAttribute("data-signal", summary.signal);
+function formatFeatureName(raw) {
+  const text = String(raw || "")
+    .split("_")
+    .map((word) => (FEATURE_ACRONYMS.has(word.toLowerCase()) ? word.toUpperCase() : word))
+    .join(" ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
 
-  signalSymbol.textContent = data.symbol;
-  signalEngine.textContent = `${data.model_name} | ${data.engine_used.toUpperCase()}`;
+function sentenceCase(text) {
+  const value = String(text || "");
+  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+}
 
-  // Currency tag — prefer display_currency from response, fall back to native currency
-  const displayCurrency = data.display_currency || data.currency || "USD";
-  currencyTag.textContent = displayCurrency;
+function formatDelta(pct) {
+  if (pct > 0) return { text: `▲ ${formatPercent(pct)}`, tone: "up" };
+  if (pct < 0) return { text: `▼ ${formatPercent(pct)}`, tone: "down" };
+  return { text: `▬ ${formatPercent(pct)}`, tone: "" };
+}
 
-  metricPrice.textContent = formatCurrency(data.stats.last_close, displayCurrency);
-  metricExpected.textContent = formatCurrency(summary.expected_price, displayCurrency);
-
-  metricReturn.textContent = formatPercent(summary.expected_return_pct);
-  metricReturn.className = `metric-value ${summary.expected_return_pct >= 0 ? "positive" : "negative"}`;
-
-  metricTrend.textContent = summary.trend.charAt(0).toUpperCase() + summary.trend.slice(1);
-  metricTrend.className = `metric-value ${summary.trend === "bullish" ? "positive" : summary.trend === "bearish" ? "negative" : ""}`;
-
-  // Confidence tier readout
-  const tier = summary.confidence_tier || "low";
-  const tierWidths = { low: "30%", medium: "60%", high: "90%" };
-  const tierLabels = { low: "Low", medium: "Medium", high: "High" };
-  confidenceFill.style.width = tierWidths[tier] || "30%";
-  confidenceValue.textContent = `${tierLabels[tier] || tier} confidence`;
-  confidenceFill.setAttribute("data-level", tier);
-
-  // Evaluation metrics
-  if (data.evaluation) {
-    evalRow.hidden = false;
-    evalMae.textContent = `MAE: ${data.evaluation.mae != null ? data.evaluation.mae.toFixed(2) : "-"}`;
-    evalDir.textContent = `Dir: ${data.evaluation.directional_accuracy != null ? (data.evaluation.directional_accuracy * 100).toFixed(0) + "%" : "-"}`;
-    evalMape.textContent = `MAPE: ${data.evaluation.mape != null ? data.evaluation.mape.toFixed(1) + "%" : "-"}`;
-  } else {
-    evalRow.hidden = true;
+function updateWatchlistButton() {
+  const prediction = state.lastPrediction;
+  if (!prediction) {
+    watchlistAddBtn.hidden = true;
+    return;
   }
-
-  // Source & degradation
-  sourceBadgeNode.hidden = false;
-  sourceBadgeNode.textContent = `${data.source.market_data} / ${data.source.forecast}`;
-
-  if (data.degraded) {
-    degradedBadgeNode.hidden = false;
-    degradedBadgeNode.textContent = data.degradation_message
-      ? `Using statistical fallback \u2014 ${data.degradation_message}`
-      : "Using statistical fallback";
-  } else {
-    degradedBadgeNode.hidden = true;
-  }
-
-  // Disclaimer
-  disclaimerNode.hidden = false;
-  disclaimerNode.textContent = `${data.disclaimer} ${data.engine_note || ""}`.trim();
-
-  // Show watchlist add button
+  const saved = getWatchlist().some((item) => item.symbol === prediction.symbol);
   watchlistAddBtn.hidden = false;
+  watchlistAddBtn.disabled = saved;
+  watchlistAddBtn.textContent = saved ? "In your watchlist" : "Add to watchlist";
+}
 
-  // Explanation card
-  if (data.explanation && data.explanation.top_features?.length > 0) {
-    explanationCard.hidden = false;
-    explanationSource.textContent = `Forecast source: ${formatSourceLabel(data.source.forecast)}. Explanation source: ${formatSourceLabel(data.source.analysis)}.`;
-    if (data.source.analysis && data.source.analysis !== data.source.forecast) {
-      explanationNote.hidden = false;
-      explanationNote.textContent = "Final forecast uses the statistical fallback. This explanation summarizes how the current market pattern differed from the ML analog set before the quality gate rejected the forecast.";
-    } else {
-      explanationNote.hidden = true;
-      explanationNote.textContent = "";
-    }
-    explanationNarrative.textContent = data.explanation.narrative || "";
-
-    // Render feature bars
-    explanationFeatures.innerHTML = "";
-    const maxContrib = Math.max(...data.explanation.top_features.map((f) => f.difference_score), 0.01);
-    for (const feat of data.explanation.top_features) {
-      const barPct = Math.round((feat.difference_score / maxContrib) * 100);
-      const dirClass = feat.relation === "higher" ? "positive" : feat.relation === "lower" ? "negative" : "";
-      const row = document.createElement("div");
-      row.className = "explain-feature";
-
-      const nameSpan = document.createElement("span");
-      nameSpan.className = "explain-feature-name";
-      nameSpan.textContent = feat.feature.replace(/_/g, " ");
-
-      const barTrack = document.createElement("div");
-      barTrack.className = "explain-bar-track";
-      const barFill = document.createElement("div");
-      barFill.className = "explain-bar-fill" + (dirClass ? " " + dirClass : "");
-      barFill.style.width = barPct + "%";
-      barTrack.appendChild(barFill);
-
-      const dirSpan = document.createElement("span");
-      dirSpan.className = "explain-feature-dir" + (dirClass ? " " + dirClass : "");
-      dirSpan.textContent = feat.relation;
-
-      row.appendChild(nameSpan);
-      row.appendChild(barTrack);
-      row.appendChild(dirSpan);
-      explanationFeatures.appendChild(row);
-    }
-
-    explanationAnalog.textContent = data.explanation.nearest_analog_date
-      ? `Nearest analog: ${data.explanation.nearest_analog_date}`
-      : "";
-  } else {
+function renderExplanation(data) {
+  if (!data.explanation || !(data.explanation.top_features?.length > 0)) {
     explanationCard.hidden = true;
     explanationSource.textContent = "";
     explanationNote.hidden = true;
     explanationNote.textContent = "";
+    return;
   }
+
+  explanationCard.hidden = false;
+  explanationSource.textContent = `Forecast source: ${formatSourceLabel(data.source.forecast)}. Explanation source: ${formatSourceLabel(data.source.analysis)}.`;
+  if (data.source.analysis && data.source.analysis !== data.source.forecast) {
+    explanationNote.hidden = false;
+    explanationNote.textContent = "Final forecast uses the statistical fallback. This explanation summarizes how the current market pattern differed from the ML analog set before the quality gate rejected the forecast.";
+  } else {
+    explanationNote.hidden = true;
+    explanationNote.textContent = "";
+  }
+  explanationNarrative.textContent = data.explanation.narrative || "";
+
+  explanationFeatures.textContent = "";
+  const maxScore = Math.max(...data.explanation.top_features.map((f) => f.difference_score), 0.01);
+  for (const feat of data.explanation.top_features) {
+    const halfWidthPct = Math.round((feat.difference_score / maxScore) * 50);
+    const row = document.createElement("li");
+    row.className = "explain-feature";
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "explain-feature-name";
+    nameSpan.textContent = formatFeatureName(feat.feature);
+    nameSpan.title = nameSpan.textContent;
+
+    const barTrack = document.createElement("span");
+    barTrack.className = "explain-bar-track";
+    const barFill = document.createElement("span");
+    barFill.className = `explain-bar-fill ${feat.relation}`;
+    barFill.style.width = `${Math.max(halfWidthPct, 1)}%`;
+    barTrack.appendChild(barFill);
+
+    const dirSpan = document.createElement("span");
+    dirSpan.className = "explain-feature-dir";
+    dirSpan.textContent = feat.relation;
+
+    row.append(nameSpan, barTrack, dirSpan);
+    explanationFeatures.appendChild(row);
+  }
+
+  explanationAnalog.textContent = data.explanation.nearest_analog_date
+    ? `Nearest analog: ${formatDate(data.explanation.nearest_analog_date, { month: "short", day: "numeric", year: "numeric" })}`
+    : "";
+}
+
+function updateSignalCard(data) {
+  signalCard.hidden = false;
+  state.lastPrediction = data;
+
+  const summary = data.summary;
+  const displayCurrency = data.display_currency || data.currency || "USD";
+
+  signalSymbol.textContent = data.symbol;
+  signalEngine.textContent = `${data.model_name} · ${data.asset_type === "crypto" ? "Crypto" : "Stock"}`;
+
+  heroHorizon.textContent = formatDays(data.horizon_days);
+  metricExpected.textContent = formatCurrency(summary.expected_price, displayCurrency);
+  const delta = formatDelta(summary.expected_return_pct);
+  metricReturn.textContent = delta.text;
+  metricReturn.className = `delta ${delta.tone}`.trim();
+  metricPrice.textContent = formatCurrency(data.stats.last_close, displayCurrency);
+  currencyTag.textContent = displayCurrency;
+
+  signalBadge.textContent = sentenceCase(summary.signal);
+  signalBadge.setAttribute("data-signal", summary.signal);
+  metricTrend.textContent = sentenceCase(summary.trend);
+
+  const tier = summary.confidence_tier || "low";
+  const tierLabels = { low: "Low", medium: "Medium", high: "High" };
+  confidenceFill.setAttribute("data-level", tier);
+  confidenceValue.textContent = tierLabels[tier] || tier;
+
+  sourceBadgeNode.textContent = `${data.source.market_data} / ${data.source.forecast}`;
+
+  if (data.degraded) {
+    degradedBadgeNode.hidden = false;
+    degradedBadgeNode.textContent = "";
+    const lead = document.createElement("strong");
+    lead.textContent = "Statistical fallback in use.";
+    degradedBadgeNode.appendChild(lead);
+    degradedBadgeNode.append(
+      ` ${data.degradation_message || "The ML model did not pass its quality gate, so this is the statistical baseline."}`,
+    );
+  } else {
+    degradedBadgeNode.hidden = true;
+  }
+
+  if (data.evaluation) {
+    const ev = data.evaluation;
+    evalRow.hidden = false;
+    evalDir.textContent = ev.directional_accuracy != null ? `${(ev.directional_accuracy * 100).toFixed(0)}%` : "-";
+    evalMae.textContent = ev.mae != null ? ev.mae.toFixed(2) : "-";
+    evalMape.textContent = ev.mape != null ? `${ev.mape.toFixed(1)}%` : "-";
+    evalWindows.textContent = ev.validation_windows != null ? String(ev.validation_windows) : "-";
+  } else {
+    evalRow.hidden = true;
+  }
+
+  disclaimerNode.hidden = false;
+  disclaimerNode.textContent = `${data.disclaimer || ""} ${data.engine_note || ""}`.trim();
+
+  updateWatchlistButton();
+  renderExplanation(data);
 }
 
 // =============================================
@@ -921,12 +1138,14 @@ async function loadPrediction(event) {
 
   symbolInput.value = symbol;
   hideSuggestions();
-  clearResults();
-  // Show skeleton loaders while fetching
-  signalCard.hidden = false;
-  signalCard.classList.add("skeleton-loading");
+  if (state.lastPrediction) {
+    resultsNode.classList.add("is-refreshing");
+    chartFallbackNode.hidden = true;
+  } else {
+    clearResults();
+  }
   setLoading(true);
-  setStatus(`Analyzing ${symbol}...`);
+  setStatus(`Running the forecast for ${symbol}…`);
 
   if (state.activePredictionController) state.activePredictionController.abort();
   const controller = new AbortController();
@@ -938,15 +1157,17 @@ async function loadPrediction(event) {
     if (currentId !== state.predictionRequestId) return;
 
     try {
-      signalCard.classList.remove("skeleton-loading");
+      const displayCurrency = data.display_currency || data.currency || "USD";
       chartEmpty.hidden = true;
+      chartFigure.hidden = false;
       chartCanvas.hidden = false;
-      chartHeader.hidden = false;
-      chartTitle.textContent = `${data.symbol} Price Forecast`;
-      chartSubtitle.textContent = `${data.horizon_days}d | ${data.engine_used.toUpperCase()} | ${data.currency}`;
+      chartTitle.textContent = `${data.symbol} daily close and ${data.horizon_days}-day forecast`;
+      chartSubtitle.textContent = `Prices in ${displayCurrency}`;
 
+      renderForecastTable(data.forecast, displayCurrency);
       renderChart(data);
       updateSignalCard(data);
+      resultsNode.classList.remove("is-refreshing");
     } catch (renderError) {
       clearResults();
       chartFallbackNode.hidden = false;
@@ -955,12 +1176,11 @@ async function loadPrediction(event) {
       return;
     }
 
-    const assetLabel = data.asset_type === "crypto" ? "crypto" : "stock";
-    if (data.degraded) {
-      setStatus(`Forecast loaded for ${data.symbol} (${assetLabel}) with fallback.`);
-    } else {
-      setStatus(`Forecast loaded for ${data.symbol} (${assetLabel}, ${data.engine_used}).`);
-    }
+    setStatus(
+      data.degraded
+        ? `Forecast ready for ${data.symbol}, using the statistical fallback.`
+        : `Forecast ready for ${data.symbol}.`,
+    );
   } catch (error) {
     if (error?.name === "AbortError" || currentId !== state.predictionRequestId) return;
     clearResults();
@@ -994,6 +1214,19 @@ watchlistAddBtn.addEventListener("click", () => {
     addToWatchlist(state.lastPrediction.symbol, state.lastPrediction.asset_type);
     setStatus(`${state.lastPrediction.symbol} added to watchlist.`);
   }
+});
+
+// Chart history range
+rangeControl.querySelectorAll(".range-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.chartRange = btn.dataset.range;
+    rangeControl.querySelectorAll(".range-btn").forEach((b) => {
+      const isActive = b === btn;
+      b.classList.toggle("active", isActive);
+      b.setAttribute("aria-pressed", String(isActive));
+    });
+    rerenderChart();
+  });
 });
 
 // Service Worker
