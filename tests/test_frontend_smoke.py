@@ -417,3 +417,49 @@ def test_switching_to_crypto_defaults_to_statistical_engine(page) -> None:
 
     current_page.click("#asset-type-control .seg-btn[data-value='stock']")
     assert current_page.locator("#engine").input_value() == "ml"
+
+
+def test_suggestions_stay_closed_after_a_quick_submit(page) -> None:
+    current_page, _ = page
+    _mock_top_assets(current_page)
+    current_page.route(
+        "**/api/tickers*",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "query": "AAPL",
+                    "asset_type": "stock",
+                    "tickers": [
+                        {
+                            "symbol": "AAPL",
+                            "name": "Apple",
+                            "exchange": "NASDAQ",
+                            "region": "US",
+                            "popularity": 900,
+                            "asset_type": "stock",
+                            "source": "catalog",
+                        }
+                    ],
+                }
+            ),
+        ),
+    )
+    current_page.route(
+        "**/api/predict",
+        lambda route: route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(SUCCESS_PREDICTION)
+        ),
+    )
+    # Fake timers, so the suggestion lookup that typing queues fires only after the submit.
+    current_page.clock.install()
+    current_page.goto("/", wait_until="domcontentloaded")
+
+    current_page.fill("#symbol", "AAPL")
+    current_page.click("[data-testid='predict-submit']")
+    current_page.wait_for_selector("[data-testid='signal-card']:not([hidden])")
+    current_page.clock.run_for(1000)
+    current_page.wait_for_timeout(500)
+
+    assert current_page.locator("#ticker-suggestions").is_hidden()

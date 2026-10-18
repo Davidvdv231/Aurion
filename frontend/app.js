@@ -295,6 +295,11 @@ function formatSourceLabel(value) {
 // UI STATE
 // =============================================
 function hideSuggestions() {
+  // Cancel a queued or in-flight lookup too, or its answer reopens the list
+  // (e.g. right after a submit).
+  clearTimeout(state.suggestionTimer);
+  state.suggestionRequestId += 1;
+  if (state.activeSuggestionController) state.activeSuggestionController.abort();
   suggestionsNode.hidden = true;
   suggestionsNode.innerHTML = "";
   state.activeSuggestionIndex = -1;
