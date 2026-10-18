@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.ticker_catalog import AssetType
 
@@ -78,9 +78,19 @@ class PredictionSource(ApiModel):
 class PredictRequest(ApiModel):
     symbol: str = Field(..., min_length=1, max_length=20)
     horizon: int = Field(30, ge=7, le=45)
-    engine: EngineType = "ml"
+    engine: EngineType = Field(
+        "ml",
+        description="Defaults to 'stat' for crypto, where the ML model showed no edge in backtests.",
+    )
     asset_type: AssetType = "stock"
     display_currency: str = "USD"
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_engine_for_asset_type(cls, data: object) -> object:
+        if isinstance(data, dict) and data.get("engine") is None:
+            return {**data, "engine": "stat" if data.get("asset_type") == "crypto" else "ml"}
+        return data
 
     @field_validator("symbol")
     @classmethod

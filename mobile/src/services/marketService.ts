@@ -54,6 +54,11 @@ export async function searchAssets(query: string, assetType: AssetType): Promise
   }
 }
 
+// The ML model showed no edge on crypto in backtests, so crypto starts on the statistical model.
+export function defaultEngineFor(assetType: AssetType): ForecastEngine {
+  return assetType === "crypto" ? "stat" : "ml";
+}
+
 export interface ForecastOptions {
   horizon?: number;
   engine?: ForecastEngine;
@@ -71,7 +76,7 @@ export async function loadForecast(
   assetType: AssetType,
   options: ForecastOptions = {},
 ): Promise<ForecastResult> {
-  const { horizon = 7, engine = "ml", displayCurrency } = options;
+  const { horizon = 7, engine = defaultEngineFor(assetType), displayCurrency } = options;
   try {
     return { data: await api.predict(symbol, assetType, horizon, engine, displayCurrency), isDemo: false };
   } catch (error: unknown) {

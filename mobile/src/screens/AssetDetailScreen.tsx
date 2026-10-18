@@ -11,7 +11,7 @@ import { TrendChip } from "@/components/TrendChip";
 import { useWatchlist } from "@/context/WatchlistContext";
 import { theme } from "@/theme/theme";
 import type { RootStackParamList } from "@/navigation/types";
-import { loadForecast } from "@/services/marketService";
+import { defaultEngineFor, loadForecast } from "@/services/marketService";
 import { createAsyncStorageAdapter } from "@/storage/storage";
 
 type Props = NativeStackScreenProps<RootStackParamList, "AssetDetail">;
@@ -187,14 +187,16 @@ export function AssetDetailScreen({ route, navigation }: Props) {
   const { symbol, assetType, name, engine: initialEngine } = route.params;
   const { isSaved, toggle } = useWatchlist();
   const [data, setData] = useState<PredictResponse>(() =>
-    getDemoForecast(symbol, assetType, "USD", initialEngine ?? "ml"),
+    getDemoForecast(symbol, assetType, "USD", initialEngine ?? defaultEngineFor(assetType)),
   );
   const [isDemo, setIsDemo] = useState(false);
   const [demoReason, setDemoReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [currency, setCurrency] = useState<SupportedCurrency>("USD");
-  const [engine, setEngine] = useState<ForecastEngine>(initialEngine ?? "ml");
+  const [engine, setEngine] = useState<ForecastEngine>(
+    initialEngine ?? defaultEngineFor(assetType),
+  );
   const [horizon, setHorizon] = useState(7);
 
   // Load persisted currency preference on mount

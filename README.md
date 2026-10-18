@@ -85,6 +85,8 @@ flowchart TD
 | ML requested, training timeout (>15s) | `stat_fallback` | `true` | `ml_engine_timeout` |
 | ML requested, exception during training | `stat_fallback` | `true` | `ml_engine_unavailable` |
 
+Crypto defaults to the statistical engine: in walk-forward tests on BTC-USD and ETH-USD (2021–2026) the ML model called the 30-day direction correctly only 47% of the time and was less accurate than a no-change forecast. ML can still be requested explicitly (`"engine": "ml"`), and the quality gate above still applies.
+
 ## Example API Responses
 
 **Clean ML prediction:**

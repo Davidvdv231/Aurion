@@ -477,3 +477,17 @@ def test_production_startup_requires_redis(monkeypatch) -> None:
     with pytest.raises(RuntimeError):
         with TestClient(app):
             pass
+
+
+def test_predict_request_defaults_crypto_to_statistical_engine() -> None:
+    from backend.models import PredictRequest
+
+    assert PredictRequest(symbol="BTC", asset_type="crypto").engine == "stat"
+    assert PredictRequest(symbol="BTC", asset_type="crypto", engine="ml").engine == "ml"
+    assert PredictRequest(symbol="AAPL").engine == "ml"
+    assert (
+        PredictRequest.model_validate(
+            {"symbol": "ETH", "asset_type": "crypto", "engine": None}
+        ).engine
+        == "stat"
+    )
