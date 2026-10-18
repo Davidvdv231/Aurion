@@ -370,7 +370,7 @@ def test_forecast_that_misses_no_change_is_flagged(page) -> None:
 
     current_page.wait_for_selector("[data-testid='evaluation-row']:not([hidden])")
     assert current_page.locator("[data-testid='eval-beats']").text_content() == "No"
-    assert current_page.locator("#eval-no-change").text_content() == "2.6%"
+    assert current_page.locator("#eval-no-change").text_content() == "2.60%"
     assert current_page.locator("[data-testid='eval-note']").is_visible()
 
 

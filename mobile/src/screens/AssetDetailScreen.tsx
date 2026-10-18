@@ -59,10 +59,11 @@ function Backtest({ evaluation }: { evaluation: PredictResponse["evaluation"] })
       evaluation.directional_accuracy != null ? `${(evaluation.directional_accuracy * 100).toFixed(0)}%` : "-",
     ],
     ["Mean absolute error", evaluation.mae != null ? evaluation.mae.toFixed(2) : "-"],
-    ["Mean absolute % error", evaluation.mape != null ? `${evaluation.mape.toFixed(1)}%` : "-"],
+    // Two decimals: the forecast and the no-change guess often differ by less than 0.1 point.
+    ["Mean absolute % error", evaluation.mape != null ? `${evaluation.mape.toFixed(2)}%` : "-"],
     [
       "% error of a no-change guess",
-      evaluation.no_change_mape != null ? `${evaluation.no_change_mape.toFixed(1)}%` : "-",
+      evaluation.no_change_mape != null ? `${evaluation.no_change_mape.toFixed(2)}%` : "-",
     ],
     [
       "Beats a no-change guess",

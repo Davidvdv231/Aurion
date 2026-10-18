@@ -1026,9 +1026,10 @@ function updateSignalCard(data) {
     evalRow.hidden = false;
     evalDir.textContent = ev.directional_accuracy != null ? `${(ev.directional_accuracy * 100).toFixed(0)}%` : "-";
     evalMae.textContent = ev.mae != null ? ev.mae.toFixed(2) : "-";
-    evalMape.textContent = ev.mape != null ? `${ev.mape.toFixed(1)}%` : "-";
+    // Two decimals: the forecast and the no-change guess often differ by less than 0.1 point.
+    evalMape.textContent = ev.mape != null ? `${ev.mape.toFixed(2)}%` : "-";
     evalWindows.textContent = ev.validation_windows != null ? String(ev.validation_windows) : "-";
-    evalNoChange.textContent = ev.no_change_mape != null ? `${ev.no_change_mape.toFixed(1)}%` : "-";
+    evalNoChange.textContent = ev.no_change_mape != null ? `${ev.no_change_mape.toFixed(2)}%` : "-";
     evalBeats.textContent = ev.beats_no_change === true ? "Yes" : ev.beats_no_change === false ? "No" : "-";
     evalNote.hidden = ev.beats_no_change !== false;
   } else {
