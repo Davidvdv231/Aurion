@@ -4,7 +4,7 @@ FastAPI forecasting backend (`backend/`) that also serves a no-build PWA (`front
 
 ## Commands
 
-Run everything from the repo root: the code imports the `backend` package. CI and Docker use Python 3.12. In cloud sessions `.claude/hooks/session-start.sh` creates `.venv`, installs all dependencies and puts the venv on `PATH`.
+Run everything from the repo root: the code imports the `backend` package. CI and Docker use Python 3.12. In cloud sessions `.claude/hooks/session-start.sh` creates `.venv`, installs all dependencies and puts the venv on `PATH`. It runs in the background and takes about a minute on a fresh container, so early commands can fail with a missing module. `.tmp/session-setup.status` appears when it finishes and holds its exit code (0 means ready); if it isn't 0, the reason is in `.tmp/session-setup.log`.
 
 Hooks in `.claude/settings.json` also run in every session: edited Python files under `backend/` and `tests/` are fixed and formatted with ruff, and any lint error ruff can't fix is reported back. When a turn ends with uncommitted changes, the fast checks for what changed run: mypy and the backend tests for `backend/`, the backend tests for `tests/`, and the mobile typecheck for `mobile/`. A failure sends you back once to fix it or explain it.
 
