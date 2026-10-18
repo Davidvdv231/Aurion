@@ -14,6 +14,12 @@ fi
 
 cd "$CLAUDE_PROJECT_DIR"
 
+# In cloud sessions, don't check against a half-installed environment while
+# the startup hook is still running in the background.
+if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] && [ ! -f .tmp/session-setup.status ]; then
+  exit 0
+fi
+
 changed() { [ -n "$(git status --porcelain -- "$@" 2>/dev/null)" ]; }
 
 failures=""
