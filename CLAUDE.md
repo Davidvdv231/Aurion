@@ -6,7 +6,7 @@ FastAPI forecasting backend (`backend/`) that also serves a no-build PWA (`front
 
 Run everything from the repo root: the code imports the `backend` package. CI and Docker use Python 3.12. In cloud sessions `.claude/hooks/session-start.sh` creates `.venv`, installs all dependencies and puts the venv on `PATH`.
 
-Hooks in `.claude/settings.json` also run in every session: edited Python files under `backend/` and `tests/` are fixed and formatted with ruff, and any lint error ruff can't fix is reported back. When a turn ends with uncommitted changes there, the backend suite runs, and a failure sends you back once to fix it or explain it.
+Hooks in `.claude/settings.json` also run in every session: edited Python files under `backend/` and `tests/` are fixed and formatted with ruff, and any lint error ruff can't fix is reported back. When a turn ends with uncommitted changes, the fast checks for what changed run: mypy and the backend tests for `backend/`, the backend tests for `tests/`, and the mobile typecheck for `mobile/`. A failure sends you back once to fix it or explain it.
 
 These mirror `.github/workflows/ci.yml`, and all of them must pass:
 
@@ -45,7 +45,7 @@ The backend, the web client and the mobile client share one `/api/predict` respo
 - Python dependencies are locked with hashes. Edit `backend/requirements.txt` or `requirements-dev.txt`, then run `make lock`; never edit the `.lock` files by hand. CI fails if the lockfiles are stale.
 - Tests never touch the network. Patch `backend.services.market_data.yf.download` as `tests/test_market_data.py` does, and keep the suite passing offline.
 - New settings: read them in `backend/config.py`, document them in `.env.example`, and add the name to `APP_ENV_VARS` in `tests/conftest.py` so every test starts from a clean environment. `backend/config.py` also loads a repo-root `.env` if one exists.
-- When you change a file listed in `ASSETS` in `frontend/sw.js`, bump `CACHE_VERSION` there so installed PWAs refresh. CI's SHA stamp only applies to its own checkout.
+- The service worker in `frontend/sw.js` fetches network-first and refreshes its cache on every fetch, so ordinary frontend changes need no cache bump. Bump `CACHE_VERSION` only when you remove or rename a file in `ASSETS`, so offline caches drop the old copy.
 - The frontend is plain JavaScript with no build step or `package.json`. Don't add a bundler or framework unless asked.
 - Ruff uses line length 100 with rules E, F, I and B. Mypy checks `backend/` only.
 
