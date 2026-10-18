@@ -22,15 +22,17 @@ Most forecasting tools either silently serve bad predictions or fail without exp
 
 ## Screenshots
 
-**Statistical forecast with chart and signal card:**
+Screenshots use illustrative price data.
+
+**Statistical forecast: the query reads as a sentence, the expected price leads, and the chart shows the forecast range:**
 
 ![Desktop forecast](docs/screenshots/aurion-desktop-forecast.png)
 
-**ML prediction with quality gate fallback and pattern explanation:**
+**ML request that failed the quality gate: the fallback is stated up front, with the backtest and the pattern comparison below:**
 
 ![ML prediction with degradation](docs/screenshots/aurion-ml-prediction.png)
 
-**Responsive mobile layout:**
+**Mobile layout:**
 
 ![Mobile view](docs/screenshots/aurion-mobile-forecast.png)
 

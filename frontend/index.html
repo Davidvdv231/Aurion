@@ -1,249 +1,243 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0a0e1a" />
-    <title>Aurion - Market Intelligence</title>
+    <meta name="theme-color" content="#fcfcfb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1a1a19" media="(prefers-color-scheme: dark)" />
+    <title>Aurion · Forecasts that say when they don't know</title>
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css" />
-    <style>[hidden] { display: none !important; }</style>
     <script src="/vendor/chart.umd.min.js" defer integrity="sha384-XcdcwHqIPULERb2yDEM4R0XaQKU3YnDsrTmjACBZyfdVVqjh6xQ4/DCMd7XLcA6Y" crossorigin="anonymous"></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
-    <nav class="top-bar">
-      <div class="top-bar-inner">
-        <a class="brand" href="/">
-          <span class="brand-icon">
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <path d="M14 2L26 8v12l-12 6L2 20V8l12-6z" stroke="currentColor" stroke-width="1.5" fill="none"/>
-              <path d="M14 8l6 3v6l-6 3-6-3v-6l6-3z" fill="currentColor" opacity="0.3"/>
-              <path d="M14 11l3 1.5v3L14 17l-3-1.5v-3L14 11z" fill="currentColor"/>
-            </svg>
-          </span>
-          <span class="brand-text">Aurion</span>
-        </a>
-        <div class="top-bar-actions">
-          <button id="theme-toggle" class="icon-btn" title="Toggle theme" type="button">
-            <svg id="theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="5"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-            </svg>
-            <svg id="theme-icon-light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-            </svg>
-          </button>
-        </div>
+    <header class="masthead">
+      <div class="wrap masthead-inner">
+        <a class="wordmark" href="/">Aurion</a>
+        <p class="tagline">Forecasts that say when they don't know.</p>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch colour theme" title="Switch colour theme">
+          <svg id="theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M2 12h2.5M19.5 12H22M4.93 19.07l1.77-1.77M17.3 6.7l1.77-1.77"/>
+          </svg>
+          <svg id="theme-icon-light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/>
+          </svg>
+        </button>
       </div>
-    </nav>
+    </header>
 
-    <main class="app-shell">
-      <!-- Left Panel: Controls -->
-      <aside class="panel controls-panel">
-        <div class="card">
-          <h2 class="panel-title">Predict</h2>
-          <form id="predict-form" class="form-stack" data-testid="predict-form">
-            <div class="form-group">
-              <label for="asset-type">Market</label>
-              <div class="segmented-control" id="asset-type-control">
-                <button type="button" class="seg-btn active" data-value="stock">Stocks</button>
-                <button type="button" class="seg-btn" data-value="crypto">Crypto</button>
-              </div>
-              <input type="hidden" id="asset-type" name="asset_type" value="stock" />
-            </div>
-
-            <div class="form-group">
-              <label for="engine">Engine</label>
-              <div class="segmented-control" id="engine-control">
-                <button type="button" class="seg-btn active" data-value="ml">
-                  <span class="seg-dot seg-dot--ml"></span>ML
-                </button>
-                <button type="button" class="seg-btn" data-value="stat">
-                  <span class="seg-dot seg-dot--stat"></span>Stat
-                </button>
-              </div>
-              <input type="hidden" id="engine" name="engine" value="ml" />
-            </div>
-
-            <div class="form-group">
-              <label for="symbol">Symbol</label>
-              <div class="autocomplete-wrap">
-                <input
-                  id="symbol"
-                  name="symbol"
-                  type="text"
-                  value="AAPL"
-                  maxlength="20"
-                  autocomplete="off"
-                  placeholder="AAPL, TSLA, BTC..."
-                  required
-                />
-                <ul id="ticker-suggestions" class="suggestions" hidden></ul>
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label for="display-currency">Currency</label>
-              <select id="display-currency" name="display_currency" class="select-input">
-                <option value="USD" selected>USD ($)</option>
-                <option value="EUR">EUR (€)</option>
-                <option value="GBP">GBP (£)</option>
-                <option value="JPY">JPY (¥)</option>
-                <option value="CHF">CHF</option>
-                <option value="CAD">CAD (C$)</option>
-                <option value="AUD">AUD (A$)</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label for="horizon">Horizon</label>
-              <div class="range-row">
-                <input id="horizon" name="horizon" type="range" min="7" max="45" value="30" />
-                <span id="horizon-value" class="range-value">30d</span>
-              </div>
-            </div>
-
-            <button id="submit-btn" type="submit" class="btn-primary" data-testid="predict-submit">
-              <span class="btn-text">Generate Forecast</span>
-              <span class="btn-loader" hidden>
-                <span class="spinner"></span>
-                Analyzing...
-              </span>
-            </button>
-          </form>
-        </div>
-
-        <!-- Top Picks -->
-        <div class="card">
-          <div class="card-header">
-            <h3 id="top-title">Trending Stocks</h3>
+    <main class="wrap">
+      <section class="query" aria-labelledby="query-heading">
+        <h1 id="query-heading" class="sr-only">Run a forecast</h1>
+        <form id="predict-form" class="query-form" data-testid="predict-form">
+          <div class="query-sentence">
+            <span>Forecast</span>
+            <span class="autocomplete-wrap">
+              <label class="sr-only" for="symbol">Ticker symbol</label>
+              <input
+                id="symbol"
+                name="symbol"
+                class="field field--symbol"
+                type="text"
+                value="AAPL"
+                maxlength="20"
+                autocomplete="off"
+                autocapitalize="characters"
+                spellcheck="false"
+                placeholder="AAPL"
+                aria-autocomplete="list"
+                aria-controls="ticker-suggestions"
+                required
+              />
+              <ul id="ticker-suggestions" class="suggestions" hidden></ul>
+            </span>
+            <span>as</span>
+            <span class="toggle" id="asset-type-control" role="group" aria-label="Market">
+              <button type="button" class="seg-btn active" data-value="stock" aria-pressed="true">a stock</button><span class="toggle-sep" aria-hidden="true">/</span><button type="button" class="seg-btn" data-value="crypto" aria-pressed="false">crypto</button>
+            </span>
+            <input type="hidden" id="asset-type" name="asset_type" value="stock" />
+            <span>over the next</span>
+            <span class="horizon">
+              <output id="horizon-value" for="horizon" class="horizon-value">30 days</output>
+              <label class="sr-only" for="horizon">Forecast horizon in days</label>
+              <input id="horizon" name="horizon" type="range" min="7" max="45" value="30" />
+            </span>
+            <span>using the</span>
+            <span class="toggle" id="engine-control" role="group" aria-label="Forecast model">
+              <button type="button" class="seg-btn active" data-value="ml" aria-pressed="true">ML analog</button><span class="toggle-sep" aria-hidden="true">/</span><button type="button" class="seg-btn" data-value="stat" aria-pressed="false">statistical</button>
+            </span>
+            <input type="hidden" id="engine" name="engine" value="ml" />
+            <span>model, priced in</span>
+            <label class="sr-only" for="display-currency">Display currency</label>
+            <select id="display-currency" name="display_currency" class="field field--select">
+              <option value="USD" selected>USD</option>
+              <option value="EUR">EUR</option>
+              <option value="GBP">GBP</option>
+              <option value="JPY">JPY</option>
+              <option value="CHF">CHF</option>
+              <option value="CAD">CAD</option>
+              <option value="AUD">AUD</option>
+            </select>
           </div>
-          <div id="top-assets" class="chip-grid" aria-live="polite">
+          <div class="query-actions">
+            <button id="submit-btn" type="submit" class="btn-run" data-testid="predict-submit">
+              <span class="btn-text">Run forecast</span>
+              <span class="btn-loader" hidden><span class="spinner" aria-hidden="true"></span>Running</span>
+            </button>
+            <p id="status" class="global-status" role="status" aria-live="polite"></p>
+          </div>
+        </form>
+      </section>
+
+      <nav class="shortcuts" aria-label="Quick picks">
+        <div class="shortcut-row">
+          <h2 id="top-title" class="shortcut-label">Trending stocks</h2>
+          <div id="top-assets" class="shortcut-list" aria-live="polite">
             <div class="skeleton-chips">
               <div class="skeleton-chip"></div>
               <div class="skeleton-chip"></div>
               <div class="skeleton-chip"></div>
               <div class="skeleton-chip"></div>
-              <div class="skeleton-chip"></div>
-              <div class="skeleton-chip"></div>
             </div>
           </div>
         </div>
-        <!-- Watchlist -->
-        <div class="card">
-          <div class="card-header">
-            <h3>Watchlist</h3>
-            <button id="watchlist-add" class="icon-btn icon-btn--sm" title="Add current symbol" type="button" hidden>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-            </button>
-          </div>
-          <div id="watchlist-items" class="chip-grid">
-            <p class="empty-hint">No symbols saved yet. Generate a forecast and click + to add.</p>
+        <div class="shortcut-row">
+          <h2 class="shortcut-label">Watchlist</h2>
+          <div id="watchlist-items" class="shortcut-list">
+            <p class="empty-hint">Nothing saved yet.</p>
           </div>
         </div>
-      </aside>
+      </nav>
 
-      <!-- Right Panel: Results -->
-      <section class="panel results-panel">
-        <!-- Disclaimer Banner (shown after first prediction) -->
-        <div class="disclaimer-banner" id="disclaimer-banner" hidden>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
-          <span>Aurion provides market analysis, not financial advice. Predictions are statistical estimates &mdash; past performance does not guarantee future results.</span>
+      <div id="results" class="results">
+        <section id="chart-empty" class="intro" aria-labelledby="intro-heading">
+          <h2 id="intro-heading" class="section-label">How to read a forecast</h2>
+          <p>
+            You get a price path with a range around it. The range matters as much as the line: a wide
+            range means the model is unsure, and Aurion will not hide that.
+          </p>
+          <p>
+            The ML analog model only answers when it beats a simple statistical baseline on recent
+            history. When it doesn't, you see the baseline instead, together with the reason.
+          </p>
+        </section>
+
+        <article id="signal-card" class="result" data-testid="signal-card" hidden>
+          <header class="result-head">
+            <div>
+              <h2 class="result-symbol" id="signal-symbol" data-testid="signal-symbol">-</h2>
+              <p class="result-model" id="signal-engine">-</p>
+            </div>
+            <button id="watchlist-add" class="btn-quiet" type="button" hidden>Add to watchlist</button>
+          </header>
+
+          <p id="degraded-badge" class="note note--warning" data-testid="degraded-badge" hidden></p>
+
+          <div class="hero">
+            <p class="hero-label">Expected price in <span id="hero-horizon">30 days</span></p>
+            <p class="hero-value" id="metric-expected" data-testid="metric-expected">-</p>
+            <p class="hero-delta">
+              <span id="metric-return" class="delta">-</span>
+              <span class="hero-from">from the last close of <span id="metric-price">-</span> <span class="currency-tag" id="currency-tag"></span></span>
+            </p>
+          </div>
+
+          <dl class="facts">
+            <div class="fact"><dt>Outlook</dt><dd id="signal-badge">-</dd></div>
+            <div class="fact"><dt>Trend</dt><dd id="metric-trend">-</dd></div>
+            <div class="fact">
+              <dt>Confidence</dt>
+              <dd class="confidence">
+                <span class="meter" id="confidence-fill" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span id="confidence-value" data-testid="confidence-value">-</span>
+              </dd>
+            </div>
+            <div class="fact"><dt>Data and model</dt><dd id="source-badge" class="mono" data-testid="source-badge">-</dd></div>
+          </dl>
+        </article>
+
+        <figure id="chart-figure" class="chart-figure" hidden>
+          <figcaption id="chart-header" class="chart-head">
+            <span id="chart-title" class="chart-title">-</span>
+            <span id="chart-subtitle" class="chart-subtitle"></span>
+          </figcaption>
+          <div class="chart-controls">
+            <ul class="legend" aria-label="Legend">
+              <li><span class="key key--history" aria-hidden="true"></span>Daily close</li>
+              <li><span class="key key--forecast" aria-hidden="true"></span>Forecast</li>
+              <li><span class="key key--band" aria-hidden="true"></span>Forecast range</li>
+            </ul>
+            <div class="range-control" id="range-control" role="group" aria-label="History shown">
+              <button type="button" class="range-btn" data-range="3m" aria-pressed="false">3M</button>
+              <button type="button" class="range-btn active" data-range="6m" aria-pressed="true">6M</button>
+              <button type="button" class="range-btn" data-range="1y" aria-pressed="false">1Y</button>
+              <button type="button" class="range-btn" data-range="all" aria-pressed="false">All</button>
+            </div>
+          </div>
+          <div class="chart-canvas-wrap" id="chart-canvas-wrap">
+            <canvas id="stock-chart" role="img" aria-label="Price history and forecast chart. The same forecast values are available as a table below." hidden></canvas>
+            <div id="chart-tooltip" class="chart-tooltip" aria-hidden="true" hidden></div>
+          </div>
+          <details class="table-view">
+            <summary>Show the forecast as a table</summary>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr><th scope="col">Date</th><th scope="col">Forecast</th><th scope="col">Low</th><th scope="col">High</th></tr>
+                </thead>
+                <tbody id="forecast-table-body"></tbody>
+              </table>
+            </div>
+          </details>
+        </figure>
+
+        <p id="chart-fallback" class="note note--error" data-testid="chart-fallback" hidden></p>
+
+        <div class="notes">
+          <section id="eval-row" class="backtest" data-testid="evaluation-row" aria-labelledby="backtest-heading" hidden>
+            <h3 id="backtest-heading" class="section-label">How the model did on recent history</h3>
+            <dl class="backtest-list">
+              <div><dt>Direction called correctly</dt><dd id="eval-dir">-</dd></div>
+              <div><dt>Mean absolute error</dt><dd id="eval-mae">-</dd></div>
+              <div><dt>Mean absolute % error</dt><dd id="eval-mape">-</dd></div>
+              <div><dt>Validation windows</dt><dd id="eval-windows">-</dd></div>
+            </dl>
+          </section>
+
+          <section id="explanation-card" class="explanation" data-testid="explanation-card" hidden>
+            <h3 class="section-label">
+              <button class="explanation-toggle" id="explanation-toggle" type="button" aria-expanded="true" aria-controls="explanation-body">
+                How today's pattern differs from its closest analogs
+                <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+            </h3>
+            <div class="explanation-body" id="explanation-body">
+              <p class="fine" id="explanation-source" data-testid="explanation-source"></p>
+              <p class="note" id="explanation-note" data-testid="explanation-note" hidden></p>
+              <p class="narrative" id="explanation-narrative"></p>
+              <div class="diverging" aria-hidden="true">
+                <span>Lower than analogs</span><span>Higher than analogs</span>
+              </div>
+              <ul class="features" id="explanation-features"></ul>
+              <p class="fine" id="explanation-analog"></p>
+            </div>
+          </section>
         </div>
-        <!-- Signal Card (hidden until prediction) -->
-        <div class="card signal-card" id="signal-card" data-testid="signal-card" hidden>
-          <div class="signal-header">
-            <div class="signal-badge" id="signal-badge">HOLD</div>
-            <div class="signal-meta">
-              <span class="signal-symbol" id="signal-symbol" data-testid="signal-symbol">-</span>
-              <span class="signal-engine" id="signal-engine">-</span>
-            </div>
-          </div>
 
-          <div class="signal-metrics">
-            <div class="metric">
-              <span class="metric-label">Last Price <span class="currency-tag" id="currency-tag"></span></span>
-              <span class="metric-value" id="metric-price">-</span>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Expected</span>
-              <span class="metric-value" id="metric-expected" data-testid="metric-expected">-</span>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Return</span>
-              <span class="metric-value" id="metric-return">-</span>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Trend</span>
-              <span class="metric-value" id="metric-trend">-</span>
-            </div>
-          </div>
-
-          <!-- Confidence meter -->
-          <div class="confidence-row">
-            <span class="confidence-label">Confidence</span>
-            <div class="confidence-bar">
-              <div class="confidence-fill" id="confidence-fill" style="width: 50%"></div>
-            </div>
-            <span class="confidence-value" id="confidence-value" data-testid="confidence-value">Confidence</span>
-          </div>
-
-          <!-- Evaluation metrics (ML only) -->
-          <div class="eval-row" id="eval-row" data-testid="evaluation-row" hidden>
-            <span class="eval-item" id="eval-mae" title="Mean Absolute Error">MAE: -</span>
-            <span class="eval-item" id="eval-dir" title="Directional Accuracy">Dir: -</span>
-            <span class="eval-item" id="eval-mape" title="Mean Absolute Percentage Error">MAPE: -</span>
-          </div>
-
-          <div class="meta-row">
-            <span id="source-badge" class="tag" data-testid="source-badge" hidden>-</span>
-            <span id="degraded-badge" class="tag tag--warning" data-testid="degraded-badge" hidden>Fallback</span>
-          </div>
-        </div>
-
-        <!-- Explanation Card (analysis details, collapsible) -->
-        <div class="card explanation-card" id="explanation-card" data-testid="explanation-card" hidden>
-          <button class="explanation-header" id="explanation-toggle" type="button" aria-expanded="true">
-            <span class="explanation-title">Pattern differences</span>
-            <svg class="explanation-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
-          </button>
-          <div class="explanation-body" id="explanation-body">
-            <p class="explanation-source" id="explanation-source" data-testid="explanation-source"></p>
-            <p class="explanation-note" id="explanation-note" data-testid="explanation-note" hidden></p>
-            <p class="explanation-narrative" id="explanation-narrative"></p>
-            <div class="explanation-features" id="explanation-features"></div>
-            <p class="explanation-analog" id="explanation-analog"></p>
-          </div>
-        </div>
-
-        <!-- Chart Card -->
-        <div class="card chart-card">
-          <div class="chart-header" id="chart-header" hidden>
-            <h3 id="chart-title">Price Forecast</h3>
-            <span class="chart-subtitle" id="chart-subtitle"></span>
-          </div>
-          <div class="chart-empty" id="chart-empty">
-            <svg width="64" height="64" viewBox="0 0 64 64" fill="none" opacity="0.3">
-              <path d="M8 48l16-20 12 8 20-28" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              <circle cx="8" cy="48" r="3" fill="currentColor"/>
-              <circle cx="24" cy="28" r="3" fill="currentColor"/>
-              <circle cx="36" cy="36" r="3" fill="currentColor"/>
-              <circle cx="56" cy="8" r="3" fill="currentColor"/>
-            </svg>
-            <p>Select a symbol and generate a forecast to see the chart</p>
-          </div>
-          <canvas id="stock-chart" aria-label="Price forecast chart" hidden></canvas>
-          <p id="chart-fallback" class="chart-fallback" data-testid="chart-fallback" hidden></p>
-          <p id="disclaimer" class="disclaimer" hidden></p>
-        </div>
-      </section>
+        <p id="disclaimer" class="fine disclaimer" hidden></p>
+      </div>
     </main>
 
-    <p id="status" class="global-status" role="status" aria-live="polite"></p>
+    <footer class="colophon">
+      <div class="wrap">
+        <p>Aurion provides market analysis, not financial advice. Forecasts are statistical estimates, and past performance does not guarantee future results.</p>
+      </div>
+    </footer>
   </body>
 </html>

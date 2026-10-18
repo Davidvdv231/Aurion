@@ -1,13 +1,13 @@
 {
   "id": "/",
-  "name": "Aurion - Market Intelligence",
+  "name": "Aurion",
   "short_name": "Aurion",
   "description": "Stock and crypto price forecasting with statistical and ML analysis.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#0a0e1a",
-  "theme_color": "#0a0e1a",
+  "background_color": "#fcfcfb",
+  "theme_color": "#fcfcfb",
   "icons": [
     {
       "src": "/icons/icon-192.png",
