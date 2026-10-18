@@ -1,4 +1,4 @@
-.PHONY: dev test lint typecheck audit coverage docker-build docker-run smoke-test clean
+.PHONY: dev test lint typecheck audit lock coverage docker-build docker-run smoke-test clean
 
 # Development
 dev:
@@ -20,7 +20,14 @@ typecheck:
 	mypy backend/ --ignore-missing-imports
 
 audit:
-	pip-audit -r backend/requirements.txt
+	pip-audit -r backend/requirements.lock --require-hashes --disable-pip
+	pip-audit -r requirements-dev.lock --require-hashes --disable-pip
+
+# Dependencies: edit backend/requirements.txt or requirements-dev.txt, then run `make lock`
+UV_COMPILE = python -m uv pip compile --universal --python-version 3.12 --generate-hashes --custom-compile-command "make lock"
+lock:
+	$(UV_COMPILE) backend/requirements.txt -o backend/requirements.lock
+	$(UV_COMPILE) requirements-dev.txt -c backend/requirements.lock -o requirements-dev.lock
 
 # Docker
 docker-build:

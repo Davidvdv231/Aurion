@@ -217,9 +217,11 @@ For local development without Docker:
 
 ```bash
 # Run from the repository root: the code imports the `backend` package
-pip install -r backend/requirements.txt
+pip install --require-hashes -r requirements-dev.lock
 uvicorn backend.app:create_app --factory --reload
 ```
+
+Dependencies are locked: `backend/requirements.lock` (what Docker installs) and `requirements-dev.lock` (backend plus tooling, what CI installs) pin every transitive package with hashes. To change a dependency, edit `backend/requirements.txt` or `requirements-dev.txt` and run `make lock`; CI fails if the lockfiles are out of date.
 
 For mobile development outside local Expo/device testing, set `EXPO_PUBLIC_API_BASE_URL` so the app can reach the deployed API. The mobile client only falls back to explicit demo data in development or when the live API is unavailable.
 
@@ -247,9 +249,13 @@ cd mobile && npm run typecheck
 # Frontend smoke test (requires Playwright browser install once)
 python -m playwright install --with-deps chromium
 python -m pytest tests/test_frontend_smoke.py -q
+
+# Mobile smoke test: export the Expo web build, then click through it against a mocked API
+(cd mobile && EXPO_PUBLIC_API_BASE_URL=http://api.aurion.test npx expo export --platform web --output-dir ../build/mobile-web)
+MOBILE_WEB_EXPORT_DIR=build/mobile-web python -m pytest tests/test_mobile_web_smoke.py -q
 ```
 
-The test suite covers API contracts, prediction orchestration, ML pipeline behavior, rate limiting, exchange rates, config, smoke integration, and a browser-based frontend smoke path. CI also gates the Expo mobile client with `npm run typecheck`.
+The test suite covers API contracts, prediction orchestration, ML pipeline behavior, rate limiting, exchange rates, config, smoke integration, and browser-based smoke paths for the web app and for the Expo mobile app's web build (guest flow, live API data, crypto forecast). CI also type-checks the mobile client and audits both lockfiles.
 
 ## Tech Stack
 
