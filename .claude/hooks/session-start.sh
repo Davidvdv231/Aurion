@@ -17,7 +17,8 @@ PYTHON_BIN="$(command -v python3.12 || command -v python3)"
 if [ ! -x .venv/bin/python ]; then
   "$PYTHON_BIN" -m venv .venv
 fi
-.venv/bin/python -m pip install --quiet --disable-pip-version-check -r requirements-dev.txt
+.venv/bin/python -m pip install --quiet --disable-pip-version-check \
+  --require-hashes -r requirements-dev.lock
 
 (cd mobile && npm install --no-audit --no-fund --loglevel=error)
 

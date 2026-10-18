@@ -21,6 +21,9 @@ import pytest
 from playwright.sync_api import Route, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
+# Same override as tests/test_frontend_smoke.py, for a Chromium that doesn't
+# match the pinned Playwright release (e.g. Claude Code cloud sessions).
+CHROMIUM_EXECUTABLE = os.environ.get("AURION_CHROMIUM_EXECUTABLE") or None
 API_BASE = "http://api.aurion.test"
 PORT = 8767
 CORS = {
@@ -167,7 +170,7 @@ def test_guest_opens_crypto_forecast_from_live_api(mobile_web_url: str) -> None:
         )
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        browser = playwright.chromium.launch(headless=True, executable_path=CHROMIUM_EXECUTABLE)
         try:
             page = browser.new_page(viewport={"width": 420, "height": 860})
             page.on("pageerror", lambda error: page_errors.append(str(error)))

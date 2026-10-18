@@ -12,10 +12,18 @@ These mirror `.github/workflows/ci.yml`, and all of them must pass:
 python -m ruff check backend tests
 python -m ruff format --check backend tests
 python -m mypy backend
-python -m pytest tests --ignore=tests/test_frontend_smoke.py -q   # 90 tests, a few seconds
-python -m pytest tests/test_frontend_smoke.py -q                   # Playwright, starts its own server
-python -m pip_audit -r backend/requirements.txt
+python -m pytest tests --ignore=tests/test_frontend_smoke.py --ignore=tests/test_mobile_web_smoke.py -q
+python -m pytest tests/test_frontend_smoke.py -q    # Playwright, starts its own server
 (cd mobile && npm run typecheck)
+python -m pip_audit -r backend/requirements.lock --require-hashes --disable-pip
+python -m pip_audit -r requirements-dev.lock --require-hashes --disable-pip
+```
+
+The mobile smoke test needs a fresh Expo web export of the current code. Without `MOBILE_WEB_EXPORT_DIR` it skips:
+
+```bash
+(cd mobile && EXPO_PUBLIC_API_BASE_URL=http://api.aurion.test npx expo export --platform web --output-dir ../build/mobile-web)
+MOBILE_WEB_EXPORT_DIR=build/mobile-web python -m pytest tests/test_mobile_web_smoke.py -q
 ```
 
 Run the app with `uvicorn backend.app:create_app --factory --reload`. It serves the PWA at http://localhost:8000.
@@ -32,6 +40,7 @@ The backend, the web client and the mobile client share one `/api/predict` respo
 
 ## Conventions
 
+- Python dependencies are locked with hashes. Edit `backend/requirements.txt` or `requirements-dev.txt`, then run `make lock`; never edit the `.lock` files by hand. CI fails if the lockfiles are stale.
 - Tests never touch the network. Patch `backend.services.market_data.yf.download` as `tests/test_market_data.py` does, and keep the suite passing offline.
 - New settings: read them in `backend/config.py`, document them in `.env.example`, and add the name to `APP_ENV_VARS` in `tests/conftest.py` so every test starts from a clean environment. `backend/config.py` also loads a repo-root `.env` if one exists.
 - When you change a file listed in `ASSETS` in `frontend/sw.js`, bump `CACHE_VERSION` there so installed PWAs refresh. CI's SHA stamp only applies to its own checkout.
