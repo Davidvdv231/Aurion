@@ -157,9 +157,8 @@ def infer_currency(symbol: str, asset_type: AssetType) -> str:
         if normalized.endswith(suffix):
             return currency
 
-    metadata = get_ticker_metadata(normalized, asset_type=asset_type)
-    if metadata and metadata["region"] in {"NL", "BE", "FR", "DE", "IT", "ES"}:
-        return "EUR"
+    # Yahoo marks non-US venues with a suffix, so a bare symbol is a US listing priced in
+    # dollars, even for a European company (ASML on NASDAQ, not ASML.AS).
     return "USD"
 
 
