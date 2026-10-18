@@ -475,3 +475,79 @@ def test_configurable_mape_threshold_multiplier() -> None:
     settings_relaxed.ml_max_mape_vs_baseline = 2.0
     result = _ml_quality_failure(evaluation, stat_baseline, settings_relaxed)
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Forecast accuracy upgrades
+# ---------------------------------------------------------------------------
+
+
+def test_selected_analogs_are_distinct_episodes() -> None:
+    df = _synthetic_ohlcv(rows=320)
+    model = AnalogForecastModel(lookback=45, horizon=7, n_neighbors=15, min_separation=15)
+    model.fit(df["Close"], df)
+
+    distances = np.linspace(0.0, 1.0, len(model._windows))
+    chosen = model._select_neighbors(distances)
+    positions = model._window_end_positions[chosen]
+
+    assert len(chosen) > 1
+    gaps = np.abs(positions[:, None] - positions[None, :])[np.triu_indices(len(chosen), k=1)]
+    assert gaps.min() >= 15
+    assert chosen[0] == 0, "the single nearest window is always kept"
+
+
+def test_directional_hit_rate_scores_side_of_origin() -> None:
+    from backend.ml.model import directional_hit_rate
+
+    predicted = np.array([101.0, 102.0, 100.0])
+    actual = np.array([102.0, 99.0, 98.0])
+
+    # day 1 both above (hit), day 2 opposite sides (miss), day 3 flat call (half)
+    assert directional_hit_rate(predicted, actual, origin=100.0) == pytest.approx(0.5)
+
+
+def test_shrinkage_drops_noise_and_keeps_consistent_signal() -> None:
+    from backend.ml.model import _shrink_toward_no_change
+
+    weights = np.full(12, 1.0 / 12)
+    noisy = np.array([[0.08], [-0.09], [0.07], [-0.06], [0.1], [-0.1]] * 2)
+    consistent = np.array([[0.031], [0.029], [0.030], [0.032], [0.028], [0.030]] * 2)
+
+    noisy_mean = np.average(noisy, axis=0, weights=weights)
+    consistent_mean = np.average(consistent, axis=0, weights=weights)
+
+    assert _shrink_toward_no_change(noisy, weights, noisy_mean)[0] == 0.0
+    assert _shrink_toward_no_change(consistent, weights, consistent_mean)[0] == pytest.approx(
+        consistent_mean[0], rel=0.01
+    )
+
+
+def test_stat_forecast_starts_at_last_close_with_widening_range() -> None:
+    from backend.services.forecast import build_stat_forecast
+
+    close = _synthetic_ohlcv(rows=300)["Close"]
+    _, forecast, _ = build_stat_forecast(close, horizon=30, asset_type="stock")
+
+    last_close = float(close.iloc[-1])
+    assert forecast[0]["predicted"] == pytest.approx(last_close, rel=0.01)
+    widths = [point["upper"] - point["lower"] for point in forecast]
+    assert all(later > earlier for earlier, later in zip(widths, widths[1:], strict=False))
+    assert all(p["lower"] <= p["predicted"] <= p["upper"] for p in forecast)
+
+
+def test_narrative_reports_analog_average_and_explains_shrinkage() -> None:
+    from backend.models import PredictionSummary
+    from backend.services.prediction import _build_narrative
+
+    summary = PredictionSummary(
+        expected_price=100.2,
+        expected_return_pct=0.2,
+        trend="neutral",
+        confidence_tier="medium",
+        signal="Neutral",
+    )
+    narrative = _build_narrative([], summary, 18, "", 3.4, True)
+
+    assert "averaged a +3.4% move" in narrative
+    assert "stays close to today's price" in narrative

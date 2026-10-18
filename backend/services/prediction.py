@@ -154,6 +154,8 @@ def _build_narrative(
     summary: PredictionSummary,
     neighbors_used: int,
     nearest_analog_date: str,
+    analog_mean_return_pct: float | None = None,
+    shrunk_toward_no_change: bool = False,
 ) -> str:
     parts: list[str] = []
 
@@ -167,10 +169,18 @@ def _build_narrative(
         else:
             parts.append(f"{label} is currently lower than the nearest analog set.")
 
+    analog_move = (
+        summary.expected_return_pct if analog_mean_return_pct is None else analog_mean_return_pct
+    )
     parts.append(
         f"The {neighbors_used} closest historical patterns averaged a "
-        f"{summary.expected_return_pct:+.1f}% move over the forecast horizon."
+        f"{analog_move:+.1f}% move over the forecast horizon."
     )
+    if shrunk_toward_no_change:
+        parts.append(
+            "They disagree too much to rely on that average, so the forecast stays close to "
+            "today's price."
+        )
 
     if summary.confidence_tier == "high":
         parts.append(
@@ -200,6 +210,8 @@ def _build_explanation(meta: dict, summary: PredictionSummary) -> PredictionExpl
             summary,
             meta["neighbors_used"],
             meta["nearest_analog_date"],
+            meta.get("analog_mean_return_pct"),
+            meta.get("shrunk_toward_no_change", False),
         ),
     )
 
@@ -298,7 +310,7 @@ async def build_prediction_response(
 
     engine_used: EngineUsed = "stat"
     model_name = "Statistical Trend"
-    engine_note = "Log-linear statistical trend model on historical prices."
+    engine_note = "Damped log-linear trend from the last close, with volatility-based ranges."
     forecast = stat_forecast
     source = PredictionSource(
         market_data=market_series.source,
@@ -367,6 +379,8 @@ async def build_prediction_response(
                 "neighbors_used": ml_result.neighbors_used,
                 "avg_neighbor_distance": ml_result.avg_neighbor_distance,
                 "nearest_analog_date": ml_result.nearest_analog_date,
+                "analog_mean_return_pct": ml_result.analog_mean_return_pct,
+                "shrunk_toward_no_change": ml_result.shrunk_toward_no_change,
                 "features": [
                     ExplanationFeature(
                         feature=fc.feature,
