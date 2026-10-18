@@ -44,11 +44,16 @@ class PredictionSummary(ApiModel):
 
 
 class PredictionEvaluation(ApiModel):
+    """Backtest of the forecast that is returned, on its own validation windows."""
+
     mae: float | None = None
     rmse: float | None = None
     mape: float | None = None
     directional_accuracy: float | None = None
     validation_windows: int | None = None
+    # MAPE of holding the last close flat over the same windows.
+    no_change_mape: float | None = None
+    beats_no_change: bool | None = None
 
 
 class ExplanationFeature(ApiModel):

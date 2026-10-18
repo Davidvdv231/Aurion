@@ -66,6 +66,8 @@ SUCCESS_PREDICTION = {
         "mape": 0.95,
         "directional_accuracy": 0.67,
         "validation_windows": 5,
+        "no_change_mape": 1.4,
+        "beats_no_change": True,
     },
     "explanation": None,
     "disclaimer": "This is an estimate and not financial advice.",
@@ -210,6 +212,8 @@ def test_submit_success_flow(page) -> None:
     assert "yfinance / stat" in current_page.locator("[data-testid='source-badge']").text_content()
     assert "Medium" in current_page.locator("[data-testid='confidence-value']").text_content()
     assert current_page.locator("[data-testid='evaluation-row']").is_visible()
+    assert current_page.locator("[data-testid='eval-beats']").text_content() == "Yes"
+    assert current_page.locator("[data-testid='eval-note']").is_hidden()
     assert current_page.locator("[data-testid='metric-expected']").text_content().strip() != ""
     assert (
         "Probability" not in current_page.locator("[data-testid='confidence-value']").text_content()
@@ -340,6 +344,34 @@ def test_ml_forecast_explanation_has_no_fallback_note(page) -> None:
         in current_page.locator("[data-testid='explanation-source']").text_content()
     )
     assert current_page.locator("[data-testid='explanation-note']").is_hidden()
+
+
+def test_forecast_that_misses_no_change_is_flagged(page) -> None:
+    current_page, _ = page
+    _mock_top_assets(current_page)
+    prediction = {
+        **SUCCESS_PREDICTION,
+        "evaluation": {
+            **SUCCESS_PREDICTION["evaluation"],
+            "mape": 3.1,
+            "no_change_mape": 2.6,
+            "beats_no_change": False,
+        },
+    }
+    current_page.route(
+        "**/api/predict",
+        lambda route: route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(prediction)
+        ),
+    )
+
+    current_page.goto("/", wait_until="domcontentloaded")
+    current_page.click("[data-testid='predict-submit']")
+
+    current_page.wait_for_selector("[data-testid='evaluation-row']:not([hidden])")
+    assert current_page.locator("[data-testid='eval-beats']").text_content() == "No"
+    assert current_page.locator("#eval-no-change").text_content() == "2.60%"
+    assert current_page.locator("[data-testid='eval-note']").is_visible()
 
 
 def test_offline_shell_is_served_from_service_worker(page) -> None:

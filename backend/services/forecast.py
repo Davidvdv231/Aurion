@@ -21,6 +21,7 @@ def backtest_stat_forecast(
     min_train = max(60, horizon * 3)
     fold_size = max(horizon, (n - min_train) // max(n_folds, 1))
     all_errors: list[float] = []
+    all_no_change_errors: list[float] = []
     all_actuals: list[float] = []
     fold_direction_scores: list[float] = []
 
@@ -43,6 +44,7 @@ def backtest_stat_forecast(
         act = actual[:actual_len]
         errors = np.abs(pred - act)
         all_errors.extend(errors.tolist())
+        all_no_change_errors.extend(np.abs(float(train_close.iloc[-1]) - act).tolist())
         all_actuals.extend(np.abs(act).tolist())
         fold_direction_scores.append(directional_hit_rate(pred, act, float(train_close.iloc[-1])))
 
@@ -51,8 +53,14 @@ def backtest_stat_forecast(
 
     errors_arr = np.array(all_errors, dtype=np.float64)
     actual_arr = np.array(all_actuals, dtype=np.float64)
+    no_change_arr = np.array(all_no_change_errors, dtype=np.float64)
+    denominator = np.maximum(actual_arr, 0.01)
     return {
-        "mape": round(float(np.mean(errors_arr / np.maximum(actual_arr, 0.01))) * 100, 2),
+        "mae": round(float(np.mean(errors_arr)), 4),
+        "rmse": round(float(np.sqrt(np.mean(errors_arr**2))), 4),
+        "mape": round(float(np.mean(errors_arr / denominator)) * 100, 2),
+        # Holding the last close flat over the same windows: the bar the forecast has to clear.
+        "no_change_mape": round(float(np.mean(no_change_arr / denominator)) * 100, 2),
         "directional_accuracy": round(
             float(np.mean(fold_direction_scores)) if fold_direction_scores else 0.5,
             4,

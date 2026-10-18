@@ -104,6 +104,8 @@ def _assert_predict_contract(payload: dict, *, evaluation_expected: bool) -> Non
             "mape",
             "directional_accuracy",
             "validation_windows",
+            "no_change_mape",
+            "beats_no_change",
         }
     else:
         assert payload["evaluation"] is None
@@ -140,7 +142,10 @@ def test_predict_success_returns_typed_contract(client, monkeypatch) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    _assert_predict_contract(payload, evaluation_expected=False)
+    _assert_predict_contract(payload, evaluation_expected=True)
+    # A statistical forecast now carries its own backtest, including the no-change benchmark.
+    assert payload["evaluation"]["no_change_mape"] > 0
+    assert isinstance(payload["evaluation"]["beats_no_change"], bool)
     assert payload["currency"] == "USD"
     assert payload["engine_requested"] == "stat"
     assert payload["engine_used"] == "stat"
@@ -205,7 +210,7 @@ def test_predict_get_is_kept_for_backward_compatibility(client, monkeypatch) -> 
 
     assert response.status_code == 200
     payload = response.json()
-    _assert_predict_contract(payload, evaluation_expected=False)
+    _assert_predict_contract(payload, evaluation_expected=True)
     assert payload["symbol"] == "AAPL"
 
 
@@ -318,7 +323,9 @@ def test_predict_degrades_to_statistical_fallback_when_ml_quality_gate_fails(
     assert payload["degradation_code"] == "model_quality_insufficient"
     assert payload["source"]["forecast"] == "stat_fallback"
     assert payload["source"]["analysis"] == "ml_pattern_difference"
-    assert payload["evaluation"]["directional_accuracy"] == 0.40
+    # The evaluation describes the statistical forecast that is shown, not the rejected ML model.
+    assert payload["evaluation"]["directional_accuracy"] == 0.58
+    assert payload["evaluation"]["mape"] == 6.0
     assert payload["evaluation"]["validation_windows"] == 5
     assert payload["explanation"] is not None
     assert payload["explanation"]["nearest_analog_date"] == "2024-09-18"

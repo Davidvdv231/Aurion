@@ -551,3 +551,85 @@ def test_narrative_reports_analog_average_and_explains_shrinkage() -> None:
 
     assert "averaged a +3.4% move" in narrative
     assert "stays close to today's price" in narrative
+
+
+# ---------------------------------------------------------------------------
+# No-change benchmark: holding the last close flat over the same windows
+# ---------------------------------------------------------------------------
+
+
+def test_ml_backtest_no_change_mape_equals_the_mape_of_a_flat_forecast(monkeypatch) -> None:
+    """A model that always repeats the last close must score exactly the no-change MAPE."""
+    from backend.ml.model import ForecastResult
+
+    def flat_predict(self, close, ohlcv, horizon, asset_type="stock"):
+        level = np.full(horizon, float(close.iloc[-1]))
+        return ForecastResult(
+            dates=[""] * horizon, predicted=level, lower=level, upper=level, neighbors_used=0
+        )
+
+    monkeypatch.setattr(AnalogForecastModel, "fit", lambda self, close, ohlcv=None: None)
+    monkeypatch.setattr(AnalogForecastModel, "predict", flat_predict)
+    close = _synthetic_ohlcv(rows=260)["Close"]
+
+    metrics = AnalogForecastModel(lookback=45, horizon=7).backtest(close, ohlcv=None, n_folds=3)
+
+    assert metrics.validation_windows == 3
+    assert metrics.no_change_mape is not None and metrics.no_change_mape > 0
+    assert metrics.mape == metrics.no_change_mape
+
+
+def test_stat_backtest_no_change_mape_equals_the_mape_of_a_flat_forecast(monkeypatch) -> None:
+    import backend.services.forecast as forecast_module
+
+    def flat_forecast(close, horizon, asset_type):
+        level = round(float(close.iloc[-1]), 2)
+        return [], [{"predicted": level, "lower": level, "upper": level}] * horizon, {}
+
+    monkeypatch.setattr(forecast_module, "build_stat_forecast", flat_forecast)
+    close = _synthetic_ohlcv(rows=260)["Close"].round(2)
+
+    result = forecast_module.backtest_stat_forecast(close, 7, "stock", n_folds=3)
+
+    assert result["validation_windows"] == 3
+    assert result["no_change_mape"] > 0
+    assert result["mape"] == result["no_change_mape"]
+
+
+def test_stat_backtest_no_change_mape_measures_the_move_after_the_origin() -> None:
+    from backend.services.forecast import backtest_stat_forecast
+
+    # One window: 65 days flat at 100, then 5 days at 110. Holding 100 misses by 10/110 each day.
+    close = pd.Series(
+        [100.0] * 65 + [110.0] * 5, index=pd.bdate_range("2025-01-02", periods=70), dtype=float
+    )
+
+    result = backtest_stat_forecast(close, 5, "stock", n_folds=1)
+
+    assert result["validation_windows"] == 1
+    assert result["no_change_mape"] == pytest.approx(10 / 110 * 100, abs=0.01)
+
+
+def test_quality_gate_rejects_ml_that_beats_stat_but_not_no_change() -> None:
+    from unittest.mock import MagicMock
+
+    from backend.models import PredictionEvaluation
+    from backend.services.prediction import _ml_quality_failure
+
+    settings = MagicMock()
+    settings.ml_min_validation_windows = 3
+    settings.ml_min_directional_accuracy = 0.45
+    settings.ml_max_mape_vs_baseline = 1.0
+    stat_baseline: dict[str, float | int] = {"mape": 3.0, "validation_windows": 5}
+
+    def evaluation(mape: float) -> PredictionEvaluation:
+        return PredictionEvaluation(
+            mape=mape, directional_accuracy=0.6, validation_windows=5, no_change_mape=1.9
+        )
+
+    result = _ml_quality_failure(evaluation(2.0), stat_baseline, settings)
+    assert result is not None
+    assert result[0] == "model_baseline_underperforming"
+    assert "no-change" in result[1]
+
+    assert _ml_quality_failure(evaluation(1.8), stat_baseline, settings) is None

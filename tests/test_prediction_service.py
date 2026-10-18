@@ -227,8 +227,10 @@ def test_prediction_service_falls_back_when_validation_windows_are_insufficient(
     assert response.degradation_code == "model_validation_insufficient"
     assert response.source.forecast == "stat_fallback"
     assert response.source.analysis == "ml_pattern_difference"
+    # The evaluation describes the statistical forecast that is shown, not the rejected ML model.
     assert response.evaluation is not None
-    assert response.evaluation.validation_windows == 2
+    assert response.evaluation.validation_windows == 5
+    assert response.evaluation.mape == 6.0
     assert response.explanation is not None
     assert response.explanation.nearest_analog_date == "2024-11-08"
     assert "historical patterns" in response.explanation.narrative
@@ -324,3 +326,123 @@ def test_prediction_service_falls_back_when_ml_task_times_out(monkeypatch) -> No
     assert response.source.forecast == "stat_fallback"
     assert response.source.analysis is None
     assert response.explanation is None
+
+
+def test_stat_forecast_reports_its_backtest_against_no_change(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.services.prediction.fetch_close_prices", lambda **_: _market_series()
+    )
+    monkeypatch.setattr(
+        "backend.services.prediction.backtest_stat_forecast",
+        lambda *_, **__: {
+            "mae": 5.1,
+            "rmse": 6.0,
+            "mape": 3.0,
+            "no_change_mape": 2.5,
+            "directional_accuracy": 0.5,
+            "validation_windows": 5,
+        },
+    )
+
+    response = _run_prediction(
+        PredictRequest(symbol="AAPL", horizon=30, engine="stat", asset_type="stock")
+    )
+
+    assert response.engine_used == "stat"
+    assert response.evaluation is not None
+    assert response.evaluation.mape == 3.0
+    assert response.evaluation.mae == 5.1
+    assert response.evaluation.no_change_mape == 2.5
+    assert response.evaluation.beats_no_change is False
+
+
+def test_stat_forecast_without_backtest_windows_has_no_evaluation(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.services.prediction.fetch_close_prices", lambda **_: _market_series()
+    )
+    monkeypatch.setattr(
+        "backend.services.prediction.backtest_stat_forecast",
+        lambda *_, **__: {"mape": 0.0, "directional_accuracy": 0.5, "validation_windows": 0},
+    )
+
+    response = _run_prediction(
+        PredictRequest(symbol="AAPL", horizon=30, engine="stat", asset_type="stock")
+    )
+
+    assert response.evaluation is None
+
+
+def test_ml_forecast_that_beats_no_change_is_served_with_its_own_evaluation(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.services.prediction.fetch_close_prices", lambda **_: _market_series()
+    )
+    monkeypatch.setattr(
+        "backend.services.prediction.backtest_stat_forecast",
+        lambda *_, **__: {"mape": 3.5, "directional_accuracy": 0.52, "validation_windows": 5},
+    )
+    monkeypatch.setattr(
+        "backend.ml.service.train_and_predict",
+        lambda **_: (
+            _forecast_result(),
+            BacktestMetrics(
+                mae=2.4,
+                rmse=3.1,
+                mape=1.8,
+                directional_accuracy=0.71,
+                validation_windows=5,
+                no_change_mape=2.4,
+            ),
+        ),
+    )
+
+    response = _run_prediction(
+        PredictRequest(symbol="AAPL", horizon=30, engine="ml", asset_type="stock")
+    )
+
+    assert response.engine_used == "ml"
+    assert response.evaluation is not None
+    assert response.evaluation.mape == 1.8
+    assert response.evaluation.no_change_mape == 2.4
+    assert response.evaluation.beats_no_change is True
+
+
+def test_prediction_service_falls_back_when_ml_does_not_beat_no_change(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.services.prediction.fetch_close_prices", lambda **_: _market_series()
+    )
+    monkeypatch.setattr(
+        "backend.services.prediction.backtest_stat_forecast",
+        lambda *_, **__: {
+            "mape": 3.5,
+            "no_change_mape": 3.2,
+            "directional_accuracy": 0.52,
+            "validation_windows": 5,
+        },
+    )
+    monkeypatch.setattr(
+        "backend.ml.service.train_and_predict",
+        lambda **_: (
+            _forecast_result(),
+            BacktestMetrics(
+                mae=2.4,
+                rmse=3.1,
+                mape=1.8,
+                directional_accuracy=0.71,
+                validation_windows=5,
+                no_change_mape=1.7,
+            ),
+        ),
+    )
+
+    response = _run_prediction(
+        PredictRequest(symbol="AAPL", horizon=30, engine="ml", asset_type="stock")
+    )
+
+    assert response.engine_used == "stat_fallback"
+    assert response.degradation_code == "model_baseline_underperforming"
+    assert response.degradation_message is not None
+    assert "no-change" in response.degradation_message
+    # The shown statistical forecast is judged on its own backtest.
+    assert response.evaluation is not None
+    assert response.evaluation.mape == 3.5
+    assert response.evaluation.beats_no_change is False

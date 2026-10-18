@@ -81,9 +81,13 @@ flowchart TD
 | ML requested, quality passes | `ml` | `false` | — |
 | ML requested, validation windows < 3 | `stat_fallback` | `true` | `model_validation_insufficient` |
 | ML requested, directional accuracy < 0.45 | `stat_fallback` | `true` | `model_quality_insufficient` |
-| ML requested, MAPE > baseline MAPE | `stat_fallback` | `true` | `model_baseline_underperforming` |
+| ML requested, MAPE > statistical baseline MAPE or > no-change MAPE | `stat_fallback` | `true` | `model_baseline_underperforming` |
 | ML requested, training timeout (>15s) | `stat_fallback` | `true` | `ml_engine_timeout` |
 | ML requested, exception during training | `stat_fallback` | `true` | `ml_engine_unavailable` |
+
+The no-change forecast holds the last close flat. It is scored on the same backtest windows as the model it is compared with, and a forecast that cannot beat it has no edge on recent history.
+
+`evaluation` always describes the forecast that is returned: the ML backtest when the ML forecast is served, otherwise the statistical backtest (also after a fallback). `no_change_mape` is the error of the no-change forecast on those windows and `beats_no_change` says whether the returned forecast did better. It is `null` when there were too few rows to backtest.
 
 Crypto defaults to the statistical engine: in walk-forward tests on BTC-USD and ETH-USD (2021–2026) the ML model called the 30-day direction correctly only 47% of the time and was less accurate than a no-change forecast. ML can still be requested explicitly (`"engine": "ml"`), and the quality gate above still applies.
 
@@ -116,7 +120,9 @@ Crypto defaults to the statistical engine: in walk-forward tests on BTC-USD and 
     "rmse": 4.15,
     "mape": 1.8,
     "directional_accuracy": 0.62,
-    "validation_windows": 5
+    "validation_windows": 5,
+    "no_change_mape": 2.05,
+    "beats_no_change": true
   },
   "forecast": [
     {"date": "2026-04-07", "predicted": 194.82, "lower": 191.20, "upper": 198.44}
@@ -146,8 +152,10 @@ Crypto defaults to the statistical engine: in walk-forward tests on BTC-USD and 
     "mae": 1.85,
     "rmse": 2.34,
     "mape": 6.8,
-    "directional_accuracy": null,
-    "validation_windows": null
+    "directional_accuracy": 0.48,
+    "validation_windows": 5,
+    "no_change_mape": 6.5,
+    "beats_no_change": false
   },
   "forecast": [
     {"date": "2026-04-07", "predicted": 27.42, "lower": 25.80, "upper": 29.04}
@@ -172,7 +180,15 @@ Crypto defaults to the statistical engine: in walk-forward tests on BTC-USD and 
     "confidence_tier": "medium",
     "signal": "Bullish Outlook"
   },
-  "evaluation": null
+  "evaluation": {
+    "mae": 2954.1,
+    "rmse": 3610.7,
+    "mape": 4.09,
+    "directional_accuracy": 0.54,
+    "validation_windows": 5,
+    "no_change_mape": 3.69,
+    "beats_no_change": false
+  }
 }
 ```
 

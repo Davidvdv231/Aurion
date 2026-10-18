@@ -1043,6 +1043,10 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+.eval-note {
+  margin-top: 12px;
+}
+
 .explanation {
   flex: 2 1 440px;
   min-width: 0;
