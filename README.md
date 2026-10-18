@@ -257,7 +257,7 @@ The test suite covers API contracts, prediction orchestration, ML pipeline behav
 | ML | NumPy / pandas | k-NN analog pattern forecaster |
 | Cache | Redis 7 + in-memory TTL | Dual-layer with configurable TTLs |
 | Web | Vanilla JS PWA | Zero-dependency frontend with service worker |
-| Mobile | React Native / Expo 54 | Cross-platform mobile client |
+| Mobile | React Native 0.88 / Expo 58 | Cross-platform mobile client |
 | Market Data | yfinance | Historical market data and FX rate retrieval |
 | CI/CD | GitHub Actions | Lint, type check, test, audit |
 | Deploy | Docker + Docker Compose | Containerized with health checks |

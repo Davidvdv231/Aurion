@@ -215,7 +215,7 @@ export function HomeScreen({ navigation }: Props) {
           <Text style={styles.empty}>
             No matches. Try another symbol or switch asset class.
           </Text>
-        ) : null
+        ) : undefined
       }
       refreshControl={
         <RefreshControl
