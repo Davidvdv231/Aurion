@@ -51,11 +51,20 @@
                 autocapitalize="characters"
                 spellcheck="false"
                 placeholder="AAPL"
+                role="combobox"
+                aria-expanded="false"
                 aria-autocomplete="list"
                 aria-controls="ticker-suggestions"
+                aria-haspopup="listbox"
                 required
               />
-              <ul id="ticker-suggestions" class="suggestions" hidden></ul>
+              <ul
+                id="ticker-suggestions"
+                class="suggestions"
+                role="listbox"
+                aria-label="Ticker suggestions"
+                hidden
+              ></ul>
             </span>
             <span>as</span>
             <span class="toggle" id="asset-type-control" role="group" aria-label="Market">
@@ -138,6 +147,7 @@
           </header>
 
           <p id="degraded-badge" class="note note--warning" data-testid="degraded-badge" hidden></p>
+          <p id="data-warnings" class="note note--warning" data-testid="data-warnings" role="status" hidden></p>
 
           <div class="hero">
             <p class="hero-label">Expected price in <span id="hero-horizon">30 days</span></p>
@@ -245,5 +255,17 @@
         <p>Aurion provides market analysis, not financial advice. Forecasts are statistical estimates, and past performance does not guarantee future results.</p>
       </div>
     </footer>
+
+    <!-- Persistent SW update banner (shown only when a new bundle is waiting). -->
+    <div
+      id="sw-update-banner"
+      class="sw-update-banner"
+      role="status"
+      aria-live="polite"
+      hidden
+    >
+      <span class="sw-update-text">A new version of Aurion is available.</span>
+      <button id="sw-update-reload" type="button" class="sw-update-btn">Reload</button>
+    </div>
   </body>
 </html>

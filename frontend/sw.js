@@ -15,7 +15,18 @@ const ASSETS = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(ASSETS)));
-  self.skipWaiting();
+  // Intentionally NOT calling skipWaiting() here. A new service worker version
+  // stays in "waiting" state until the page explicitly posts {type: "SKIP_WAITING"}
+  // (or all clients close). This avoids swapping the app bundle underneath a user
+  // who is in the middle of viewing a prediction.
+});
+
+self.addEventListener("message", (event) => {
+  // The page can opt-in to immediate activation by posting this message after
+  // prompting the user to refresh.
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("activate", (event) => {
@@ -23,7 +34,7 @@ self.addEventListener("activate", (event) => {
     caches
       .keys()
       .then((keys) =>
-        Promise.all(keys.filter((key) => key !== CACHE_VERSION).map((key) => caches.delete(key))),
+        Promise.all(keys.filter((key) => key.startsWith("aurion-") && key !== CACHE_VERSION).map((key) => caches.delete(key))),
       )
       .then(() => self.clients.claim()),
   );
@@ -65,23 +76,29 @@ self.addEventListener("fetch", (event) => {
   }
 
   // Static assets: network-first with cache fallback
+  const isShellAsset = ASSETS.includes(requestUrl.pathname);
+  if (!isShellAsset && request.mode !== "navigate") return;
   event.respondWith(
     fetch(request)
       .then((response) => {
-        if (response && response.ok) {
+        if (response && response.ok && isShellAsset) {
           const responseClone = response.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put(request, responseClone));
+          // Canonical keys bound cache size even when URLs carry cache-busting queries.
+          event.waitUntil(caches.open(CACHE_VERSION)
+            .then((cache) => cache.put(requestUrl.pathname, responseClone))
+            .catch(() => {}));
         }
         return response;
       })
       .catch(async () => {
-        const cached = await caches.match(request);
+        const cache = await caches.open(CACHE_VERSION);
+        const cached = await cache.match(requestUrl.pathname);
         if (cached) {
           return cached;
         }
 
         if (request.mode === "navigate") {
-          const shell = await caches.match("/index.html");
+          const shell = await cache.match("/index.html");
           if (shell) {
             return shell;
           }

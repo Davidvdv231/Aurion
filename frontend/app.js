@@ -38,6 +38,7 @@ const evalDir = document.getElementById("eval-dir");
 const evalMape = document.getElementById("eval-mape");
 const sourceBadgeNode = document.getElementById("source-badge");
 const degradedBadgeNode = document.getElementById("degraded-badge");
+const dataWarningsNode = document.getElementById("data-warnings");
 
 // Explanation card
 const explanationCard = document.getElementById("explanation-card");
@@ -99,13 +100,23 @@ const state = {
 // =============================================
 const prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
 
+// Preferences fall back to memory when browser storage is blocked or full, so the
+// current visit keeps working; writePreference reports whether the value persisted.
+const volatilePreferences = new Map();
+
+function readPreference(key) {
+  if (volatilePreferences.has(key)) return volatilePreferences.get(key);
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+function writePreference(key, value) {
+  volatilePreferences.set(key, value);
+  try { localStorage.setItem(key, value); return true; } catch { return false; }
+}
+
 function readSavedTheme() {
-  try {
-    const saved = localStorage.getItem("aurion-theme");
-    return saved === "light" || saved === "dark" ? saved : null;
-  } catch {
-    return null;
-  }
+  const saved = readPreference("aurion-theme");
+  return saved === "light" || saved === "dark" ? saved : null;
 }
 
 function effectiveTheme() {
@@ -128,7 +139,7 @@ function initTheme() {
 function toggleTheme() {
   const next = effectiveTheme() === "dark" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", next);
-  try { localStorage.setItem("aurion-theme", next); } catch { /* storage unavailable */ }
+  writePreference("aurion-theme", next);
   updateThemeIcons(next);
   rerenderChart();
 }
@@ -137,12 +148,13 @@ function toggleTheme() {
 // CURRENCY PREFERENCE
 // =============================================
 function initCurrency() {
-  const saved = localStorage.getItem("aurion-currency");
-  if (saved && currencySelect.querySelector(`option[value="${saved}"]`)) {
+  const saved = readPreference("aurion-currency");
+  if (Array.from(currencySelect.options).some((option) => option.value === saved)) {
     currencySelect.value = saved;
   }
   currencySelect.addEventListener("change", () => {
-    localStorage.setItem("aurion-currency", currencySelect.value);
+    writePreference("aurion-currency", currencySelect.value);
+    invalidatePrediction();
   });
 }
 
@@ -175,13 +187,14 @@ function rerenderChart() {
 // =============================================
 function initSegmentedControls() {
   setupSegmented(assetTypeControl, assetTypeInput, () => {
+    invalidatePrediction();
     applyAssetTypeUi();
     applyEngineDefault();
     hideSuggestions();
     clearResults();
     loadTopAssets();
   });
-  setupSegmented(engineControl, engineInput);
+  setupSegmented(engineControl, engineInput, invalidatePrediction);
 }
 
 function applyEngineDefault() {
@@ -209,6 +222,8 @@ function setupSegmented(control, hiddenInput, onChange) {
       if (onChange) onChange(btn.dataset.value);
     });
   });
+  // Sync visual and ARIA state with the hidden input, which the markup may not match.
+  selectSegment(control, hiddenInput, hiddenInput.value);
 }
 
 // =============================================
@@ -221,6 +236,7 @@ function formatDays(days) {
 function initHorizon() {
   horizonInput.addEventListener("input", () => {
     horizonValue.textContent = formatDays(horizonInput.value);
+    invalidatePrediction();
   });
 }
 
@@ -241,6 +257,7 @@ function setStatus(message, isError = false) {
 }
 
 function setLoading(isLoading) {
+  form.setAttribute("aria-busy", String(isLoading));
   submitButton.disabled = isLoading;
   btnText.hidden = isLoading;
   btnLoader.hidden = !isLoading;
@@ -268,7 +285,9 @@ function formatCurrency(value, currency) {
     return new Intl.NumberFormat(localeFor(code), {
       style: "currency",
       currency: code,
-      maximumFractionDigits: code === "JPY" ? 0 : 2,
+      ...(value > 0 && value < 0.01
+        ? { maximumSignificantDigits: 4 }
+        : { maximumFractionDigits: code === "JPY" ? 0 : 2 }),
     }).format(value);
   } catch {
     return `${Number.isFinite(value) ? value.toFixed(2) : "0.00"} ${code}`;
@@ -303,10 +322,14 @@ function hideSuggestions() {
   suggestionsNode.hidden = true;
   suggestionsNode.innerHTML = "";
   state.activeSuggestionIndex = -1;
+  symbolInput.setAttribute("aria-expanded", "false");
+  symbolInput.removeAttribute("aria-activedescendant");
 }
 
 function clearResults() {
   resultsNode.classList.remove("is-refreshing");
+  dataWarningsNode.hidden = true;
+  dataWarningsNode.textContent = "";
   signalCard.hidden = true;
   explanationCard.hidden = true;
   chartFigure.hidden = true;
@@ -324,6 +347,14 @@ function clearResults() {
     state.chart.destroy();
     state.chart = undefined;
   }
+}
+
+function invalidatePrediction() {
+  state.activePredictionController?.abort();
+  state.predictionRequestId++;
+  clearResults();
+  setLoading(false);
+  setStatus("");
 }
 
 function applyAssetTypeUi() {
@@ -351,10 +382,14 @@ function renderSuggestions(tickers) {
   for (let i = 0; i < tickers.length; i++) {
     const item = tickers[i];
     const li = document.createElement("li");
+    li.setAttribute("role", "presentation");
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "suggestion-item";
     btn.dataset.index = i;
+    btn.id = `ticker-suggestion-${i}`;
+    btn.setAttribute("role", "option");
+    btn.setAttribute("aria-selected", "false");
     const symSpan = document.createElement("span");
     symSpan.className = "suggestion-symbol";
     symSpan.textContent = item.symbol;
@@ -372,16 +407,22 @@ function renderSuggestions(tickers) {
     suggestionsNode.appendChild(li);
   }
   suggestionsNode.hidden = false;
+  symbolInput.setAttribute("aria-expanded", "true");
 }
 
 function updateSuggestionHighlight() {
   const items = suggestionsNode.querySelectorAll(".suggestion-item");
   items.forEach((item, i) => {
-    item.classList.toggle("active", i === state.activeSuggestionIndex);
+    const isActive = i === state.activeSuggestionIndex;
+    item.classList.toggle("active", isActive);
+    item.setAttribute("aria-selected", isActive ? "true" : "false");
   });
-  // Scroll active item into view
   if (state.activeSuggestionIndex >= 0 && items[state.activeSuggestionIndex]) {
-    items[state.activeSuggestionIndex].scrollIntoView({ block: "nearest" });
+    const active = items[state.activeSuggestionIndex];
+    active.scrollIntoView({ block: "nearest" });
+    if (active.id) symbolInput.setAttribute("aria-activedescendant", active.id);
+  } else {
+    symbolInput.removeAttribute("aria-activedescendant");
   }
 }
 
@@ -431,7 +472,11 @@ async function loadSuggestions() {
 }
 
 function queueSuggestionsLoad() {
+  // Invalidate in-flight lookups so an answer for older input cannot render, but keep
+  // the visible list in place so it does not flicker while typing.
   clearTimeout(state.suggestionTimer);
+  state.suggestionRequestId += 1;
+  if (state.activeSuggestionController) state.activeSuggestionController.abort();
   state.suggestionTimer = setTimeout(loadSuggestions, 150);
 }
 
@@ -510,28 +555,38 @@ const WATCHLIST_KEY = "aurion-watchlist";
 
 function getWatchlist() {
   try {
-    const raw = localStorage.getItem(WATCHLIST_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const raw = readPreference(WATCHLIST_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item) => item && typeof item.symbol === "string"
+      && /^[A-Z0-9^][A-Z0-9.^=_-]{0,19}$/.test(item.symbol)
+      && ["stock", "crypto"].includes(item.asset_type)).slice(0, 100);
   } catch {
     return [];
   }
 }
 
 function saveWatchlist(list) {
-  localStorage.setItem(WATCHLIST_KEY, JSON.stringify(list));
+  const saved = writePreference(WATCHLIST_KEY, JSON.stringify(list));
+  if (!saved) {
+    setStatus("Browser storage is unavailable. Watchlist changes last for this visit only.", true);
+  }
+  return saved;
 }
 
 function addToWatchlist(symbol, assetType) {
   const list = getWatchlist();
-  if (list.some((item) => item.symbol === symbol)) return;
+  if (list.some((item) => item.symbol === symbol && item.asset_type === assetType)) return;
+  if (list.length >= 100) { setStatus("Your watchlist is full. Remove a symbol first.", true); return; }
   list.push({ symbol, asset_type: assetType });
-  saveWatchlist(list);
+  const saved = saveWatchlist(list);
   renderWatchlist();
   updateWatchlistButton();
+  return saved;
 }
 
-function removeFromWatchlist(symbol) {
-  const list = getWatchlist().filter((item) => item.symbol !== symbol);
+function removeFromWatchlist(symbol, assetType) {
+  const list = getWatchlist().filter((item) => item.symbol !== symbol || item.asset_type !== assetType);
   saveWatchlist(list);
   renderWatchlist();
   updateWatchlistButton();
@@ -578,10 +633,11 @@ function renderWatchlist() {
     const removeBtn = document.createElement("button");
     removeBtn.type = "button";
     removeBtn.className = "chip-remove";
-    removeBtn.setAttribute("aria-label", `Remove ${item.symbol} from watchlist`);
+    // The same symbol can be saved once per market, so the label names both.
+    removeBtn.setAttribute("aria-label", `Remove ${item.symbol} ${wlType.textContent} from watchlist`);
     removeBtn.title = "Remove";
     removeBtn.textContent = "\u00d7";
-    removeBtn.addEventListener("click", () => removeFromWatchlist(item.symbol));
+    removeBtn.addEventListener("click", () => removeFromWatchlist(item.symbol, item.asset_type));
 
     entry.appendChild(btn);
     entry.appendChild(removeBtn);
@@ -926,7 +982,9 @@ function updateWatchlistButton() {
     watchlistAddBtn.hidden = true;
     return;
   }
-  const saved = getWatchlist().some((item) => item.symbol === prediction.symbol);
+  const saved = getWatchlist().some(
+    (item) => item.symbol === prediction.symbol && item.asset_type === prediction.asset_type,
+  );
   watchlistAddBtn.hidden = false;
   watchlistAddBtn.disabled = saved;
   watchlistAddBtn.textContent = saved ? "In your watchlist" : "Add to watchlist";
@@ -1013,6 +1071,11 @@ function updateSignalCard(data) {
 
   sourceBadgeNode.textContent = `${data.source.market_data} / ${data.source.forecast}`;
 
+  const warnings = (data.source.data_warnings || []).filter((value) => typeof value === "string");
+  if (data.source.stale) warnings.unshift("Market data may be stale.");
+  dataWarningsNode.textContent = warnings.join(" ");
+  dataWarningsNode.hidden = warnings.length === 0;
+
   if (data.degraded) {
     degradedBadgeNode.hidden = false;
     degradedBadgeNode.textContent = "";
@@ -1030,7 +1093,8 @@ function updateSignalCard(data) {
     const ev = data.evaluation;
     evalRow.hidden = false;
     evalDir.textContent = ev.directional_accuracy != null ? `${(ev.directional_accuracy * 100).toFixed(0)}%` : "-";
-    evalMae.textContent = ev.mae != null ? ev.mae.toFixed(2) : "-";
+    // MAE is in price units; formatCurrency keeps sub-cent errors from reading as 0.00.
+    evalMae.textContent = ev.mae != null ? formatCurrency(ev.mae, displayCurrency) : "-";
     // Two decimals: the forecast and the no-change guess often differ by less than 0.1 point.
     evalMape.textContent = ev.mape != null ? `${ev.mape.toFixed(2)}%` : "-";
     evalWindows.textContent = ev.validation_windows != null ? String(ev.validation_windows) : "-";
@@ -1061,7 +1125,18 @@ function deriveSummaryTrend(expectedReturnPct) {
   return "neutral";
 }
 
+const ALLOWED_ENGINE_USED = new Set(["stat", "ml", "stat_fallback"]);
+
 function normalizePredictResponse(payload) {
+  const positive = (value) => isFiniteNumber(value) && value > 0;
+  if (!payload || typeof payload.symbol !== "string" || !payload.symbol
+      || !positive(payload.stats?.last_close)
+      || !Array.isArray(payload.forecast) || payload.forecast.length === 0
+      || !payload.forecast.every((point) => point && typeof point.date === "string"
+        && [point.predicted, point.lower, point.upper].every(positive) && point.lower <= point.upper)
+      || (Array.isArray(payload.history) && !payload.history.every((point) => point && typeof point.date === "string" && positive(point.close)))) {
+    throw new Error("The API returned invalid forecast data. Please try again.");
+  }
   const history = Array.isArray(payload?.history) ? payload.history : [];
   const forecast = Array.isArray(payload?.forecast) ? payload.forecast : [];
   const stats = payload?.stats || {};
@@ -1095,10 +1170,24 @@ function normalizePredictResponse(payload) {
       }
     : null;
 
+  const engineUsed = ALLOWED_ENGINE_USED.has(payload?.engine_used) ? payload.engine_used : "stat";
+  const engineRequested = payload?.engine_requested === "ml" ? "ml" : "stat";
+  const horizonDays = Number.isFinite(Number(payload?.horizon_days))
+    ? Number(payload.horizon_days)
+    : forecast.length;
+
   return {
     ...payload,
     history,
     forecast,
+    horizon_days: horizonDays,
+    engine_used: engineUsed,
+    engine_requested: engineRequested,
+    model_name: typeof payload?.model_name === "string" && payload.model_name ? payload.model_name : "Unknown model",
+    currency: typeof payload?.currency === "string" && payload.currency ? payload.currency : "USD",
+    symbol: typeof payload?.symbol === "string" && payload.symbol ? payload.symbol : "",
+    disclaimer: typeof payload?.disclaimer === "string" ? payload.disclaimer : "",
+    engine_note: typeof payload?.engine_note === "string" ? payload.engine_note : "",
     stats: {
       daily_trend_pct: isFiniteNumber(stats.daily_trend_pct) ? stats.daily_trend_pct : 0,
       last_close: lastClose,
@@ -1176,6 +1265,7 @@ async function loadPrediction(event) {
   const controller = new AbortController();
   state.activePredictionController = controller;
   const currentId = ++state.predictionRequestId;
+  const timeout = setTimeout(() => controller.abort("timeout"), 90_000);
 
   try {
     const data = await fetchPrediction({ symbol, horizon, engine, asset_type: assetType, display_currency: currencySelect.value }, controller);
@@ -1190,7 +1280,14 @@ async function loadPrediction(event) {
       chartSubtitle.textContent = `Prices in ${displayCurrency}`;
 
       renderForecastTable(data.forecast, displayCurrency);
-      renderChart(data);
+      if (data.history.length > 0) {
+        renderChart(data);
+      } else {
+        // Without history the chart would mislead; the forecast table still stands.
+        chartCanvas.hidden = true;
+        chartFallbackNode.hidden = false;
+        chartFallbackNode.textContent = "No price history is available to chart this forecast.";
+      }
       updateSignalCard(data);
       resultsNode.classList.remove("is-refreshing");
     } catch (renderError) {
@@ -1206,11 +1303,17 @@ async function loadPrediction(event) {
         ? `Forecast ready for ${data.symbol}, using the statistical fallback.`
         : `Forecast ready for ${data.symbol}.`,
     );
+    // On narrow screens the result sits below the form, out of view.
+    if (window.matchMedia("(max-width: 719px)").matches) {
+      resultsNode.scrollIntoView({ block: "start", behavior: reducedMotion.matches ? "auto" : "smooth" });
+    }
   } catch (error) {
-    if (error?.name === "AbortError" || currentId !== state.predictionRequestId) return;
+    if (currentId !== state.predictionRequestId) return;
     clearResults();
-    setStatus(error?.message || "Network error: cannot reach the API.", true);
+    setStatus(controller.signal.reason === "timeout" ? "The forecast request timed out. Please try again."
+      : error?.message || "Network error: cannot reach the API.", true);
   } finally {
+    clearTimeout(timeout);
     if (currentId === state.predictionRequestId) setLoading(false);
   }
 }
@@ -1220,6 +1323,7 @@ async function loadPrediction(event) {
 // =============================================
 form.addEventListener("submit", loadPrediction);
 symbolInput.addEventListener("input", queueSuggestionsLoad);
+symbolInput.addEventListener("input", invalidatePrediction);
 symbolInput.addEventListener("focus", queueSuggestionsLoad);
 symbolInput.addEventListener("keydown", handleSuggestionKeyboard);
 document.addEventListener("click", (e) => { if (!e.target.closest(".autocomplete-wrap")) hideSuggestions(); });
@@ -1236,8 +1340,9 @@ explanationToggle.addEventListener("click", () => {
 // Watchlist add
 watchlistAddBtn.addEventListener("click", () => {
   if (state.lastPrediction) {
-    addToWatchlist(state.lastPrediction.symbol, state.lastPrediction.asset_type);
-    setStatus(`${state.lastPrediction.symbol} added to watchlist.`);
+    if (addToWatchlist(state.lastPrediction.symbol, state.lastPrediction.asset_type)) {
+      setStatus(`${state.lastPrediction.symbol} added to watchlist.`);
+    }
   }
 });
 
@@ -1254,10 +1359,64 @@ rangeControl.querySelectorAll(".range-btn").forEach((btn) => {
   });
 });
 
-// Service Worker
+// Service Worker — prompt-to-refresh on a new version instead of an unconditional
+// takeover, so an open forecast stays stable across deploys.
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+    // Capture the controller state at registration time. On a true first-time
+    // install there is no controller; the SW activates and claims this page,
+    // which fires controllerchange. Reloading in that case would cause a
+    // pointless page flash on the very first visit, so we suppress it.
+    const hadControllerAtLoad = Boolean(navigator.serviceWorker.controller);
+
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then((registration) => {
+        // Set when the user clicks Reload, so an update accepted later in a first
+        // visit still reloads even though the page started without a controller.
+        let userAcceptedUpdate = false;
+
+        function showUpdatePrompt(worker) {
+          if (!worker) return;
+          // Persistent banner-style prompt (NOT the auto-clearing global status,
+          // which would hide the message after 5s or get overwritten by the
+          // next "Analyzing ..." status update).
+          const banner = document.getElementById("sw-update-banner");
+          const reloadBtn = document.getElementById("sw-update-reload");
+          if (!banner || !reloadBtn) return;
+          banner.hidden = false;
+          const onClick = () => {
+            reloadBtn.disabled = true;
+            userAcceptedUpdate = true;
+            worker.postMessage({ type: "SKIP_WAITING" });
+          };
+          reloadBtn.addEventListener("click", onClick, { once: true });
+        }
+
+        if (registration.waiting) showUpdatePrompt(registration.waiting);
+
+        registration.addEventListener("updatefound", () => {
+          const installing = registration.installing;
+          if (!installing) return;
+          installing.addEventListener("statechange", () => {
+            if (installing.state === "installed" && navigator.serviceWorker.controller) {
+              showUpdatePrompt(installing);
+            }
+          });
+        });
+
+        // When the active SW finally changes (user accepted), reload once so
+        // every tab is serving the new bundle consistently. Skip on first
+        // install (no prior controller) — that change is expected, not an upgrade.
+        let reloading = false;
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (!hadControllerAtLoad && !userAcceptedUpdate) return;
+          if (reloading) return;
+          reloading = true;
+          window.location.reload();
+        });
+      })
+      .catch(() => {});
   });
 }
 
