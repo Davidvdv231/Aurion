@@ -561,7 +561,8 @@ def test_market_change_cancels_pending_prediction(page):
       };
     }""")
     current_page.click("#submit-btn")
-    current_page.wait_for_function("typeof window.releasePrediction === 'function'")
+    # Function predicates: string predicates are eval'd while polling, which the app's CSP blocks.
+    current_page.wait_for_function("() => typeof window.releasePrediction === 'function'")
     current_page.click("#asset-type-control [data-value='crypto']")
     current_page.evaluate("window.releasePrediction()")
     expect(current_page.locator("#submit-btn")).to_be_enabled()
@@ -622,9 +623,10 @@ def test_real_api_to_browser_forecast(page, market):
         output.mkdir(exist_ok=True)
         current_page.screenshot(path=str(output / "audit-desktop.png"), full_page=True)
         current_page.set_viewport_size({"width": 360, "height": 800})
-        # The chart canvas shrinks on its next resize callback, not synchronously.
+        # The chart canvas shrinks on its next resize callback, not synchronously. Use a
+        # function predicate: string predicates are eval'd while polling, which the CSP blocks.
         current_page.wait_for_function(
-            "document.documentElement.scrollWidth <= innerWidth", timeout=5000
+            "() => document.documentElement.scrollWidth <= innerWidth", timeout=5000
         )
         current_page.screenshot(path=str(output / "audit-mobile.png"), full_page=True)
 
