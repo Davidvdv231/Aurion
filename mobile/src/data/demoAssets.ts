@@ -18,7 +18,6 @@ export interface DemoMarketCard {
   source: "demo";
 }
 
-const today = new Date();
 const DEMO_NATIVE_CURRENCY: SupportedCurrency = "USD";
 const DEMO_SYMBOL_ALIASES: Record<string, string> = {
   BTC: "BTC-USD",
@@ -27,13 +26,13 @@ const DEMO_SYMBOL_ALIASES: Record<string, string> = {
 };
 
 function isoDaysAhead(days: number) {
-  const date = new Date(today);
+  const date = new Date();
   date.setDate(date.getDate() + days);
   return date.toISOString().slice(0, 10);
 }
 
-function buildForecast(base: number, drift: number, volatility: number): ForecastPoint[] {
-  return Array.from({ length: 7 }, (_, index) => {
+function buildForecast(base: number, drift: number, volatility: number, horizon: number): ForecastPoint[] {
+  return Array.from({ length: horizon }, (_, index) => {
     const factor = 1 + drift * (index + 1);
     const predicted = base * factor;
     return {
@@ -47,8 +46,9 @@ function buildForecast(base: number, drift: number, volatility: number): Forecas
 
 function buildHistory(base: number): HistoryPoint[] {
   return Array.from({ length: 30 }, (_, index) => ({
-    date: isoDaysAhead(-(30 - index)),
-    // Ends exactly at the base price, which the demo forecast treats as the last close.
+    // Ends today, exactly at the base price, which the demo forecast treats as the last
+    // close; the forecast starts tomorrow, so there is no gap.
+    date: isoDaysAhead(index - 29),
     close: base * (1 - (29 - index) * 0.002),
   }));
 }
@@ -148,18 +148,18 @@ export function getDemoForecast(
   assetType: AssetType,
   displayCurrency: SupportedCurrency = DEMO_NATIVE_CURRENCY,
   engineRequested: ForecastEngine = "ml",
+  horizon = 7,
 ): PredictResponse {
   const normalizedSymbol = normalizeDemoSymbol(symbol);
   const asset =
     demoMarketCards.find((item) => item.symbol === normalizedSymbol && item.assetType === assetType) ??
-    demoMarketCards.find((item) => item.assetType === assetType) ??
-    demoMarketCards[0];
+    { symbol: normalizedSymbol, assetType };
   const base = demoBasePrice(asset.symbol);
   const confidence = demoConfidence(asset.symbol);
   const trend = demoTrend(asset.symbol);
   const drift = trend === "bullish" ? 0.012 : trend === "bearish" ? -0.009 : 0.004;
   const volatility = assetType === "crypto" ? 0.08 : 0.04;
-  const forecast = buildForecast(base, drift, volatility);
+  const forecast = buildForecast(base, drift, volatility, horizon);
   const expectedPrice = forecast[forecast.length - 1]?.predicted ?? base;
   const expectedReturnPct = ((expectedPrice / base) - 1) * 100;
   const confidenceTier: ConfidenceTier =
@@ -178,7 +178,7 @@ export function getDemoForecast(
     native_currency: DEMO_NATIVE_CURRENCY,
     display_currency: DEMO_NATIVE_CURRENCY,
     generated_at: new Date().toISOString(),
-    horizon_days: 7,
+    horizon_days: horizon,
     engine_requested: engineRequested,
     engine_used: "stat_fallback",
     model_name: "Aurion demo fallback",

@@ -14,13 +14,20 @@ function localeFor(code: string) {
   return CURRENCY_LOCALES[code] ?? "en-US";
 }
 
+// Sub-cent prices (small crypto) keep four significant digits instead of reading as 0.00.
+function isSubCent(value: number) {
+  return value !== 0 && Math.abs(value) < 0.01;
+}
+
 export function formatPrice(value: number, currency: string) {
   const code = currency || "USD";
   try {
     return new Intl.NumberFormat(localeFor(code), {
       style: "currency",
       currency: code,
-      maximumFractionDigits: code === "JPY" ? 0 : 2,
+      ...(isSubCent(value)
+        ? { maximumSignificantDigits: 4 }
+        : { maximumFractionDigits: code === "JPY" ? 0 : 2 }),
     }).format(value);
   } catch {
     return `${Number.isFinite(value) ? value.toFixed(2) : "0.00"} ${code}`;
@@ -35,8 +42,9 @@ export function formatAxisPrice(value: number, currency: string) {
       style: "currency",
       currency: code,
       notation: abs >= 10000 ? "compact" : "standard",
-      minimumFractionDigits: 0,
-      maximumFractionDigits: abs >= 100 ? 0 : 2,
+      ...(isSubCent(value)
+        ? { maximumSignificantDigits: 3 }
+        : { minimumFractionDigits: 0, maximumFractionDigits: abs >= 100 ? 0 : 2 }),
     }).format(value);
   } catch {
     return String(Math.round(value));

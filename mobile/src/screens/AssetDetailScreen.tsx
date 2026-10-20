@@ -165,7 +165,7 @@ export function AssetDetailScreen({ route, navigation }: Props) {
   const theme = useTheme();
   const styles = useStyles();
   const insets = useSafeAreaInsets();
-  const { isSaved, toggle } = useWatchlist();
+  const { isSaved, toggle, ready: watchlistReady, error: watchlistError } = useWatchlist();
   const [data, setData] = useState<PredictResponse | null>(null);
   const [isDemo, setIsDemo] = useState(false);
   const [demoReason, setDemoReason] = useState<string | null>(null);
@@ -174,31 +174,41 @@ export function AssetDetailScreen({ route, navigation }: Props) {
   const [currency, setCurrency] = useState<SupportedCurrency>("USD");
   const [engine, setEngine] = useState<ForecastEngine>(initialEngine ?? defaultEngineFor(assetType));
   const [horizon, setHorizon] = useState<Horizon>("7");
+  // The first fetch waits for the saved currency, so it is not requested twice.
+  const [currencyReady, setCurrencyReady] = useState(false);
+  const [storageError, setStorageError] = useState<string | null>(null);
 
   // Load persisted currency preference on mount
   useEffect(() => {
+    let active = true;
     storage.getItem(CURRENCY_STORAGE_KEY).then((stored) => {
-      if (stored && CURRENCIES.includes(stored as SupportedCurrency)) {
+      if (active && stored && CURRENCIES.includes(stored as SupportedCurrency)) {
         setCurrency(stored as SupportedCurrency);
       }
-    });
+    }).catch(() => {}).finally(() => { if (active) setCurrencyReady(true); });
+    return () => { active = false; };
   }, []);
 
   // Persist currency whenever it changes
   const handleCurrencyChange = useCallback((value: SupportedCurrency) => {
     setCurrency(value);
-    void storage.setItem(CURRENCY_STORAGE_KEY, value);
+    void storage.setItem(CURRENCY_STORAGE_KEY, value)
+      .then(() => setStorageError(null))
+      .catch(() => setStorageError("Currency preference could not be saved."));
   }, []);
 
   // Fetch forecast whenever inputs change; the previous result stays on screen, dimmed, until the new one lands.
   useEffect(() => {
+    if (!currencyReady) return;
     let mounted = true;
+    const controller = new AbortController();
     setLoading(true);
 
     loadForecast(symbol, assetType, {
       horizon: Number(horizon),
       engine,
       displayCurrency: currency,
+      signal: controller.signal,
     })
       .then((result) => {
         if (mounted) {
@@ -209,7 +219,7 @@ export function AssetDetailScreen({ route, navigation }: Props) {
       })
       .catch(() => {
         if (mounted) {
-          setData(getDemoForecast(symbol, assetType, currency, engine));
+          setData(getDemoForecast(symbol, assetType, currency, engine, Number(horizon)));
           setIsDemo(true);
           setDemoReason("The live forecast endpoint is unavailable.");
         }
@@ -222,10 +232,11 @@ export function AssetDetailScreen({ route, navigation }: Props) {
 
     return () => {
       mounted = false;
+      controller.abort();
     };
-  }, [assetType, symbol, horizon, engine, currency]);
+  }, [assetType, symbol, horizon, engine, currency, currencyReady]);
 
-  const saved = isSaved(symbol);
+  const saved = isSaved(symbol, assetType);
   const displayCurrency = data ? data.display_currency || data.currency : currency;
   const delta = data ? formatDelta(data.summary.expected_return_pct) : null;
   const subtitle = [name || data?.requested_symbol, data?.model_name, assetType === "crypto" ? "Crypto" : "Stock"]
@@ -249,12 +260,19 @@ export function AssetDetailScreen({ route, navigation }: Props) {
         </Pressable>
         <Pressable
           onPress={() => toggle({ symbol, name: name || symbol, assetType })}
+          disabled={!watchlistReady}
           accessibilityRole="button"
+          accessibilityLabel={`${saved ? "Remove" : "Add"} ${symbol} ${assetType} ${saved ? "from" : "to"} watchlist`}
+          accessibilityState={{ disabled: !watchlistReady }}
           style={({ pressed }) => [styles.quietButton, pressed && styles.pressed]}
         >
           <Text style={styles.quietText}>{saved ? "Remove from watchlist" : "Add to watchlist"}</Text>
         </Pressable>
       </View>
+
+      {watchlistError || storageError ? (
+        <Note tone="warning">{watchlistError || storageError}</Note>
+      ) : null}
 
       <View style={styles.head}>
         <Text style={styles.symbol} accessibilityRole="header">

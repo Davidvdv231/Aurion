@@ -15,11 +15,15 @@ The app uses the same look as the web app in `frontend/`: warm grays, hairline r
 
 ## Run
 1. `cd mobile`
-2. `npm install`
+2. `npm ci`
 3. `npm run typecheck`
 4. `npm run start`
 
+Run `npm test` for request handling, cancellation, demo consistency, watchlist validation and ordered writes. `npx expo export --platform web` checks the compiled client; native Android/iOS builds need their platform toolchains.
+
 Use `EXPO_PUBLIC_API_BASE_URL` for any non-local build. In local development, the app falls back to `http://127.0.0.1:8000`.
+
+On a physical phone, use the development machine's reachable LAN address. For an Android emulator, use `http://10.0.2.2:8000`. The API must bind to an interface reachable from that device. Expo web also needs its origin in backend `CORS_ALLOW_ORIGINS`.
 
 ```bash
 EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run start
@@ -37,4 +41,8 @@ EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run start
 
 ## Notes
 - Demo data is a fallback path, not a production data source.
+- Loading hides previous/demo price cards until the current request completes. Changing forecast settings aborts the previous request. Predictions allow up to 90 seconds across backend stages; list requests allow 15 seconds. Both budgets include reading the response body.
+- Demo responses preserve the requested symbol and horizon and explicitly keep USD when live FX is unavailable.
+- Watchlists use symbol plus market as identity, cap at 100 entries, validate saved data and serialize writes. Storage failures leave session state usable and display a message.
+- Dependency updates remain within the existing Expo 54 stack. See [the audit](../docs/ENGINEERING_AUDIT.md) for unresolved upstream advisories.
 - Predictions are probabilistic estimates and not financial advice.
