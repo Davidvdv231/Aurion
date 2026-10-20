@@ -13,6 +13,10 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .claude/
+.claude-flow/
+.swarm/
+.mcp.json
+.coverage
 .tmp/
 .venv/
 .pytest_cache/

@@ -70,6 +70,14 @@ jobs:
         working-directory: mobile
         run: npm run typecheck
 
+      - name: Test mobile request and storage behavior
+        working-directory: mobile
+        run: npm test
+
+      - name: Audit mobile critical vulnerabilities
+        working-directory: mobile
+        run: npm audit --audit-level=critical
+
       - name: Run backend tests with coverage
         run: >
           python -m pytest
@@ -78,6 +86,7 @@ jobs:
           --ignore=tests/test_mobile_web_smoke.py
           --cov=backend
           --cov-report=term-missing
+          --cov-fail-under=70
           -q
 
       - name: Run frontend smoke test

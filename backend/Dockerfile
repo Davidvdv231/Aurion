@@ -20,14 +20,16 @@ LABEL maintainer="Aurion Team" \
       description="Aurion Market Intelligence API"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    HOME=/home/appuser \
+    XDG_CACHE_HOME=/home/appuser/.cache
 
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local
 
 # Create non-root user
-RUN groupadd --system appgroup && \
-    useradd --system --gid appgroup --no-create-home appuser
+RUN groupadd --gid 1000 appgroup && \
+    useradd --uid 1000 --gid appgroup --create-home appuser
 
 WORKDIR /app
 
@@ -44,4 +46,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
 
-CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]
