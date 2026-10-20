@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 import time
 from datetime import datetime, timezone
 from functools import partial
 
 from fastapi import APIRouter, Header, Query
 from fastapi import Request as FastAPIRequest
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
+from pydantic import ValidationError
+from starlette.concurrency import run_in_threadpool
 
 from backend.config import Settings
 from backend.errors import ServiceError
@@ -35,9 +39,15 @@ def _check_metrics_token(request: FastAPIRequest, authorization: str | None) -> 
     """Reject metrics requests when METRICS_TOKEN is configured and not provided."""
     token = _settings(request).metrics_token
     if not token:
+        if _settings(request).is_production:
+            raise ServiceError(
+                status_code=503,
+                code="metrics_unconfigured",
+                message="Operational endpoints require a configured metrics token.",
+            )
         return
     expected = f"Bearer {token}"
-    if authorization != expected:
+    if not secrets.compare_digest((authorization or "").encode(), expected.encode()):
         raise ServiceError(
             status_code=403, code="forbidden", message="Invalid or missing metrics token."
         )
@@ -64,7 +74,9 @@ def _blocking_runner(request: FastAPIRequest) -> BlockingTaskRunner:
 
 
 async def _predict_impl(request: FastAPIRequest, payload: PredictRequest) -> PredictResponse:
-    _rate_limiter(request).enforce_predict_limit(request=request, engine=payload.engine)
+    await run_in_threadpool(
+        _rate_limiter(request).enforce_predict_limit, request=request, engine=payload.engine
+    )
     response = await build_prediction_response(
         payload,
         settings=_settings(request),
@@ -99,28 +111,49 @@ def health(request: FastAPIRequest) -> HealthResponse:
 
 @router.get("/api/health/ready")
 async def health_ready(request: FastAPIRequest) -> JSONResponse:
-    """Readiness probe for internal dependencies and required runtime imports."""
+    """Readiness probe that verifies live dependencies, not just library imports.
+
+    Checks:
+      * Redis connectivity (when configured) — required in production.
+      * Blocking task executor can accept and complete a trivial call under
+        the configured readiness budget. This catches a saturated thread pool
+        or a dead event-loop/semaphore binding before traffic is routed.
+
+    Returns 200 only when every required check passes. 503 otherwise — K8s
+    will stop routing traffic, which is the correct behavior when we are
+    structurally unable to serve predictions.
+    """
     checks: dict[str, str] = {}
     ready = True
 
-    # Redis check
+    settings = _settings(request)
     cache = _cache_backend(request)
+
+    # --- Redis check ---
     try:
-        redis_status = await asyncio.get_running_loop().run_in_executor(None, cache.redis_ping)
-        checks["redis"] = redis_status
-        if redis_status == "unavailable":
-            ready = False
+        redis_status = await asyncio.wait_for(run_in_threadpool(cache.redis_ping), timeout=2.0)
     except Exception:
-        checks["redis"] = "unavailable"
+        redis_status = "unavailable"
+    checks["redis"] = redis_status
+    # In production Redis is mandatory; in dev "not_configured" is acceptable.
+    if redis_status == "unavailable":
+        ready = False
+    if settings.is_production and redis_status != "connected":
         ready = False
 
-    # Market data provider check
+    # --- Blocking executor check ---
+    # Submit a trivial callable with a tight timeout. If the pool is wedged or
+    # the per-loop semaphore is mis-bound, the timeout fires and readiness fails.
     try:
-        import yfinance  # noqa: F401
-
-        checks["market_data"] = "available"
+        runner = _blocking_runner(request)
+        await runner.run(lambda: True, timeout_seconds=2.0)
+        checks["executor"] = "available"
+    except asyncio.TimeoutError:
+        checks["executor"] = "timeout"
+        ready = False
     except Exception:
-        checks["market_data"] = "unavailable"
+        checks["executor"] = "unavailable"
+        ready = False
 
     status_code = 200 if ready else 503
     return JSONResponse(
@@ -179,6 +212,7 @@ async def top_assets(
     limit: int = Query(10, ge=5, le=25),
     asset_type: AssetType = Query("stock", description="stock or crypto"),
 ) -> TopAssetsResponse:
+    await run_in_threadpool(_rate_limiter(request).enforce_search_limit, request=request)
     try:
         items, source = await _blocking_runner(request).run(
             partial(
@@ -217,16 +251,18 @@ async def predict_get(
     asset_type: AssetType = Query("stock", description="stock or crypto"),
     display_currency: str = Query("USD", description="Currency for displayed prices"),
 ) -> PredictResponse:
-    return await _predict_impl(
-        request,
-        PredictRequest(
+    try:
+        payload = PredictRequest(
             symbol=symbol,
             horizon=horizon,
             engine=engine,
             asset_type=asset_type,
             display_currency=display_currency,
-        ),
-    )
+        )
+    except ValidationError as exc:
+        issues = [{**issue, "loc": ("query", *issue["loc"])} for issue in exc.errors()]
+        raise RequestValidationError(issues) from exc
+    return await _predict_impl(request, payload)
 
 
 @router.post("/api/predict", response_model=PredictResponse)

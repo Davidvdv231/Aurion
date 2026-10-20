@@ -37,6 +37,7 @@ def _settings() -> Settings:
         memory_cache_sweep_batch_size=1,
         rate_limit_window_seconds=60,
         rate_limit_max_requests_stat=30,
+        rate_limit_max_requests_predict=30,
         rate_limit_max_requests_search=60,
         rate_limit_fail_open=True,
         redis_url="",
@@ -594,7 +595,8 @@ def test_top_assets_refetch_when_the_cache_holds_too_few(monkeypatch: pytest.Mon
 
     items, source = resolve_top_assets(3, "crypto", cache, settings)
 
-    assert calls == [20]
+    # The cache always holds the largest page, independent of the requested limit.
+    assert calls == [25]
     assert source == "catalog_fallback"
     assert len(items) == 3
 

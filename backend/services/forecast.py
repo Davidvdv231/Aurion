@@ -54,13 +54,13 @@ def backtest_stat_forecast(
     errors_arr = np.array(all_errors, dtype=np.float64)
     actual_arr = np.array(all_actuals, dtype=np.float64)
     no_change_arr = np.array(all_no_change_errors, dtype=np.float64)
-    denominator = np.maximum(actual_arr, 0.01)
     return {
-        "mae": round(float(np.mean(errors_arr)), 4),
-        "rmse": round(float(np.sqrt(np.mean(errors_arr**2))), 4),
-        "mape": round(float(np.mean(errors_arr / denominator)) * 100, 2),
+        # Price-unit errors keep full precision; rounding would zero them for sub-cent assets.
+        "mae": float(np.mean(errors_arr)),
+        "rmse": float(np.sqrt(np.mean(errors_arr**2))),
+        "mape": round(float(np.mean(errors_arr / actual_arr)) * 100, 2),
         # Holding the last close flat over the same windows: the bar the forecast has to clear.
-        "no_change_mape": round(float(np.mean(no_change_arr / denominator)) * 100, 2),
+        "no_change_mape": round(float(np.mean(no_change_arr / actual_arr)) * 100, 2),
         "directional_accuracy": round(
             float(np.mean(fold_direction_scores)) if fold_direction_scores else 0.5,
             4,
@@ -81,6 +81,8 @@ def build_stat_forecast(
     asset_type: AssetType,
 ) -> tuple[list[dict], list[dict], dict]:
     values = close.astype(float).to_numpy()
+    if len(values) < 2 or not np.isfinite(values).all() or (values <= 0).any():
+        raise ValueError("Forecast requires finite, strictly positive prices.")
     log_values = np.log(values)
 
     x = np.arange(len(log_values), dtype=float)
@@ -104,7 +106,7 @@ def build_stat_forecast(
     history = [
         {
             "date": idx.date().isoformat(),
-            "close": round(float(price), 2),
+            "close": float(price),
         }
         for idx, price in history_window.items()
     ]
@@ -113,16 +115,16 @@ def build_stat_forecast(
     forecast = [
         {
             "date": dt.date().isoformat(),
-            "predicted": round(float(pred), 2),
-            "lower": round(float(low), 2),
-            "upper": round(float(high), 2),
+            "predicted": float(pred),
+            "lower": float(low),
+            "upper": float(high),
         }
         for dt, pred, low, high in zip(projected_dates, predicted, lower, upper, strict=False)
     ]
 
     stats = {
         "daily_trend_pct": round((float(np.exp(slope)) - 1.0) * 100.0, 3),
-        "last_close": round(float(close.iloc[-1]), 2),
+        "last_close": float(close.iloc[-1]),
     }
 
     return history, forecast, stats

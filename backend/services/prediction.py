@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from datetime import datetime, timezone
 from functools import partial
@@ -82,7 +83,7 @@ def _build_summary(
     else:
         trend = "neutral"
 
-    widths = [(pt["upper"] - pt["lower"]) / max(pt["predicted"], 0.01) for pt in forecast]
+    widths = [(pt["upper"] - pt["lower"]) / pt["predicted"] for pt in forecast]
     avg_band_width = sum(widths) / len(widths)
     band_confidence = max(0.0, min(1.0, 1.0 - avg_band_width * 2))
 
@@ -114,7 +115,7 @@ def _build_summary(
         signal = "Neutral"
 
     return PredictionSummary(
-        expected_price=round(final_predicted, 2),
+        expected_price=final_predicted,
         expected_return_pct=round(expected_return, 2),
         trend=trend,
         confidence_tier=confidence_tier,
@@ -287,7 +288,7 @@ def _ml_quality_failure(
     if (
         baseline_windows > 0
         and mape is not None
-        and baseline_mape > 0
+        and baseline_mape >= 0
         and mape > baseline_mape * settings.ml_max_mape_vs_baseline
     ):
         return (
@@ -352,11 +353,36 @@ async def build_prediction_response(
 
     market_data_ms = round((time.perf_counter() - t_market) * 1000, 1)
 
-    history, stat_forecast, stats = build_stat_forecast(
-        market_series.close,
-        payload.horizon,
-        asset_type=payload.asset_type,
-    )
+    # build_stat_forecast is numpy-heavy (polyfit + array ops). Even a few hundred
+    # microseconds of synchronous work multiplied by concurrent requests starves
+    # the event loop's socket read/write coroutines, so we offload it like any
+    # other CPU/I-O blocker. The timeout is generous because the stat path is
+    # fast under nominal load — this guard exists for pathological inputs only.
+    try:
+        history, stat_forecast, stats = await _run_blocking(
+            blocking_runner,
+            settings.blocking_task_timeout_seconds,
+            partial(
+                build_stat_forecast,
+                market_series.close,
+                payload.horizon,
+                asset_type=payload.asset_type,
+            ),
+        )
+    except asyncio.TimeoutError as exc:
+        raise ServiceError(
+            status_code=504,
+            code="forecast_timeout",
+            message="Forecast calculation timed out.",
+            retryable=True,
+        ) from exc
+    except ValueError as exc:
+        raise ServiceError(
+            status_code=502,
+            code="invalid_market_data",
+            message="Market data contains unusable prices.",
+            retryable=True,
+        ) from exc
 
     engine_used: EngineUsed = "stat"
     model_name = "Statistical Trend"
@@ -375,13 +401,30 @@ async def build_prediction_response(
     )
     # The evaluation always describes the forecast that is returned, so it starts as the
     # statistical backtest and is replaced only when the ML forecast is served.
-    stat_baseline = backtest_stat_forecast(
-        market_series.close,
-        payload.horizon,
-        payload.asset_type,
-        n_folds=5,
-    )
-    evaluation = _stat_evaluation(stat_baseline)
+    # 5-fold backtest = 5x build_stat_forecast, so it runs off the event loop as well.
+    stat_baseline: dict[str, float | int] | None
+    try:
+        stat_baseline = await _run_blocking(
+            blocking_runner,
+            settings.blocking_task_timeout_seconds,
+            partial(
+                backtest_stat_forecast,
+                market_series.close,
+                payload.horizon,
+                payload.asset_type,
+                n_folds=5,
+            ),
+        )
+    except asyncio.TimeoutError:
+        # The forecast itself is already computed; only its backtest is missing.
+        _log_prediction_event(
+            logging.WARNING,
+            "prediction.stat_backtest_timeout",
+            request_id=request_id,
+            symbol=market_series.resolved_symbol,
+        )
+        stat_baseline = None
+    evaluation = _stat_evaluation(stat_baseline) if stat_baseline is not None else None
     explanation = None
     ml_explanation_meta: dict | None = None
     ml_analysis_summary: PredictionSummary | None = None
@@ -389,6 +432,9 @@ async def build_prediction_response(
 
     if payload.engine == "ml":
         try:
+            if stat_baseline is None:
+                # Without a baseline the ML forecast cannot be quality-gated.
+                raise asyncio.TimeoutError("Statistical baseline timed out")
             from backend.ml.service import train_and_predict
 
             t_model = time.perf_counter()
@@ -408,9 +454,9 @@ async def build_prediction_response(
             ml_forecast = [
                 {
                     "date": ml_result.dates[i],
-                    "predicted": round(float(ml_result.predicted[i]), 2),
-                    "lower": round(float(ml_result.lower[i]), 2),
-                    "upper": round(float(ml_result.upper[i]), 2),
+                    "predicted": float(ml_result.predicted[i]),
+                    "lower": float(ml_result.lower[i]),
+                    "upper": float(ml_result.upper[i]),
                 }
                 for i in range(len(ml_result.dates))
             ]
@@ -418,6 +464,13 @@ async def build_prediction_response(
                 raise ValueError(
                     f"ML forecast horizon mismatch: expected {payload.horizon}, got {len(ml_forecast)}"
                 )
+
+            if any(
+                not math.isfinite(point[key]) or point[key] <= 0
+                for point in ml_forecast
+                for key in ("predicted", "lower", "upper")
+            ):
+                raise ValueError("ML returned invalid prices")
 
             ml_evaluation = _make_evaluation(
                 mae=ml_metrics.mae,
@@ -590,14 +643,24 @@ async def build_prediction_response(
         explanation = _build_explanation(ml_explanation_meta, ml_analysis_summary)
 
     # --- Currency conversion ---
-    native_currency = market_series.currency
+    # Normalize both sides to uppercase ISO codes so the response carries
+    # consistent currency strings (clients format off ISO 4217 uppercase).
+    native_currency = market_series.currency.upper()
     display_currency = payload.display_currency.upper()
 
-    if display_currency != native_currency.upper():
-        from backend.services.exchange_rates import convert_price, get_exchange_rate
+    if display_currency != native_currency:
+        from backend.services.exchange_rates import convert_price, try_get_exchange_rate
 
-        rate = get_exchange_rate(native_currency, display_currency)
-        if rate != 1.0:
+        try:
+            rate = await _run_blocking(
+                blocking_runner,
+                settings.blocking_task_timeout_seconds,
+                partial(try_get_exchange_rate, native_currency, display_currency),
+            )
+        except Exception:
+            logger.warning("Currency conversion unavailable", exc_info=True)
+            rate = None
+        if rate is not None and math.isfinite(rate) and rate > 0:
             # Convert history close prices
             for pt in history:
                 pt["close"] = convert_price(pt["close"], rate)
@@ -608,17 +671,25 @@ async def build_prediction_response(
                 pt["upper"] = convert_price(pt["upper"], rate)
             # Convert stats
             if stats.get("last_close") is not None:
-                stats["last_close"] = round(stats["last_close"] * rate, 6)
+                stats["last_close"] *= rate
+            if evaluation is not None:
+                evaluation = evaluation.model_copy(
+                    update={
+                        "mae": convert_price(evaluation.mae, rate),
+                        "rmse": convert_price(evaluation.rmse, rate),
+                    }
+                )
             # Rebuild summary with converted prices
             summary = _build_summary(forecast, stats, evaluation)
+            response_currency = display_currency
         else:
-            # rate == 1.0 means forex lookup failed — prices are shown in native currency
+            # Rate lookup failed — honestly surface this and keep native currency.
             source.data_warnings.append(
                 f"Currency conversion from {native_currency} to {display_currency} "
                 f"unavailable; prices shown in {native_currency}."
             )
             display_currency = native_currency
-        response_currency = display_currency
+            response_currency = native_currency
     else:
         response_currency = native_currency
 

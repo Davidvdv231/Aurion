@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,7 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backend.app import create_app
+with patch("backend.config._load_local_env"):
+    # The module also constructs a global app during import, before fixtures run.
+    from backend.app import create_app
+
 from backend.config import get_settings
 
 APP_ENV_VARS = [
@@ -32,6 +36,7 @@ APP_ENV_VARS = [
     "TOP_ASSETS_TIMEOUT_SECONDS",
     "RATE_LIMIT_WINDOW_SECONDS",
     "RATE_LIMIT_MAX_REQUESTS_STAT",
+    "RATE_LIMIT_MAX_REQUESTS_PREDICT",
     "TRUSTED_PROXY_IPS",
     "ML_MIN_VALIDATION_WINDOWS",
     "ML_MIN_DIRECTIONAL_ACCURACY",
@@ -40,7 +45,9 @@ APP_ENV_VARS = [
 
 
 @pytest.fixture(autouse=True)
-def clear_settings_cache() -> None:
+def clear_settings_cache(monkeypatch, tmp_path) -> None:
+    # Tests must never inherit the developer's real .env (including secrets).
+    monkeypatch.setattr("backend.config.PROJECT_ROOT", tmp_path)
     get_settings.cache_clear()
     originals = {name: os.environ.get(name) for name in APP_ENV_VARS}
     for name in APP_ENV_VARS:

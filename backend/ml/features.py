@@ -61,6 +61,8 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     loss = (-delta.clip(upper=0)).rolling(14).mean()
     rs = gain / loss.replace(0, np.nan)
     features["rsi_14"] = 100 - (100 / (1 + rs))
+    features.loc[(loss == 0) & (gain > 0), "rsi_14"] = 100.0
+    features.loc[(loss == 0) & (gain == 0), "rsi_14"] = 50.0
 
     # --- Momentum ---
     features["momentum_10"] = close / close.shift(10) - 1.0
@@ -70,6 +72,7 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     bb_std = close.rolling(20).std()
     features["bb_bandwidth"] = (2 * bb_std) / bb_mid.replace(0, np.nan)
     features["bb_position"] = (close - bb_mid) / (bb_std.replace(0, np.nan))
+    features.loc[bb_std == 0, "bb_position"] = 0.0
 
     # --- Price ratios ---
     features["price_to_sma_20"] = close / bb_mid - 1.0
@@ -81,11 +84,15 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     # Avoid 0/NaN explosions by filling with neutral 0.0 instead.
     has_real_volume = "Volume" in df and (volume != 0).any()
     if has_real_volume:
-        vol_ma5 = volume.rolling(5).mean().replace(0, np.nan)
+        vol_ma5_raw = volume.rolling(5).mean()
+        vol_ma5 = vol_ma5_raw.replace(0, np.nan)
         features["volume_change_5"] = volume / vol_ma5 - 1.0
+        features.loc[vol_ma5_raw == 0, "volume_change_5"] = 0.0
         vol_ma20 = volume.rolling(20).mean()
-        vol_std20 = volume.rolling(20).std().replace(0, np.nan)
+        vol_std20_raw = volume.rolling(20).std()
+        vol_std20 = vol_std20_raw.replace(0, np.nan)
         features["volume_zscore_20"] = (volume - vol_ma20) / vol_std20
+        features.loc[vol_std20_raw == 0, "volume_zscore_20"] = 0.0
     else:
         features["volume_change_5"] = 0.0
         features["volume_zscore_20"] = 0.0

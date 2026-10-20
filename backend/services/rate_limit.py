@@ -3,7 +3,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 import time
-from collections import defaultdict, deque
+from collections import deque
 from threading import Lock
 from uuid import uuid4
 
@@ -31,23 +31,41 @@ return 1
 
 
 class InMemoryRateLimiter:
-    def __init__(self) -> None:
-        self._buckets: dict[str, deque[float]] = defaultdict(deque)
+    def __init__(self, max_buckets: int = 10_000) -> None:
+        self._buckets: dict[str, deque[float]] = {}
+        self._expires_at: dict[str, float] = {}
+        self._max_buckets = max_buckets
+        self._next_sweep = 0.0
         self._lock = Lock()
 
     def allow_request(self, key: str, window_seconds: int, limit: int) -> bool:
-        now_ts = time.time()
+        now_ts = time.monotonic()
         window_start = now_ts - window_seconds
 
         with self._lock:
+            if now_ts >= self._next_sweep:
+                expired = [
+                    name for name, deadline in self._expires_at.items() if deadline <= now_ts
+                ]
+                for name in expired:
+                    self._buckets.pop(name, None)
+                    self._expires_at.pop(name, None)
+                self._next_sweep = now_ts + 1.0
+            if key not in self._buckets:
+                # Refuse new clients at capacity; evicting live buckets would
+                # allow an attacker to reset an already-exhausted quota.
+                if len(self._buckets) >= self._max_buckets:
+                    return False
+                self._buckets[key] = deque()
             bucket = self._buckets[key]
-            while bucket and bucket[0] < window_start:
+            while bucket and bucket[0] <= window_start:
                 bucket.popleft()
 
             if len(bucket) >= limit:
                 return False
 
             bucket.append(now_ts)
+            self._expires_at[key] = now_ts + window_seconds
             return True
 
 
@@ -80,6 +98,10 @@ class RateLimiter:
 
     def _should_fail_open(self) -> bool:
         return self._settings.rate_limit_fail_open and not self._settings.is_production
+
+    def close(self) -> None:
+        if self._redis is not None and hasattr(self._redis, "close"):
+            self._redis.close()
 
     def _is_trusted_proxy(self, client_host: str) -> bool:
         try:
@@ -116,8 +138,16 @@ class RateLimiter:
         if not forwarded_for:
             return direct_client
 
-        first = forwarded_for.split(",", 1)[0].strip()
-        return first or direct_client
+        # Walk from the trusted edge inward. The leftmost value may have been
+        # supplied by the caller before a proxy appended the real client IP.
+        for raw_address in reversed(forwarded_for.split(",")):
+            try:
+                address = str(ipaddress.ip_address(raw_address.strip()))
+            except ValueError:
+                return direct_client
+            if not self._is_trusted_proxy(address):
+                return address
+        return direct_client
 
     def _rate_limit_backend_unavailable(self) -> ServiceError:
         return ServiceError(
@@ -154,7 +184,10 @@ class RateLimiter:
 
     def enforce_predict_limit(self, request: FastAPIRequest, engine: EngineType) -> None:
         window_seconds = self._settings.rate_limit_window_seconds
-        limit = self._settings.rate_limit_max_requests_stat
+        # Canonical limit applies to BOTH "stat" and "ml" engine buckets (per-engine keys).
+        # The legacy ``rate_limit_max_requests_stat`` env var is accepted for backward
+        # compatibility; ``rate_limit_max_requests_predict`` is preferred.
+        limit = self._settings.rate_limit_max_requests_predict
 
         if limit <= 0:
             return

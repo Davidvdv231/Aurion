@@ -13,6 +13,7 @@ from backend.services.exchange_rates import (
     _set_cached_rate,
     convert_price,
     get_exchange_rate,
+    try_get_exchange_rate,
 )
 
 
@@ -28,6 +29,20 @@ def _mock_download(close_value: float):
     """Return a mock yfinance download result with the given close price."""
     idx = pd.DatetimeIndex([pd.Timestamp("2026-04-07")])
     return pd.DataFrame({"Close": [close_value]}, index=idx)
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan"), 0.0, -1.0])
+def test_invalid_fx_rates_are_never_cached(value):
+    with patch("yfinance.download", return_value=_mock_download(value)):
+        assert try_get_exchange_rate("USD", "EUR") is None
+    assert not _rate_cache
+
+
+def test_fx_download_supports_yfinance_multiindex_and_has_timeout():
+    frame = pd.DataFrame([[0.92]], columns=pd.MultiIndex.from_tuples([("Close", "USDEUR=X")]))
+    with patch("yfinance.download", return_value=frame) as download:
+        assert try_get_exchange_rate("USD", "EUR") == pytest.approx(0.92)
+    assert 0 < download.call_args.kwargs["timeout"] <= 5
 
 
 # ── Identity conversion ──────────────────────────────────────────────
@@ -117,3 +132,65 @@ def test_convert_price_none_input():
 
 def test_convert_price_identity():
     assert convert_price(42.123456, 1.0) == pytest.approx(42.123456)
+
+
+# ── try_get_exchange_rate: explicit None on failure ──────────────────
+
+
+def test_try_get_exchange_rate_returns_none_when_lookup_fails():
+    """A failed lookup must be distinguishable from an identity 1.0."""
+    with patch("yfinance.download") as mock_dl:
+        mock_dl.side_effect = Exception("network error")
+        assert try_get_exchange_rate("USD", "EUR") is None
+
+
+def test_try_get_exchange_rate_returns_none_when_pivot_second_leg_fails():
+    """EUR→JPY via USD must NOT return a wrong cross-rate when USD→JPY silently fails.
+
+    This guards the historical bug where a silent 1.0 fallback on the second
+    pivot leg produced structurally-wrong cross-rates (e.g. EUR→JPY = EUR→USD).
+    """
+
+    def download_side_effect(symbol, **kwargs):
+        if "EURUSD" in symbol:
+            return _mock_download(1.08)
+        # USDJPY silently returns empty data — must NOT be treated as 1.0.
+        return pd.DataFrame()
+
+    with patch("yfinance.download", side_effect=download_side_effect):
+        rate = try_get_exchange_rate("EUR", "JPY")
+
+    assert rate is None
+
+
+def test_try_get_exchange_rate_returns_none_when_pivot_first_leg_fails():
+    def download_side_effect(symbol, **kwargs):
+        if "USDJPY" in symbol:
+            return _mock_download(149.0)
+        return pd.DataFrame()
+
+    with patch("yfinance.download", side_effect=download_side_effect):
+        rate = try_get_exchange_rate("EUR", "JPY")
+
+    assert rate is None
+
+
+def test_try_get_exchange_rate_succeeds_when_both_pivot_legs_return_data():
+    def download_side_effect(symbol, **kwargs):
+        if "EURUSD" in symbol:
+            return _mock_download(1.08)
+        if "USDJPY" in symbol:
+            return _mock_download(149.0)
+        return pd.DataFrame()
+
+    with patch("yfinance.download", side_effect=download_side_effect):
+        rate = try_get_exchange_rate("EUR", "JPY")
+
+    assert rate == pytest.approx(1.08 * 149.0, rel=0.01)
+
+
+def test_get_exchange_rate_backward_compat_returns_one_on_failure():
+    """Public get_exchange_rate keeps the legacy 1.0 fallback for existing callers."""
+    with patch("yfinance.download") as mock_dl:
+        mock_dl.side_effect = Exception("network error")
+        assert get_exchange_rate("USD", "EUR") == 1.0

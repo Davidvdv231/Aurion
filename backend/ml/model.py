@@ -419,7 +419,7 @@ class AnalogForecastModel:
         rmse = float(np.sqrt(np.mean(errors_arr**2)))
 
         # MAPE: pointwise |error| / |actual|, skipping zero actuals
-        nonzero = np.abs(actuals_arr) > 0.01
+        nonzero = np.abs(actuals_arr) > 0
         mape = (
             float(np.mean(errors_arr[nonzero] / np.abs(actuals_arr[nonzero]))) * 100
             if np.any(nonzero)

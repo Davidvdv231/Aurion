@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
@@ -9,6 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
+import numpy as np
 import pandas as pd
 import yfinance as yf
 
@@ -163,16 +166,18 @@ def infer_currency(symbol: str, asset_type: AssetType) -> str:
 
 
 def _serialize_close_series(close: pd.Series) -> list[dict[str, Any]]:
-    return [
-        {"date": idx.date().isoformat(), "close": round(float(price), 6)}
-        for idx, price in close.items()
-    ]
+    return [{"date": idx.date().isoformat(), "close": float(price)} for idx, price in close.items()]
 
 
 def _deserialize_close_series(points: list[dict[str, Any]]) -> pd.Series:
     dates = [pd.Timestamp(row["date"]) for row in points]
     values = [float(row["close"]) for row in points]
     return pd.Series(values, index=dates, dtype=float)
+
+
+def _raw_close_column(frame: pd.DataFrame) -> pd.Series:
+    column = frame["Close"]
+    return column.iloc[:, 0] if isinstance(column, pd.DataFrame) else column
 
 
 def _coerce_ohlcv_frame(frame: pd.DataFrame) -> pd.DataFrame | None:
@@ -187,9 +192,9 @@ def _coerce_ohlcv_frame(frame: pd.DataFrame) -> pd.DataFrame | None:
     if "Close" not in columns:
         return None
 
-    ohlcv = pd.DataFrame(columns).sort_index()
+    ohlcv = pd.DataFrame(columns).replace([np.inf, -np.inf], np.nan).sort_index()
     ohlcv = ohlcv[~ohlcv.index.duplicated(keep="last")]
-    close = ohlcv["Close"].dropna()
+    close = ohlcv.loc[ohlcv["Close"] > 0, "Close"].dropna()
     if close.empty:
         return None
 
@@ -197,11 +202,11 @@ def _coerce_ohlcv_frame(frame: pd.DataFrame) -> pd.DataFrame | None:
     ohlcv["Close"] = close.astype(float)
     for name in ("Open", "High", "Low"):
         if name in ohlcv:
-            ohlcv[name] = pd.to_numeric(ohlcv[name], errors="coerce").fillna(close).astype(float)
+            ohlcv[name] = ohlcv[name].where(ohlcv[name] > 0).fillna(close).astype(float)
         else:
             ohlcv[name] = close.astype(float)
     if "Volume" in ohlcv:
-        ohlcv["Volume"] = pd.to_numeric(ohlcv["Volume"], errors="coerce").fillna(0.0).astype(float)
+        ohlcv["Volume"] = ohlcv["Volume"].fillna(0.0).clip(lower=0).astype(float)
     else:
         ohlcv["Volume"] = 0.0
 
@@ -214,11 +219,11 @@ def _serialize_ohlcv_frame(frame: pd.DataFrame) -> list[dict[str, Any]]:
         rows.append(
             {
                 "date": idx.date().isoformat(),
-                "open": round(float(row["Open"]), 6),
-                "high": round(float(row["High"]), 6),
-                "low": round(float(row["Low"]), 6),
-                "close": round(float(row["Close"]), 6),
-                "volume": round(float(row["Volume"]), 6),
+                "open": float(row["Open"]),
+                "high": float(row["High"]),
+                "low": float(row["Low"]),
+                "close": float(row["Close"]),
+                "volume": float(row["Volume"]),
             }
         )
     return rows
@@ -279,36 +284,58 @@ def fetch_close_prices(
             and isinstance(resolved_symbol, str)
             and isinstance(currency, str)
         ):
-            close = _deserialize_close_series(points)
-            ohlcv = (
-                _deserialize_ohlcv_frame(ohlcv_points)
-                if isinstance(ohlcv_points, list) and ohlcv_points
-                else pd.DataFrame({"Close": close}, index=close.index, dtype=float)
-            )
-            stale = _check_staleness(close, asset_type)
-            warnings = list(data_warnings) if isinstance(data_warnings, list) else []
-            if stale and "Data may be stale (last point >3 trading days old)." not in warnings:
-                warnings.append("Data may be stale (last point >3 trading days old).")
-            return MarketSeries(
-                close=close,
-                ohlcv=ohlcv,
-                resolved_symbol=resolved_symbol,
-                currency=currency,
-                source=f"cache:{provider}",
-                data_quality=data_quality
-                if data_quality in {"clean", "patched", "degraded"}
-                else "clean",
-                data_warnings=warnings,
-                stale=stale,
-            )
+            try:
+                close = _deserialize_close_series(points)
+                ohlcv = (
+                    _deserialize_ohlcv_frame(ohlcv_points)
+                    if isinstance(ohlcv_points, list) and ohlcv_points
+                    else pd.DataFrame({"Close": close}, index=close.index, dtype=float)
+                )
+                if (
+                    not np.isfinite(close).all()
+                    or (close <= 0).any()
+                    or close.index.hasnans
+                    or not close.index.is_monotonic_increasing
+                    or close.index.has_duplicates
+                ):
+                    raise ValueError("Invalid cached price observations")
+                if not ohlcv.index.equals(close.index) or not np.isfinite(ohlcv.to_numpy()).all():
+                    raise ValueError("Invalid cached OHLCV observations")
+                stale = _check_staleness(close, asset_type)
+                warnings = list(data_warnings) if isinstance(data_warnings, list) else []
+                if stale and "Data may be stale (last point >3 trading days old)." not in warnings:
+                    warnings.append("Data may be stale (last point >3 trading days old).")
+                return MarketSeries(
+                    close=close,
+                    ohlcv=ohlcv,
+                    resolved_symbol=resolved_symbol,
+                    currency=currency,
+                    source=f"cache:{provider}",
+                    data_quality=data_quality
+                    if data_quality in {"clean", "patched", "degraded"}
+                    else "clean",
+                    data_warnings=warnings,
+                    stale=stale,
+                )
+            except (KeyError, TypeError, ValueError, OverflowError):
+                logger.warning("Ignoring malformed history cache for %s", symbol)
 
     end = datetime.now(timezone.utc)
     lookback_days = 730 if asset_type == "stock" else 540
     start = end - timedelta(days=lookback_days)
     insufficient_history_matches: list[str] = []
     provider_error: Exception | None = None
+    deadline = time.monotonic() + settings.blocking_task_timeout_seconds
 
     for candidate in candidate_symbols(symbol, asset_type=asset_type):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ServiceError(
+                status_code=504,
+                code="market_data_timeout",
+                message="Market data lookup timed out.",
+                retryable=True,
+            )
         try:
             frame = yf.download(
                 candidate,
@@ -317,7 +344,7 @@ def fetch_close_prices(
                 interval="1d",
                 auto_adjust=True,
                 progress=False,
-                timeout=12,
+                timeout=min(12.0, remaining),
             )
         except Exception as exc:
             provider_error = exc
@@ -342,6 +369,17 @@ def fetch_close_prices(
             continue
 
         close, data_quality, data_warnings = _check_ohlcv_integrity(close, candidate)
+        # Days without a close are routine provider gaps; non-positive, infinite or
+        # duplicate observations mean the provider sent bad data.
+        missing_rows = int(_raw_close_column(frame).isna().sum())
+        invalid_rows = len(frame) - len(close) - missing_rows
+        if invalid_rows > 0:
+            data_quality = "degraded"
+            data_warnings.append(f"Removed {invalid_rows} invalid or duplicate price observations.")
+        if missing_rows > 0:
+            if data_quality == "clean":
+                data_quality = "patched"
+            data_warnings.append(f"Dropped {missing_rows} days without a closing price.")
         ohlcv = ohlcv.reindex(close.index).copy()
         ohlcv["Close"] = close
         for name in ("Open", "High", "Low"):
@@ -504,10 +542,14 @@ def resolve_top_assets(
             return cached_items[:limit], f"cache:{cached_source}"
 
     if asset_type == "stock":
-        live_symbols: list[str] = []
-        for region in ("US", "NL", "BE"):
-            live_symbols.extend(_fetch_yahoo_trending(region=region, count=15))
-
+        # Fetch the three trending regions in parallel. Sequentially, three
+        # 6-second urlopen timeouts can exceed the route-level top_assets_timeout
+        # (default 8s) and force a 504 even though one slow region was the only
+        # culprit. Running them concurrently bounds total wall time to ~max(timeouts).
+        regions = ("US", "NL", "BE")
+        with ThreadPoolExecutor(max_workers=len(regions), thread_name_prefix="yfin-trend") as ex:
+            results = list(ex.map(lambda r: _fetch_yahoo_trending(region=r, count=15), regions))
+        live_symbols: list[str] = [sym for chunk in results for sym in chunk]
         live_symbols = list(dict.fromkeys(live_symbols))
         source = "live_yahoo" if live_symbols else "catalog_fallback"
         fallback_symbols = [
@@ -529,10 +571,10 @@ def resolve_top_assets(
             }
             item["source"] = "live_yahoo" if symbol in live_set else "catalog"
             items.append(item)
-            if len(items) >= limit:
+            if len(items) >= 25:
                 break
     else:
-        live_items = _fetch_coingecko_top(count=max(limit, 20))
+        live_items = _fetch_coingecko_top(count=25)
         source = "live_coingecko" if live_items else "catalog_fallback"
 
         live_symbols = [row["symbol"] for row in live_items]
@@ -560,7 +602,7 @@ def resolve_top_assets(
             )
             item["source"] = "live_coingecko" if symbol in live_set else "catalog"
             items.append(item)
-            if len(items) >= limit:
+            if len(items) >= 25:
                 break
 
     cache_backend.set_json(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from collections import OrderedDict
@@ -74,7 +75,7 @@ def train_and_predict(
         lookback,
         backtest_folds,
         use_ohlcv,
-        f"{pd.Timestamp(close.index[-1]).isoformat()}:{float(close.iloc[-1]):.6f}",
+        _data_fingerprint(close, ohlcv if use_ohlcv else None),
     )
     cached_entry = _cache_get(cache_key)
 
@@ -106,3 +107,12 @@ def train_and_predict(
     forecast = model.predict(close, ohlcv, horizon, asset_type=asset_type)
 
     return forecast, metrics
+
+
+def _data_fingerprint(close: pd.Series, ohlcv: pd.DataFrame | None) -> str:
+    """Invalidate models after provider corrections anywhere in their inputs."""
+    digest = hashlib.sha256(pd.util.hash_pandas_object(close, index=True).to_numpy().tobytes())
+    if ohlcv is not None:
+        digest.update(str(tuple(ohlcv.columns)).encode())
+        digest.update(pd.util.hash_pandas_object(ohlcv, index=True).to_numpy().tobytes())
+    return digest.hexdigest()

@@ -100,7 +100,8 @@ class Settings:
     memory_cache_max_items: int
     memory_cache_sweep_batch_size: int
     rate_limit_window_seconds: int
-    rate_limit_max_requests_stat: int
+    rate_limit_max_requests_stat: int  # legacy name; applies to BOTH stat and ml predict buckets
+    rate_limit_max_requests_predict: int  # canonical name (defaults to legacy value)
     rate_limit_max_requests_search: int
     rate_limit_fail_open: bool
     redis_url: str
@@ -149,6 +150,11 @@ def get_settings() -> Settings:
         memory_cache_sweep_batch_size=_int_env("MEMORY_CACHE_SWEEP_BATCH_SIZE", 64, minimum=1),
         rate_limit_window_seconds=_int_env("RATE_LIMIT_WINDOW_SECONDS", 60, minimum=1),
         rate_limit_max_requests_stat=_int_env("RATE_LIMIT_MAX_REQUESTS_STAT", 30, minimum=0),
+        rate_limit_max_requests_predict=_int_env(
+            "RATE_LIMIT_MAX_REQUESTS_PREDICT",
+            _int_env("RATE_LIMIT_MAX_REQUESTS_STAT", 30, minimum=0),
+            minimum=0,
+        ),
         rate_limit_max_requests_search=_int_env("RATE_LIMIT_MAX_REQUESTS_SEARCH", 60, minimum=0),
         rate_limit_fail_open=_bool_env(
             "RATE_LIMIT_FAIL_OPEN",
