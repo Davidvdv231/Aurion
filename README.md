@@ -68,7 +68,7 @@ flowchart TD
 | Forecasting approach | Multi-engine with quality gating | More complex orchestration, but honest about prediction quality |
 | ML model | k-NN analog pattern matching | Simple and interpretable, but limited expressiveness vs. deep learning |
 | Frontend framework | Vanilla JS PWA | Zero build step, instant deployment, but no component reuse |
-| Rate limiting | Redis-backed with Lua atomic ops | Fail-closed in production (Redis failure = 503), fail-open in development (no limiting) |
+| Rate limiting | Redis-backed with Lua atomic ops | Fail-closed in production (Redis failure = 503); bounded in-memory fallback in development |
 | Caching | Dual-layer (memory + Redis) | Fast reads with persistence, but cache invalidation complexity |
 | Currency conversion | Server-side via yfinance forex pairs | Real-time rates with 1-hour cache, supports USD/EUR/GBP/JPY/CHF/CAD/AUD |
 | Request tracing | Request-ID middleware with sanitization | Every request gets a traceable ID in logs and response headers |
@@ -213,7 +213,8 @@ git clone https://github.com/Davidvdv231/Aurion.git
 cd Aurion
 
 # Run with Docker (includes Redis)
-docker-compose -f infra/docker-compose.yml up --build
+cp .env.example .env
+docker compose -f infra/docker-compose.yml up --build
 
 # Verify
 curl http://localhost:8000/api/health
@@ -232,9 +233,12 @@ curl -X POST http://localhost:8000/api/predict \
 For local development without Docker:
 
 ```bash
-# Run from the repository root: the code imports the `backend` package
-pip install --require-hashes -r requirements-dev.lock
-uvicorn backend.app:create_app --factory --reload
+# Run from the repository root with Python 3.12: the code imports the `backend` package
+python -m venv .venv
+# Activate: source .venv/bin/activate (Windows: .venv\Scripts\Activate.ps1)
+python -m pip install --require-hashes -r requirements-dev.lock
+# Aurion validates client IPs itself, so Uvicorn must not rewrite them from proxy headers
+python -m uvicorn backend.app:create_app --factory --reload --no-proxy-headers
 ```
 
 Dependencies are locked: `backend/requirements.lock` (what Docker installs) and `requirements-dev.lock` (backend plus tooling, what CI installs) pin every transitive package with hashes. To change a dependency, edit `backend/requirements.txt` or `requirements-dev.txt` and run `make lock`; CI fails if the lockfiles are out of date.
@@ -259,8 +263,10 @@ python -m ruff check backend tests
 # Formatting
 python -m ruff format --check backend tests
 
-# Mobile type checking
-cd mobile && npm run typecheck
+# Mobile checks (from repository root)
+npm --prefix mobile ci
+npm --prefix mobile run typecheck
+npm --prefix mobile test
 
 # Frontend smoke test (requires Playwright browser install once)
 python -m playwright install --with-deps chromium
@@ -271,7 +277,11 @@ python -m pytest tests/test_frontend_smoke.py -q
 MOBILE_WEB_EXPORT_DIR=build/mobile-web python -m pytest tests/test_mobile_web_smoke.py -q
 ```
 
-The test suite covers API contracts, prediction orchestration, ML pipeline behavior, rate limiting, exchange rates, config, smoke integration, and browser-based smoke paths for the web app and for the Expo mobile app's web build (guest flow, live API data, crypto forecast). CI also type-checks the mobile client and audits both lockfiles.
+The test suite covers API contracts, prediction orchestration, ML pipeline behavior, rate limiting, exchange rates, config, smoke integration, and browser-based smoke paths for the web app and for the Expo mobile app's web build (guest flow, live API data, crypto forecast). It also covers input validation, proxy spoofing, timeouts, corrupt market data, small crypto prices, ML cache invalidation, storage failures, keyboard interaction, stale responses and offline PWA use. Browser tests use deterministic market data and do not depend on live feeds. Tests isolate the developer's `.env`.
+
+CI also type-checks the mobile client, runs its request/storage/formatting tests, audits both Python lockfiles, and blocks critical mobile npm advisories. High and moderate mobile advisories remain in the Expo toolchain; see [the engineering audit](docs/ENGINEERING_AUDIT.md). Passing CI does not mean those advisories are resolved.
+
+See [deployment and operations](docs/OPERATIONS.md) for proxy trust, tokens, timeout budgets, container settings and known validation gaps.
 
 ## Tech Stack
 
@@ -291,18 +301,18 @@ The test suite covers API contracts, prediction orchestration, ML pipeline behav
 - **ML model is k-NN analog** — simple by design, not a deep learning system. Effective for pattern matching, limited for complex market dynamics.
 - **Market data via yfinance** — free and functional, but not a production-grade feed. Rate limits and data gaps may occur.
 - **No persistent storage** — models and cache reset on container restart. No user database.
-- **No user authentication** — stateless API, no multi-tenancy or user sessions. Operational endpoints (`/api/metrics`, `/api/validation-summary`) can be protected via the `METRICS_TOKEN` env var.
+- **No user authentication** — stateless API, no multi-tenancy or user sessions. All three operational endpoints require `METRICS_TOKEN` in production; without it they return 503. Development access remains optional.
 - **Mobile charting is lightweight** — the mobile app now renders a native forecast/history chart, but it is still less feature-rich than the web charting experience.
 - **Mobile fallback mode is demo-only** — when the live API is unavailable, the app now labels demo data explicitly instead of pretending it is live.
-- **Single-process deployment** — no horizontal scaling or distributed training.
+- **Process-local models and metrics** — Kubernetes templates support multiple replicas, with Redis-backed shared rate limiting. Model training, memory caches and metrics remain local to each process.
 
 ## Engineering Trade-offs
 
 - **Vanilla JS PWA over React/Vue** — zero build step means instant deployment and no framework churn, at the cost of no component reuse or state management.
 - **k-NN analog over deep learning** — interpretable, fast to train on-demand, and honest about its limitations. Deep learning would need a training pipeline, GPU infra, and would be harder to explain.
 - **In-memory metrics with Prometheus export** — lightweight counters with a `/api/metrics/prometheus` endpoint for external scraping. No full Prometheus client dependency.
-- **Statistical fallback always available** — guarantees every request gets a response, but the stat forecast is basic (log-linear regression + volatility bands).
-- **Fail-closed rate limiting in production** — one Redis failure means 503 for everyone, but prevents abuse. Development mode is fail-open.
+- **Statistical fallback for ML failure** — ML failures use an already-computed baseline. Missing/invalid market data or an exhausted calculation budget still return an explicit API error.
+- **Fail-closed rate limiting in production** — Redis failure yields 503 on protected market endpoints. Development falls back to bounded in-memory limiting when enabled.
 - **Thread pool for blocking tasks** — avoids blocking the async event loop, but adds concurrency limits (8 workers default).
 
 ## Project Status
