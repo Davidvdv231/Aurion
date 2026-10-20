@@ -54,6 +54,7 @@ export function HomeScreen({ navigation }: Props) {
       setResults([]);
       setResultsFallback(false);
       setLoading(false);
+      setResultsMessage("");
       return;
     }
 

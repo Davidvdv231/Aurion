@@ -1,71 +1,80 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 
 import type { AssetType } from "@/api/types";
 import { createAsyncStorageAdapter } from "@/storage/storage";
-
-export interface WatchlistItem {
-  symbol: string;
-  name: string;
-  assetType: AssetType;
-  addedAt: string;
-}
+import { createOrderedWriter, parseWatchlist, type WatchlistItem } from "@/storage/watchlist";
+export type { WatchlistItem } from "@/storage/watchlist";
 
 interface WatchlistContextValue {
   items: WatchlistItem[];
   ready: boolean;
-  isSaved: (symbol: string) => boolean;
+  error: string | null;
+  isSaved: (symbol: string, assetType?: AssetType) => boolean;
   toggle: (item: Omit<WatchlistItem, "addedAt">) => Promise<void>;
-  remove: (symbol: string) => Promise<void>;
+  remove: (symbol: string, assetType?: AssetType) => Promise<void>;
   clear: () => Promise<void>;
 }
 
 const key = "watchlist-v1";
 const storage = createAsyncStorageAdapter();
+const write = createOrderedWriter(value => storage.setItem(key, value));
 const WatchlistContext = createContext<WatchlistContextValue | null>(null);
 
 export function WatchlistProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<WatchlistItem[]>([]);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const currentItems = useRef<WatchlistItem[]>([]);
 
   useEffect(() => {
+    let active = true;
     storage
       .getItem(key)
       .then((value) => {
-        if (!value) {
-          setReady(true);
-          return;
-        }
-        setItems(JSON.parse(value) as WatchlistItem[]);
-        setReady(true);
+        if (!active) return;
+        currentItems.current = parseWatchlist(value);
+        setItems(currentItems.current);
       })
-      .catch(() => setReady(true));
+      .catch(() => { if (active) setError("Saved watchlist could not be loaded."); })
+      .finally(() => { if (active) setReady(true); });
+    return () => { active = false; };
   }, []);
 
   const persist = async (nextItems: WatchlistItem[]) => {
+    if (!ready) return;
+    if (nextItems.length > 100) { setError("Watchlist is full. Remove an asset first."); return; }
+    currentItems.current = nextItems;
     setItems(nextItems);
-    await storage.setItem(key, JSON.stringify(nextItems));
+    try {
+      await write(JSON.stringify(nextItems));
+      setError(null);
+    } catch {
+      setError("Watchlist changes are available for this session, but could not be saved.");
+    }
   };
 
   const value: WatchlistContextValue = {
     items,
     ready,
-    isSaved: (symbol: string) => items.some((item) => item.symbol === symbol),
+    error,
+    isSaved: (symbol, assetType) => items.some((item) => item.symbol === symbol && (!assetType || item.assetType === assetType)),
     toggle: async (item) => {
-      const exists = items.some((entry) => entry.symbol === item.symbol);
+      const latest = currentItems.current;
+      const exists = latest.some((entry) => entry.symbol === item.symbol && entry.assetType === item.assetType);
       if (exists) {
-        await persist(items.filter((entry) => entry.symbol !== item.symbol));
+        await persist(latest.filter((entry) => entry.symbol !== item.symbol || entry.assetType !== item.assetType));
         return;
       }
       await persist([
-        ...items,
+        ...latest,
         {
           ...item,
           addedAt: new Date().toISOString(),
         },
       ]);
     },
-    remove: async (symbol) => {
-      await persist(items.filter((entry) => entry.symbol !== symbol));
+    remove: async (symbol, assetType) => {
+      await persist(currentItems.current.filter((entry) => entry.symbol !== symbol || (assetType && entry.assetType !== assetType)));
     },
     clear: async () => {
       await persist([]);

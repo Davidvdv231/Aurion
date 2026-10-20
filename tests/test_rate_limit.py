@@ -7,7 +7,21 @@ from fastapi.testclient import TestClient
 from redis.exceptions import RedisError
 
 from backend.app import create_app
+from backend.services.rate_limit import InMemoryRateLimiter
 from backend.services.redis_health import RedisFailureTracker
+
+
+def test_memory_limiter_expires_idle_clients_and_does_not_evict_active_limits(monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr("backend.services.rate_limit.time.monotonic", lambda: clock[0])
+    limiter = InMemoryRateLimiter(max_buckets=2)
+    assert limiter.allow_request("one", 60, 1)
+    assert limiter.allow_request("two", 60, 1)
+    assert not limiter.allow_request("three", 60, 1)
+    assert not limiter.allow_request("one", 60, 1)
+    clock[0] = 60.0
+    assert limiter.allow_request("three", 60, 1)
+    assert len(limiter._buckets) == 1
 
 
 class _HealthyRedis:

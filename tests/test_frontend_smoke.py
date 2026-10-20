@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.request import urlopen
 
 import pytest
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_EXE = os.environ.get("PYTHON", sys.executable)
@@ -133,7 +133,9 @@ def live_server() -> str:
             PYTHON_EXE,
             "-m",
             "uvicorn",
-            "backend.app:app",
+            "browser_server:app",
+            "--app-dir",
+            str(ROOT / "tests"),
             "--host",
             "127.0.0.1",
             "--port",
@@ -146,7 +148,11 @@ def live_server() -> str:
     )
 
     try:
-        deadline = time.time() + 30
+        # Cold-starting uvicorn in a subprocess can take 15–25s on slow or
+        # contended machines (pandas/yfinance import). 60s is the generous
+        # ceiling we're willing to wait before declaring a real failure; the
+        # previous 30s used to race-lose on Windows.
+        deadline = time.time() + 60
         while time.time() < deadline:
             try:
                 with urlopen(f"{BASE_URL}/api/health", timeout=2):
@@ -280,6 +286,30 @@ def test_missing_chart_library_shows_friendly_error(page) -> None:
 
     assert current_page.locator("[data-testid='chart-fallback']").is_visible()
     assert current_page.locator("[data-testid='chart-fallback']").text_content().strip() != ""
+
+
+def test_forecast_without_history_keeps_the_forecast_and_skips_the_chart(page) -> None:
+    current_page, _ = page
+    _mock_top_assets(current_page)
+    current_page.route(
+        "**/api/predict",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({**SUCCESS_PREDICTION, "history": []}),
+        ),
+    )
+
+    current_page.goto("/", wait_until="domcontentloaded")
+    current_page.click("[data-testid='predict-submit']")
+    current_page.wait_for_selector("[data-testid='signal-card']:not([hidden])")
+
+    expect(current_page.locator("[data-testid='chart-fallback']")).to_contain_text(
+        "No price history"
+    )
+    assert current_page.locator("#forecast-table-body tr").count() == len(
+        SUCCESS_PREDICTION["forecast"]
+    )
 
 
 def test_fallback_explanation_is_visible_and_honestly_labeled(page) -> None:
@@ -463,3 +493,192 @@ def test_suggestions_stay_closed_after_a_quick_submit(page) -> None:
     current_page.wait_for_timeout(500)
 
     assert current_page.locator("#ticker-suggestions").is_hidden()
+
+
+@pytest.mark.parametrize("stored", ["{}", '[null,{"symbol":"AAPL"}]', '"wrong"'])
+def test_corrupt_preferences_do_not_break_app(page, stored):
+    current_page, _ = page
+    _mock_top_assets(current_page)
+    errors = []
+    current_page.on("pageerror", lambda error: errors.append(str(error)))
+    current_page.add_init_script(
+        f"localStorage.setItem('aurion-watchlist', {json.dumps(stored)}); localStorage.setItem('aurion-currency', '\"invalid');"
+    )
+    current_page.goto("/", wait_until="load")
+    expect(current_page.locator("#top-assets .chip-btn")).to_have_count(1)
+    assert not errors
+
+
+def test_unavailable_storage_keeps_core_flow_working(page):
+    current_page, _ = page
+    _mock_top_assets(current_page)
+    current_page.add_init_script(
+        "Storage.prototype.getItem = () => { throw new Error('blocked'); }; Storage.prototype.setItem = () => { throw new Error('quota'); };"
+    )
+    current_page.route("**/api/predict", lambda route: route.fulfill(json=SUCCESS_PREDICTION))
+    current_page.goto("/", wait_until="load")
+    current_page.click("#theme-toggle")
+    current_page.click("#submit-btn")
+    expect(current_page.locator("#signal-symbol")).to_have_text("AAPL")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        None,
+        {},
+        {
+            **SUCCESS_PREDICTION,
+            "forecast": [{"date": "2026-01-06", "predicted": None, "lower": 1, "upper": 2}],
+        },
+    ],
+)
+def test_invalid_success_payload_is_reported_without_fabricated_forecast(page, payload):
+    current_page, _ = page
+    _mock_top_assets(current_page)
+    current_page.route(
+        "**/api/predict",
+        lambda route: route.fulfill(content_type="application/json", body=json.dumps(payload)),
+    )
+    current_page.goto("/")
+    current_page.click("#submit-btn")
+    expect(current_page.locator("#status")).to_contain_text("invalid forecast", ignore_case=True)
+    expect(current_page.locator("#signal-card")).to_be_hidden()
+
+
+def test_market_change_cancels_pending_prediction(page):
+    current_page, _ = page
+    _mock_top_assets(current_page)
+    current_page.route("**/api/predict", lambda route: route.fulfill(json=SUCCESS_PREDICTION))
+    current_page.goto("/")
+    # Delay delivery without relying on server timing or browser request cancellation.
+    current_page.evaluate("""() => {
+      const original = window.fetch;
+      window.fetch = async (url, init) => {
+        const response = await original(url, init);
+        if (url === '/api/predict') await new Promise(resolve => { window.releasePrediction = resolve; });
+        return response;
+      };
+    }""")
+    current_page.click("#submit-btn")
+    # Function predicates: string predicates are eval'd while polling, which the app's CSP blocks.
+    current_page.wait_for_function("() => typeof window.releasePrediction === 'function'")
+    current_page.click("#asset-type-control [data-value='crypto']")
+    current_page.evaluate("window.releasePrediction()")
+    expect(current_page.locator("#submit-btn")).to_be_enabled()
+    expect(current_page.locator("#signal-card")).to_be_hidden()
+    expect(current_page.locator("#symbol")).to_have_value("BTC")
+
+
+def test_watchlist_remove_is_keyboard_accessible(page):
+    current_page, _ = page
+    _mock_top_assets(current_page)
+    current_page.add_init_script(
+        "localStorage.setItem('aurion-watchlist', JSON.stringify([{symbol:'AAPL',asset_type:'stock'}]));"
+    )
+    current_page.goto("/")
+    remove = current_page.get_by_role("button", name="Remove AAPL stock from watchlist", exact=True)
+    remove.focus()
+    current_page.keyboard.press("Enter")
+    expect(current_page.locator("#watchlist-items")).to_contain_text("Nothing saved yet")
+
+
+def test_data_quality_warnings_are_visible_on_mobile(page):
+    current_page, _ = page
+    current_page.set_viewport_size({"width": 360, "height": 800})
+    _mock_top_assets(current_page)
+    prediction = {
+        **SUCCESS_PREDICTION,
+        "source": {
+            **SUCCESS_PREDICTION["source"],
+            "stale": True,
+            "data_warnings": ["Currency conversion unavailable; prices shown in USD."],
+        },
+    }
+    current_page.route("**/api/predict", lambda route: route.fulfill(json=prediction))
+    current_page.goto("/")
+    current_page.click("#submit-btn")
+    expect(current_page.locator("#data-warnings")).to_contain_text(
+        "Currency conversion unavailable"
+    )
+    expect(current_page.locator("#data-warnings")).to_contain_text("stale")
+    assert current_page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+
+
+@pytest.mark.parametrize("market", ["stock", "crypto"])
+def test_real_api_to_browser_forecast(page, market):
+    current_page, _ = page
+    current_page.goto("/", wait_until="load")
+    current_page.click(f"#asset-type-control [data-value='{market}']")
+    current_page.click("#engine-control [data-value='stat']")
+    current_page.click("#submit-btn")
+    expect(current_page.locator("#signal-symbol")).to_have_text(
+        "BTC" if market == "crypto" else "AAPL"
+    )
+    expect(current_page.locator("#source-badge")).to_contain_text("cache:test-fixture / stat")
+    expect(current_page.locator("#stock-chart")).to_be_visible()
+    assert current_page.locator("#metric-price").text_content() != "$0.00"
+    if market == "stock":
+        output = ROOT / ".tmp"
+        output.mkdir(exist_ok=True)
+        current_page.screenshot(path=str(output / "audit-desktop.png"), full_page=True)
+        current_page.set_viewport_size({"width": 360, "height": 800})
+        # The chart canvas shrinks on its next resize callback, not synchronously. Use a
+        # function predicate: string predicates are eval'd while polling, which the CSP blocks.
+        current_page.wait_for_function(
+            "() => document.documentElement.scrollWidth <= innerWidth", timeout=5000
+        )
+        current_page.screenshot(path=str(output / "audit-mobile.png"), full_page=True)
+
+
+def test_service_worker_preserves_other_app_caches(page):
+    current_page, _ = page
+    current_page.goto("/", wait_until="load")
+    current_page.evaluate(
+        "() => navigator.serviceWorker.ready.then(() => caches.open('another-app-v1'))"
+    )
+    current_page.evaluate("""async () => {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map(registration => registration.unregister()));
+        await navigator.serviceWorker.register('/sw.js?test-activation');
+        await navigator.serviceWorker.ready;
+    }""")
+    assert current_page.evaluate("() => caches.has('another-app-v1')")
+
+
+# A first visit (no controller at load) that later finds a waiting update. A fake
+# service-worker container lets the test fire controllerchange on demand.
+FAKE_FIRST_VISIT_WITH_WAITING_UPDATE = """
+(() => {
+  const listeners = [];
+  const worker = { postMessage: (message) => { window.__swMessages.push(message.type); } };
+  window.__swMessages = [];
+  window.__fireControllerChange = () => listeners.forEach((listener) => listener());
+  Object.defineProperty(navigator, "serviceWorker", {
+    configurable: true,
+    value: {
+      controller: null,
+      register: () => Promise.resolve({ waiting: worker, installing: null, addEventListener() {} }),
+      addEventListener: (type, listener) => { if (type === "controllerchange") listeners.push(listener); },
+    },
+  });
+})();
+"""
+
+
+def test_update_accepted_during_a_first_visit_reloads_the_page(page):
+    current_page, _ = page
+    _mock_top_assets(current_page)
+    current_page.add_init_script(FAKE_FIRST_VISIT_WITH_WAITING_UPDATE)
+    current_page.goto("/", wait_until="load")
+    expect(current_page.locator("#sw-update-banner")).to_be_visible()
+
+    # The first install claiming the page is expected and must not reload it.
+    current_page.evaluate("window.__stayedOnPage = true; window.__fireControllerChange()")
+    current_page.wait_for_timeout(300)
+    assert current_page.evaluate("window.__stayedOnPage === true")
+
+    current_page.click("#sw-update-reload")
+    assert current_page.evaluate("window.__swMessages") == ["SKIP_WAITING"]
+    with current_page.expect_navigation():
+        current_page.evaluate("window.__fireControllerChange()")

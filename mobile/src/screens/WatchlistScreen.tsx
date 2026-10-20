@@ -6,6 +6,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { AssetRow } from "@/components/AssetRow";
 import { Masthead } from "@/components/Masthead";
+import { Note } from "@/components/Note";
 import { SectionHeader } from "@/components/SectionHeader";
 import { useWatchlist } from "@/context/WatchlistContext";
 import type { MainTabParamList, RootStackParamList } from "@/navigation/types";
@@ -18,7 +19,7 @@ type Props = CompositeScreenProps<
 >;
 
 export function WatchlistScreen({ navigation }: Props) {
-  const { items, clear, remove, ready } = useWatchlist();
+  const { items, clear, remove, ready, error } = useWatchlist();
   const styles = useStyles();
 
   return (
@@ -38,6 +39,8 @@ export function WatchlistScreen({ navigation }: Props) {
           }
         />
 
+        {error ? <Note tone="warning">{error}</Note> : null}
+
         <View style={styles.list}>
           {items.length === 0 ? (
             <Text style={styles.empty}>
@@ -46,7 +49,7 @@ export function WatchlistScreen({ navigation }: Props) {
           ) : (
             items.map((item) => (
               <AssetRow
-                key={item.symbol}
+                key={`${item.assetType}:${item.symbol}`}
                 symbol={item.symbol}
                 name={item.name}
                 meta={item.assetType === "crypto" ? "Crypto" : "Stock"}
@@ -60,9 +63,9 @@ export function WatchlistScreen({ navigation }: Props) {
                 }
                 trailing={
                   <Pressable
-                    onPress={() => remove(item.symbol)}
+                    onPress={() => remove(item.symbol, item.assetType)}
                     accessibilityRole="button"
-                    accessibilityLabel={`Remove ${item.symbol} from the watchlist`}
+                    accessibilityLabel={`Remove ${item.symbol} ${item.assetType} from the watchlist`}
                     hitSlop={8}
                     style={styles.remove}
                   >

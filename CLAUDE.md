@@ -30,7 +30,7 @@ The mobile smoke test needs a fresh Expo web export of the current code. Without
 MOBILE_WEB_EXPORT_DIR=build/mobile-web python -m pytest tests/test_mobile_web_smoke.py -q
 ```
 
-Run the app with `uvicorn backend.app:create_app --factory --reload`. It serves the PWA at http://localhost:8000.
+Run the app with `python -m uvicorn backend.app:create_app --factory --reload --no-proxy-headers`. It serves the PWA at http://localhost:8000. Keep `--no-proxy-headers`: Aurion parses the trusted proxy chain itself.
 
 ## The prediction contract
 

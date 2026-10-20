@@ -63,6 +63,7 @@ export interface ForecastOptions {
   horizon?: number;
   engine?: ForecastEngine;
   displayCurrency?: SupportedCurrency;
+  signal?: AbortSignal;
 }
 
 export interface ForecastResult {
@@ -76,12 +77,13 @@ export async function loadForecast(
   assetType: AssetType,
   options: ForecastOptions = {},
 ): Promise<ForecastResult> {
-  const { horizon = 7, engine = defaultEngineFor(assetType), displayCurrency } = options;
+  const { horizon = 7, engine = defaultEngineFor(assetType), displayCurrency, signal } = options;
   try {
-    return { data: await api.predict(symbol, assetType, horizon, engine, displayCurrency), isDemo: false };
+    return { data: await api.predict(symbol, assetType, horizon, engine, displayCurrency, signal), isDemo: false };
   } catch (error: unknown) {
+    if (signal?.aborted) throw error;
     return {
-      data: getDemoForecast(symbol, assetType, displayCurrency, engine),
+      data: getDemoForecast(symbol, assetType, displayCurrency, engine, horizon),
       isDemo: true,
       reason: fallbackReason(error, "Forecast endpoint is unavailable."),
     };

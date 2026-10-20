@@ -139,7 +139,10 @@ def test_train_and_predict_cache_separates_models_by_horizon() -> None:
     assert len(forecast_long.dates) == 30
 
 
-def test_train_and_predict_cache_invalidates_when_latest_observation_changes(monkeypatch) -> None:
+@pytest.mark.parametrize("column, position", [("Close", -1), ("Close", 20), ("Volume", 20)])
+def test_train_and_predict_cache_invalidates_when_observations_change(
+    monkeypatch, column, position
+) -> None:
     df = _synthetic_ohlcv(rows=260)
     close = df["Close"]
     backtest_calls = 0
@@ -152,8 +155,9 @@ def test_train_and_predict_cache_invalidates_when_latest_observation_changes(mon
 
     monkeypatch.setattr(AnalogForecastModel, "backtest", counted_backtest)
 
-    mutated_close = close.copy()
-    mutated_close.iloc[-1] = mutated_close.iloc[-1] + 5.0
+    mutated_df = df.copy()
+    mutated_df.iloc[position, mutated_df.columns.get_loc(column)] += 5.0
+    mutated_close = mutated_df["Close"]
 
     with ml_service._model_lock:
         ml_service._model_cache.clear()
@@ -174,7 +178,7 @@ def test_train_and_predict_cache_invalidates_when_latest_observation_changes(mon
             close=mutated_close,
             horizon=7,
             asset_type="stock",
-            ohlcv=df.assign(Close=mutated_close),
+            ohlcv=mutated_df,
             n_neighbors=15,
             lookback=45,
             backtest_folds=2,

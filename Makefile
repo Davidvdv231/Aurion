@@ -2,7 +2,7 @@
 
 # Development
 dev:
-	uvicorn backend.app:create_app --factory --reload --port 8000
+	python -m uvicorn backend.app:create_app --factory --reload --port 8000 --no-proxy-headers
 
 # Testing
 test:

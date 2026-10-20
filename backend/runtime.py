@@ -37,7 +37,19 @@ class BlockingTaskRunner:
 
     async def run(self, func: Callable[[], T], *, timeout_seconds: float) -> T:
         semaphore = self._semaphore()
+        loop = asyncio.get_running_loop()
         future: Future[T] | None = None
+
+        def _release_semaphore_threadsafe(_fut: Future[T]) -> None:
+            # The done-callback fires in the executor's worker thread (or in the
+            # current thread if the future is already complete). asyncio.Semaphore
+            # is documented as NOT thread-safe, so we always hop back to the
+            # event loop before touching it. Swallow the (rare) "loop closed"
+            # case during shutdown — by then nobody is waiting on the semaphore.
+            try:
+                loop.call_soon_threadsafe(semaphore.release)
+            except RuntimeError:
+                pass
 
         async def _submit_and_wait() -> T:
             nonlocal future
@@ -47,7 +59,7 @@ class BlockingTaskRunner:
             except BaseException:
                 semaphore.release()
                 raise
-            future.add_done_callback(lambda _: semaphore.release())
+            future.add_done_callback(_release_semaphore_threadsafe)
             return await asyncio.wrap_future(future)
 
         try:

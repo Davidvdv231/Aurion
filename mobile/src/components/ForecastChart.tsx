@@ -71,7 +71,8 @@ export function ForecastChart({
     ];
     const rawMin = Math.min(...values);
     const rawMax = Math.max(...values);
-    const pad = Math.max((rawMax - rawMin) * 0.06, Math.abs(rawMax) * 0.002, 0.01);
+    // Scale-relative padding only: an absolute floor such as 0.01 flattens sub-cent assets.
+    const pad = Math.max((rawMax - rawMin) * 0.06, Math.abs(rawMax) * 0.002, Number.EPSILON);
     const min = rawMin - pad;
     const max = rawMax + pad;
     const plotWidth = width - PAD_RIGHT;

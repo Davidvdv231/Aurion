@@ -1189,6 +1189,51 @@ button {
   color: var(--ink-3);
 }
 
+/* ---------- Service worker update banner (stays until the user reloads) ---------- */
+
+.sw-update-banner {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 12px 10px 16px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 0.875rem;
+  color: var(--ink);
+}
+
+.sw-update-banner[hidden] {
+  display: none;
+}
+
+.sw-update-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.sw-update-btn {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  font-weight: 600;
+}
+
+.sw-update-btn:disabled {
+  cursor: progress;
+  opacity: 0.85;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

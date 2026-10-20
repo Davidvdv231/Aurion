@@ -100,6 +100,9 @@ class CacheBackend:
         return f"{self._prefix}:cache:{key}"
 
     def get_json(self, key: str) -> Any | None:
+        local = self._memory.get(key)
+        if local is not None:
+            return local
         if self._redis is not None:
             try:
                 raw = self._redis.get(self._namespaced(key))
@@ -117,7 +120,7 @@ class CacheBackend:
                             "Ignoring invalid JSON payload in Redis cache for key=%s", key
                         )
 
-        return self._memory.get(key)
+        return None
 
     def set_json(self, key: str, value: Any, ttl_seconds: int) -> None:
         self._memory.set(key, value, ttl_seconds)

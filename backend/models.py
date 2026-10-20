@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -46,11 +47,12 @@ class PredictionSummary(ApiModel):
 class PredictionEvaluation(ApiModel):
     """Backtest of the forecast that is returned, on its own validation windows."""
 
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     mae: float | None = None
     rmse: float | None = None
     mape: float | None = None
-    directional_accuracy: float | None = None
-    validation_windows: int | None = None
+    directional_accuracy: float | None = Field(default=None, ge=0, le=1)
+    validation_windows: int | None = Field(default=None, ge=0)
     # MAPE of holding the last close flat over the same windows.
     no_change_mape: float | None = None
     beats_no_change: bool | None = None
@@ -101,7 +103,7 @@ class PredictRequest(ApiModel):
     @classmethod
     def validate_symbol(cls, value: str) -> str:
         normalized = value.strip().upper()
-        if not normalized or not normalized.isascii() or " " in normalized:
+        if re.fullmatch(r"[A-Z0-9^][A-Z0-9.^=_-]*", normalized) is None:
             raise ValueError("Invalid ticker symbol.")
         return normalized
 

@@ -41,11 +41,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value: AuthContextValue = {
     status,
     enterAsGuest: async () => {
-      await storage.setItem(guestKey, "true");
+      await storage.setItem(guestKey, "true").catch(() => {});
       setStatus("guest");
     },
     resetOnboarding: async () => {
-      await storage.removeItem(guestKey);
+      await storage.removeItem(guestKey).catch(() => {});
       setStatus("onboarding");
     },
   };

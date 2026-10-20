@@ -37,7 +37,23 @@ class _JsonFormatter(logging.Formatter):
             "msg": record.getMessage(),
         }
         for key, value in record.__dict__.items():
-            if key.startswith("prediction_") or key == "request_id":
+            if key.startswith("prediction_") or key in {
+                "request_id",
+                "app_env",
+                "is_production",
+                "redis_configured",
+                "rate_limit_fail_open",
+                "executor_workers",
+                "boot_ms",
+                "detail",
+                "ml_min_validation_windows",
+                "ml_min_directional_accuracy",
+                "ml_max_mape_vs_baseline",
+                "from",
+                "to",
+                "rate",
+                "source",
+            }:
                 entry[key] = value
         if record.exc_info and record.exc_info[0] is not None:
             entry["exc"] = self.formatException(record.exc_info)
@@ -61,8 +77,20 @@ FRONTEND_SHELL_ASSETS = {
 }
 
 
+# Template/placeholder values that must be overridden before production boot.
+_TEMPLATE_CORS_ORIGINS = frozenset(
+    {
+        "https://your-domain.example",
+        "http://your-domain.example",
+        "https://aurion.example.com",
+        "http://aurion.example.com",
+    }
+)
+_TEMPLATE_METRICS_TOKENS = frozenset({"replace-me", "changeme", "change-me", "example-token"})
+
+
 def _validate_environment(settings) -> None:
-    """Log environment configuration status at startup."""
+    """Log environment configuration status at startup and fail-fast on unsafe production config."""
     _logger = logging.getLogger("stock_predictor.app")
     _logger.info(
         "environment.config",
@@ -79,7 +107,7 @@ def _validate_environment(settings) -> None:
             "production.redis_required",
             extra={"detail": "REDIS_URL is required in production"},
         )
-    # --- Production-specific warnings ---
+    # --- Production-specific warnings and hard failures ---
     if settings.is_production:
         if "*" in settings.cors_allow_origins:
             _logger.warning(
@@ -87,6 +115,23 @@ def _validate_environment(settings) -> None:
                 extra={
                     "detail": "CORS allows wildcard origins in production — restrict to explicit domains"
                 },
+            )
+        # Fail-fast: unreplaced deploy-time templates must not reach production.
+        template_origins = [
+            origin
+            for origin in settings.cors_allow_origins
+            if origin.lower().rstrip("/") in _TEMPLATE_CORS_ORIGINS
+        ]
+        if template_origins:
+            raise RuntimeError(
+                "Production refuses to start with unreplaced CORS template origins: "
+                + ", ".join(template_origins)
+                + ". Set CORS_ALLOW_ORIGINS to your real deploy domain(s)."
+            )
+        if settings.metrics_token and settings.metrics_token.lower() in _TEMPLATE_METRICS_TOKENS:
+            raise RuntimeError(
+                "Production refuses to start with a placeholder METRICS_TOKEN "
+                f"({settings.metrics_token!r}). Generate a real secret."
             )
         if MAX_REQUEST_BODY_BYTES > 5 * 1024 * 1024:
             _logger.warning(
@@ -114,6 +159,8 @@ def _normalized_validation_issues(exc: RequestValidationError) -> list[dict]:
     issues: list[dict] = []
     for issue in exc.errors():
         normalized = dict(issue)
+        # Do not echo arbitrary bodies (or NaN values) into error responses.
+        normalized.pop("input", None)
         context = normalized.get("ctx")
         if isinstance(context, dict):
             normalized["ctx"] = {
@@ -127,6 +174,10 @@ def _normalized_validation_issues(exc: RequestValidationError) -> list[dict]:
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
+        return self.apply_headers(request, response)
+
+    @staticmethod
+    def apply_headers(request: Request, response: Response) -> Response:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
@@ -149,7 +200,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             # The app shell uses stable filenames, so long-lived caching can pin a broken bundle.
             response.headers["Cache-Control"] = "no-cache"
         elif path.endswith((".css", ".js", ".webmanifest")):
-            if get_settings().is_production:
+            if request.app.state.settings.is_production:
                 response.headers["Cache-Control"] = (
                     "public, max-age=3600, stale-while-revalidate=86400"
                 )
@@ -252,18 +303,20 @@ def create_app() -> FastAPI:
             cache: CacheBackend | None = getattr(app.state, "cache_backend", None)
             if cache is not None:
                 await cache.close()
+            app.state.rate_limiter.close()
             logger.info("shutdown.complete")
 
     app = FastAPI(title=settings.app_title, version=settings.version, lifespan=lifespan)
     app.add_middleware(GZipMiddleware, minimum_size=500)
-    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestSizeLimitMiddleware, max_body_bytes=MAX_REQUEST_BODY_BYTES)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_allow_origins),
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
+        expose_headers=["X-Request-Id", "Retry-After"],
     )
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestIdMiddleware)
 
     @app.exception_handler(ServiceError)
@@ -276,6 +329,9 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=exc.status_code,
             content=jsonable_encoder(envelope),
+            headers={"Retry-After": str(settings.rate_limit_window_seconds)}
+            if exc.code == "rate_limited"
+            else None,
         )
 
     @app.exception_handler(RequestValidationError)
@@ -290,16 +346,36 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=422, content=jsonable_encoder(envelope))
 
     @app.exception_handler(Exception)
-    async def handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
-        logger.exception("Unhandled application error", exc_info=exc)
+    async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+        request_id = getattr(request.state, "request_id", None)
+        logger.exception(
+            "Unhandled application error",
+            exc_info=exc,
+            extra={"request_id": request_id or "unknown"},
+        )
         envelope = ErrorEnvelope(
             error=ApiErrorPayload(
                 code="internal_error",
                 message="Internal server error.",
                 retryable=False,
+                details={"request_id": request_id} if request_id else None,
             ),
         )
-        return JSONResponse(status_code=500, content=jsonable_encoder(envelope))
+        response = JSONResponse(status_code=500, content=jsonable_encoder(envelope))
+        if request_id:
+            response.headers["X-Request-Id"] = request_id
+        # ServerErrorMiddleware sits outside user middleware, so 500 responses
+        # must receive the same cache/security/CORS policy explicitly.
+        origin = request.headers.get("origin")
+        if origin and (origin in settings.cors_allow_origins or "*" in settings.cors_allow_origins):
+            response.headers["Access-Control-Allow-Origin"] = (
+                "*" if "*" in settings.cors_allow_origins else origin
+            )
+            response.headers["Access-Control-Expose-Headers"] = "X-Request-Id, Retry-After"
+            if "*" not in settings.cors_allow_origins:
+                response.headers["Vary"] = "Origin"
+        SecurityHeadersMiddleware.apply_headers(request, response)
+        return response
 
     app.include_router(api_router)
 

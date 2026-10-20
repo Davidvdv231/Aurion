@@ -35,6 +35,11 @@ spec:
                 secretKeyRef:
                   name: aurion-secrets
                   key: REDIS_URL
+            - name: METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: aurion-secrets
+                  key: METRICS_TOKEN
           livenessProbe:
             httpGet:
               path: /api/health
@@ -49,7 +54,7 @@ spec:
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10
-            timeoutSeconds: 3
+            timeoutSeconds: 5
             failureThreshold: 2
           resources:
             requests:
@@ -60,7 +65,23 @@ spec:
               memory: 1Gi
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
+          volumeMounts:
+            # yfinance and some pandas/numpy paths need a writable /tmp; mount
+            # an emptyDir so the container filesystem itself stays read-only.
+            - name: tmp
+              mountPath: /tmp
+            # yfinance drops a cache under the home directory; isolate it here
+            # so we don't write anywhere else on disk.
+            - name: home-cache
+              mountPath: /home/appuser/.cache
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: home-cache
+          emptyDir:
+            sizeLimit: 64Mi

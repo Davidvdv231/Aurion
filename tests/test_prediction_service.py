@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from dataclasses import replace
 
 import pandas as pd
+import pytest
 
 from backend.config import Settings
 from backend.ml.model import BacktestMetrics, FeatureDifference, ForecastResult
@@ -14,6 +16,92 @@ from backend.runtime import BlockingTaskRunner
 from backend.services.cache import CacheBackend
 from backend.services.market_data import MarketSeries
 from backend.services.prediction import build_prediction_response
+
+
+def test_currency_lookup_runs_outside_event_loop_and_converts_absolute_errors(monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.prediction.fetch_close_prices", lambda **_: _market_series()
+    )
+    monkeypatch.setattr(
+        "backend.services.prediction.backtest_stat_forecast",
+        lambda *a, **k: {"mape": 5, "validation_windows": 5},
+    )
+    monkeypatch.setattr(
+        "backend.ml.service.train_and_predict",
+        lambda **_: (_forecast_result(), BacktestMetrics(2, 3, 1, 0.7, 5)),
+    )
+    caller_thread = threading.get_ident()
+    lookup_threads = []
+
+    def lookup(*_):
+        lookup_threads.append(threading.get_ident())
+        return 0.5
+
+    monkeypatch.setattr("backend.services.exchange_rates.try_get_exchange_rate", lookup)
+    response = _run_prediction(PredictRequest(symbol="AAPL", display_currency="EUR"))
+    assert lookup_threads and lookup_threads[0] != caller_thread
+    assert response.currency == "EUR"
+    assert response.stats.last_close == pytest.approx(139.5)
+    assert response.evaluation.mae == 1
+    assert response.evaluation.rmse == 1.5
+    assert response.evaluation.mape == 1
+
+
+def test_fx_timeout_preserves_native_currency_and_forecast(monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.prediction.fetch_close_prices", lambda **_: _market_series()
+    )
+
+    def slow_rate(*_):
+        raise TimeoutError()
+
+    monkeypatch.setattr("backend.services.exchange_rates.try_get_exchange_rate", slow_rate)
+    response = _run_prediction(PredictRequest(symbol="AAPL", engine="stat", display_currency="EUR"))
+    assert response.currency == "USD"
+    assert any("conversion" in warning for warning in response.source.data_warnings)
+
+
+def test_stat_timeout_returns_retryable_service_error(monkeypatch):
+    from backend.errors import ServiceError
+
+    monkeypatch.setattr(
+        "backend.services.prediction.fetch_close_prices", lambda **_: _market_series()
+    )
+
+    def timeout(*_, **__):
+        raise TimeoutError()
+
+    monkeypatch.setattr("backend.services.prediction.build_stat_forecast", timeout)
+    with pytest.raises(ServiceError) as caught:
+        _run_prediction(PredictRequest(symbol="AAPL", engine="stat"))
+    assert caught.value.status_code == 504
+    assert caught.value.retryable is True
+
+
+def test_baseline_timeout_still_returns_stat_fallback(monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.prediction.fetch_close_prices", lambda **_: _market_series()
+    )
+
+    def timeout(*_, **__):
+        raise TimeoutError()
+
+    monkeypatch.setattr("backend.services.prediction.backtest_stat_forecast", timeout)
+    response = _run_prediction(PredictRequest(symbol="AAPL", engine="ml"))
+    assert response.engine_used == "stat_fallback"
+    assert response.degradation_code == "ml_engine_timeout"
+
+
+def test_small_crypto_prices_remain_positive_and_consistent(monkeypatch):
+    market = _market_series("SHIB-USD")
+    market.close = market.close / 100_000_000
+    monkeypatch.setattr("backend.services.prediction.fetch_close_prices", lambda **_: market)
+    response = _run_prediction(
+        PredictRequest(symbol="SHIB-USD", asset_type="crypto", engine="stat")
+    )
+    assert response.stats.last_close == pytest.approx(float(market.close.iloc[-1]))
+    assert all(point.predicted > 0 and point.lower > 0 for point in response.forecast)
+    assert response.summary.expected_price == response.forecast[-1].predicted
 
 
 def _settings() -> Settings:
@@ -31,6 +119,7 @@ def _settings() -> Settings:
         memory_cache_sweep_batch_size=4,
         rate_limit_window_seconds=60,
         rate_limit_max_requests_stat=30,
+        rate_limit_max_requests_predict=30,
         rate_limit_max_requests_search=60,
         rate_limit_fail_open=True,
         redis_url="",
